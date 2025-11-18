@@ -1,0 +1,21 @@
+{
+    "username":  "u146647",
+    "connectors":  [
+                       "PSM-RDP"
+                   ],
+    "targetAccount":  "s1466477@na.nisource.net",
+    "addresses":  [
+                      {
+                          "alias":  "CPM",
+                          "address":  "12.0.0.0"
+                      },
+                      {
+                          "address":  "10.2.5.6",
+                          "alias":  "SPM"
+                      },
+                      {
+                          "alias":  "PSMP",
+                          "address":  "12.120.24.32"
+                      }
+                  ]
+}

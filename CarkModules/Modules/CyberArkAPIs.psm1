@@ -84,4 +84,86 @@ function Get-CyberArkAccountActivities {
     }
 }
 
-Export-ModuleMember -Function Search-CyberArkAccounts, Get-CyberArkAccountActivities
+function Add-CyberArkSafe {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$PvwaUrl,
+        [Parameter(Mandatory = $true)]
+        [string]$Token,
+        [Parameter(Mandatory = $true)]
+        [string]$SafeName,
+        [string]$Description = "Created via API",
+        [string]$ManagingCPM = "passwordManager"
+    )
+
+    $uri = "$PvwaUrl/PasswordVault/API/Safes/"
+    $headers = @{ Authorization = $Token }
+    $body = @{
+        safeName = $SafeName
+        description = $Description
+        managingCPM = $ManagingCPM
+        numberOfDaysRetention = 7
+        numberOfVersionsRetention = $null
+        oLACEnabled = $false
+        autoPurgeEnabled = $true
+        location = ""
+    } | ConvertTo-Json
+
+    try {
+        $result = Invoke-RestMethod -Uri $uri -Headers $headers -ContentType "application/json" -Body $body -Method Post
+        return $result
+    }
+    catch {
+        return $_.Exception.Response | ConvertFrom-Json
+    }
+}
+
+function Get-CyberArkSafeDetails {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$PvwaUrl,
+        [Parameter(Mandatory = $true)]
+        [string]$Token,
+        [Parameter(Mandatory = $true)]
+        [string]$SafeName
+    )
+
+    $uri = "$PvwaUrl/PasswordVault/API/Safes/$SafeName/"
+    $headers = @{ Authorization = $Token }
+
+    try {
+        $result = Invoke-RestMethod -Uri $uri -Headers $headers -ContentType "application/json" -Method Get
+        return $result
+    }
+    catch {
+        return $_.Exception.Response | ConvertFrom-Json
+    }
+}
+
+function Get-CyberArkSafeMembers {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$PvwaUrl,
+        [Parameter(Mandatory = $true)]
+        [string]$Token,
+        [Parameter(Mandatory = $true)]
+        [string]$SafeName
+    )
+
+    $uri = "$PvwaUrl/PasswordVault/API/Safes/$SafeName/Members/"
+    $headers = @{ Authorization = $Token }
+
+    try {
+        $result = Invoke-RestMethod -Uri $uri -Headers $headers -ContentType "application/json" -Method Get
+        return $result.value
+    }
+    catch {
+        return $_.Exception.Response | ConvertFrom-Json
+    }
+}
+
+
+Export-ModuleMember -Function Search-CyberArkAccounts, Get-CyberArkAccountActivities, Add-CyberArkSafe, Get-CyberArkSafeDetails, Get-CyberArkSafeMembers

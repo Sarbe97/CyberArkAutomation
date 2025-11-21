@@ -1,7 +1,6 @@
 # Safe-Member-DeepSearch.ps1
 
-Import-Module "$PSScriptRoot\..\Modules\Auth.psm1" -Verbose -DisableNameChecking
-Import-Module "$PSScriptRoot\..\Modules\CyberArkAPIs.psm1" -Verbose -DisableNameChecking
+. "$PSScriptRoot\..\Helpers\Reload-Modules.ps1"
 
 # ---- Login ----
 Write-Host "[INFO] Starting Safe Member Deep Search script..." -ForegroundColor Cyan

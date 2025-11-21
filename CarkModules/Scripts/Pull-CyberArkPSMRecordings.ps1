@@ -77,6 +77,7 @@ try {
             $userStatus = "Unknown"
             $userJobTitle = ""
             $userDepartment = ""
+            $fullName = ""
 
             # Fetch user details if User field is present
             if ($recording.User) {
@@ -102,6 +103,11 @@ try {
                         $userJobTitle = if ($userDetails.personalDetails.title) { $userDetails.personalDetails.title } else { "" }
                         $userDepartment = if ($userDetails.personalDetails.department) { $userDetails.personalDetails.department } else { "" }
                         
+                        $firstName = if ($userDetails.personalDetails.firstName) { $userDetails.personalDetails.firstName } else { "" }
+                        $middleName = if ($userDetails.personalDetails.middleName) { " " + $userDetails.personalDetails.middleName } else { "" }
+                        $lastName = if ($userDetails.personalDetails.lastName) { " " + $userDetails.personalDetails.lastName } else { "" }
+                        $fullName = "$firstName$middleName$lastName".Trim()
+
                         Write-Host "    [USER INFO] Status: $userStatus, Title: $userJobTitle, Dept: $userDepartment" -ForegroundColor DarkCyan
                     }
                 }
@@ -115,6 +121,7 @@ try {
             [PSCustomObject]@{
                 SessionID                 = $recording.SessionID
                 PSM_User                  = $recording.User
+                PSM_User_FullName         = $fullName
                 PSM_UserStatus            = $userStatus
                 PSM_User_JobTitle         = $userJobTitle
                 PSM_User_Department       = $userDepartment

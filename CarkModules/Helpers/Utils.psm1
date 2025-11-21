@@ -1,15 +1,32 @@
-# Utils.psm1 - Utility helpers with approved verb names
+# Utils.psm1 - Utility functions for your scripts
 
-function ConvertTo-EpochFromDays {
+function ConvertTo-DaysFromEpoch {
     [CmdletBinding()]
     param (
-        [int]$DaysAgo
+        [Parameter(Mandatory = $true)]
+        [long]$EpochSeconds
     )
-
-    $date = (Get-Date).ToUniversalTime().AddDays(-$DaysAgo)
-    $unixEpochStart = [DateTime]'1970-01-01T00:00:00Z'
-    $epoch = [math]::Floor(($date - $unixEpochStart).TotalSeconds)
-    return $epoch
+    $date = [DateTimeOffset]::FromUnixTimeSeconds($EpochSeconds).DateTime
+    $days = (Get-Date) - $date
+    return $days.Days
 }
 
-Export-ModuleMember -Function ConvertTo-EpochFromDays
+function Write-Log {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Message,
+        [ValidateSet("INFO", "WARN", "ERROR")]
+        [string]$Level = "INFO"
+    )
+
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    switch ($Level) {
+        "INFO" { Write-Host "$timestamp [INFO] $Message" -ForegroundColor Cyan }
+        "WARN" { Write-Host "$timestamp [WARN] $Message" -ForegroundColor Yellow }
+        "ERROR" { Write-Host "$timestamp [ERROR] $Message" -ForegroundColor Red }
+    }
+}
+
+# Export functions
+Export-ModuleMember -Function ConvertTo-DaysFromEpoch, Write-Log

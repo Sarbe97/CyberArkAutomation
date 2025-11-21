@@ -1,5 +1,39 @@
 # Auth.psm1 - Login and logout to CyberArk PVWA REST API with approved verbs
 
+function Get-PvwaUrlFromConfigOrPrompt {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $false)]
+        [string]$ConfigFolderPath
+    )
+
+    # Default to Config folder relative to the calling script
+    if (-not $ConfigFolderPath) {
+        $ConfigFolderPath = Join-Path -Path $PSScriptRoot -ChildPath "..\Config"
+    }
+
+    $configPath = Join-Path -Path $ConfigFolderPath -ChildPath "config.json"
+    $lastPvwaUrl = if (Test-Path $configPath) { (Get-Content $configPath -Raw | ConvertFrom-Json).PvwaUrl }
+
+    if ($lastPvwaUrl) {
+        Write-Host "Previous PVWA URL: $lastPvwaUrl"
+        $pvwaUrl = Read-Host "Enter PVWA URL (or press Enter to use previous)"
+        if ([string]::IsNullOrWhiteSpace($pvwaUrl)) { $pvwaUrl = $lastPvwaUrl }
+    }
+    else {
+        $pvwaUrl = Read-Host "Enter PVWA URL (e.g. https://pvwa.myorg.com)"
+    }
+
+    # Save PVWA URL back to config for next time
+    if (-not (Test-Path $ConfigFolderPath)) {
+        New-Item -ItemType Directory -Path $ConfigFolderPath -Force | Out-Null
+    }
+    $configObj = @{ PvwaUrl = $pvwaUrl }
+    $configObj | ConvertTo-Json | Set-Content $configPath
+
+    return $pvwaUrl
+}
+
 function Connect-CyberArk {
     [CmdletBinding()]
     param (
@@ -57,4 +91,4 @@ function Disconnect-CyberArk {
     }
 }
 
-Export-ModuleMember -Function Connect-CyberArk, Disconnect-CyberArk
+Export-ModuleMember -Function Get-PvwaUrlFromConfigOrPrompt, Connect-CyberArk, Disconnect-CyberArk

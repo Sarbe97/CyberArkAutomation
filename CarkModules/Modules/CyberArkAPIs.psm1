@@ -80,7 +80,7 @@ function Get-CyberArkAccountActivities {
         return $response
     }
     catch {
-        throw "Failed to get activities for AccountID $AccountID: $_"
+        throw "Failed to get activities for AccountID $AccountID - $_"
     }
 }
 
@@ -166,4 +166,33 @@ function Get-CyberArkSafeMembers {
 }
 
 
-Export-ModuleMember -Function Search-CyberArkAccounts, Get-CyberArkAccountActivities, Add-CyberArkSafe, Get-CyberArkSafeDetails, Get-CyberArkSafeMembers
+ 
+function Get-CyberArkUserGroupMembers {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$PvwaUrl,
+        [Parameter(Mandatory = $true)]
+        [string]$Token,
+        [Parameter(Mandatory = $true)]
+        [string]$GroupId
+    )
+
+    $uri = "$PvwaUrl/PasswordVault/API/UserGroups/$GroupId/"
+    $headers = @{ Authorization = $Token }
+
+    try {
+        $group = Invoke-RestMethod -Uri $uri -Headers $headers -ContentType "application/json" -Method Get
+        return $group.members
+    }
+    catch {
+        return @()
+    }
+}
+
+ 
+Export-ModuleMember -Function Search-CyberArkAccounts, Get-CyberArkAccountActivities, Add-CyberArkSafe,
+ Get-CyberArkSafeDetails, Get-CyberArkSafeMembers, Get-CyberArkSafeMembersFiltered, Get-CyberArkUserGroupMembers
+
+
+

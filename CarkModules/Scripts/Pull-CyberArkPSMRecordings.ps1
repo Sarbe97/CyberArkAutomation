@@ -4,40 +4,13 @@ Import-Module "$PSScriptRoot\..\Modules\Auth.psm1" -Verbose -DisableNameChecking
 Import-Module "$PSScriptRoot\..\Modules\CyberArkAPIs.psm1" -Verbose -DisableNameChecking
 Import-Module "$PSScriptRoot\..\Helpers\Utils.psm1" -Verbose -DisableNameChecking
 
-$configPath = Join-Path -Path $PSScriptRoot -ChildPath "..\Config\config.json"
-$lastPvwaUrl = $null
-
-if (Test-Path $configPath) {
-    $configJson = Get-Content $configPath -Raw | ConvertFrom-Json
-    $lastPvwaUrl = $configJson.PvwaUrl
-}
-
-if ($lastPvwaUrl) {
-    Write-Host "Previous PVWA URL: $lastPvwaUrl"
-    $pvwaUrl = Read-Host "Enter PVWA URL (or press Enter to use previous)"
-    if ([string]::IsNullOrWhiteSpace($pvwaUrl)) {
-        $pvwaUrl = $lastPvwaUrl
-    }
-}
-else {
-    $pvwaUrl = Read-Host "Enter PVWA URL (e.g. https://pvwa.myorg.com)"
-}
-
-# Save PVWA URL to config for next run
-$configObj = @{ PvwaUrl = $pvwaUrl }
-if (-not (Test-Path (Split-Path $configPath))) {
-    New-Item -ItemType Directory -Path (Split-Path $configPath) -Force | Out-Null
-}
-$configObj | ConvertTo-Json | Set-Content $configPath
-
+$pvwaUrl = Get-PvwaUrlFromConfigOrPrompt
 $daysInput = Read-Host "Enter 'From Time' filter in days (e.g. 7 for last 7 days)"
 if (-not [int]::TryParse($daysInput, [ref]$null)) {
     Write-Warning "Invalid days input, defaulting to 7."
     $daysInput = 7
 }
-
 $fromEpoch = ConvertTo-EpochFromDays -DaysAgo $daysInput
-
 $session = Connect-CyberArk -PvwaUrl $pvwaUrl
 
 try {

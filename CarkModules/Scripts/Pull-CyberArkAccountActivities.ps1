@@ -13,34 +13,8 @@ Import-Module "$PSScriptRoot\..\Modules\Auth.psm1" -Verbose -DisableNameChecking
 Import-Module "$PSScriptRoot\..\Modules\CyberArkAPIs.psm1" -Verbose -DisableNameChecking
 Import-Module "$PSScriptRoot\..\Helpers\Utils.psm1" -Verbose -DisableNameChecking
 
-$configPath = Join-Path -Path $PSScriptRoot -ChildPath "..\Config\config.json"
-$lastPvwaUrl = $null
-
-if (Test-Path $configPath) {
-    $configJson = Get-Content $configPath -Raw | ConvertFrom-Json
-    $lastPvwaUrl = $configJson.PvwaUrl
-}
-
-if ($lastPvwaUrl) {
-    Write-Host "Previous PVWA URL: $lastPvwaUrl"
-    $pvwaUrl = Read-Host "Enter PVWA URL (or press Enter to use previous)"
-    if ([string]::IsNullOrWhiteSpace($pvwaUrl)) {
-        $pvwaUrl = $lastPvwaUrl
-    }
-}
-else {
-    $pvwaUrl = Read-Host "Enter PVWA URL (e.g. https://pvwa.myorg.com)"
-}
-
-# Save PVWA URL to config
-$configObj = @{ PvwaUrl = $pvwaUrl }
-if (-not (Test-Path (Split-Path $configPath))) {
-    New-Item -ItemType Directory -Path (Split-Path $configPath) -Force | Out-Null
-}
-$configObj | ConvertTo-Json | Set-Content $configPath
-
+$pvwaUrl = Get-PvwaUrlFromConfigOrPrompt
 $searchQuery = Read-Host "Enter search query for accounts (e.g., 'domain\*' or '*admin*')"
-
 $session = Connect-CyberArk -PvwaUrl $pvwaUrl
 
 try {

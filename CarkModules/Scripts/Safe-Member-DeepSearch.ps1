@@ -1,7 +1,7 @@
 # Safe-Member-DeepSearch.ps1
 
-# Reload all modules to pick up latest changes (optional if you have helper)
-$modulesToReload = @('Auth', 'CyberArkAPIs', 'Utils')
+# Reload all modules to pick up latest changes
+$modulesToReload = @('Auth', 'CyberArkAPIs', 'Utils', 'UserCache')
 foreach ($mod in $modulesToReload) {
     if (Get-Module -Name $mod) {
         Remove-Module -Name $mod -Force -ErrorAction SilentlyContinue
@@ -11,6 +11,7 @@ foreach ($mod in $modulesToReload) {
 
 Import-Module "$PSScriptRoot\..\Modules\Auth.psm1" -Verbose -DisableNameChecking
 Import-Module "$PSScriptRoot\..\Modules\CyberArkAPIs.psm1" -Verbose -DisableNameChecking
+Import-Module "$PSScriptRoot\..\Helpers\UserCache.psm1" -Verbose -DisableNameChecking
 
 Write-Host "[INFO] Starting Safe Member Deep Search script..." -ForegroundColor Cyan
 $pvwaUrl = Get-PvwaUrlFromConfigOrPrompt
@@ -21,24 +22,28 @@ $session = Connect-CyberArk -PvwaUrl $pvwaUrl
 Write-Host "[SUCCESS] Connected successfully. Token received." -ForegroundColor Green
 
 try {
+    # Initialize user cache
+    Write-Host "`n[INFO] Initializing user cache..." -ForegroundColor Cyan
+    Get-CachedUserDetails -PvwaUrl $pvwaUrl -Token $session.Token -Username "dummy" -RefreshDays 7 | Out-Null
+
     # Safe name input
     Write-Host "`n[INPUT] Safe name input:" -ForegroundColor Yellow
     Write-Host "  1. Enter one or more Safe Names (comma separated)"
     Write-Host "  2. Load Safe Names from a CSV file"
     $inputChoice = Read-Host "Enter 1 or 2"
-
+    
     $safeNames = @()
     if ($inputChoice -eq '1') {
         $inputSafeNames = Read-Host "Enter Safe Name(s) (comma separated if more than one)"
         $safeNames = $inputSafeNames -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
         Write-Host "[INFO] Parsed $($safeNames.Count) safe name(s) from input." -ForegroundColor Cyan
-    }
+    } 
     elseif ($inputChoice -eq '2') {
         $csvPath = Read-Host "Enter path to Safe names CSV file (column: SafeName)"
         Write-Host "[INFO] Loading Safe names from CSV: $csvPath" -ForegroundColor Cyan
         $safeNames = (Import-Csv -Path $csvPath | Select-Object -ExpandProperty SafeName) | Where-Object { $_ -ne $null -and $_ -ne "" }
         Write-Host "[INFO] Loaded $($safeNames.Count) safe name(s) from CSV." -ForegroundColor Cyan
-    }
+    } 
     else {
         throw "Invalid input method selection."
     }
@@ -57,7 +62,7 @@ try {
     foreach ($safe in $safeNames) {
         $safeCounter++
         Write-Host "`n[PROCESSING] Safe $safeCounter of $($safeNames.Count): $safe" -ForegroundColor Magenta
-
+        
         try {
             $members = Get-CyberArkSafeMembers -PvwaUrl $pvwaUrl -Token $session.Token -SafeName $safe
             Write-Host "[INFO] Retrieved $($members.Count) member(s) from safe '$safe'." -ForegroundColor Cyan
@@ -74,13 +79,16 @@ try {
                 Write-Host "  [MEMBER $memberCounter] Processing: $($mem.memberName) (Type: $($mem.memberType))" -ForegroundColor Gray
 
                 if ($mem.memberType -eq "User" -and $mem.memberId) {
-                    Write-Host "    [USER] Fetching details for UserID: $($mem.memberId)..." -ForegroundColor Yellow
-                    $userDetails = Get-CyberArkUserDetails -PvwaUrl $pvwaUrl -Token $session.Token -UserId $mem.memberId
+                    Write-Host "    [USER] Fetching cached details for: $($mem.memberName)..." -ForegroundColor Yellow
+                    $userDetails = Get-CachedUserDetails -PvwaUrl $pvwaUrl -Token $session.Token -Username $mem.memberName -RefreshDays 7
 
-                    $firstName = if ($userDetails.personalDetails.firstName) { $userDetails.personalDetails.firstName } else { "" }
-                    $middleName = if ($userDetails.personalDetails.middleName) { " " + $userDetails.personalDetails.middleName } else { "" }
-                    $lastName = if ($userDetails.personalDetails.lastName) { " " + $userDetails.personalDetails.lastName } else { "" }
-                    $fullName = "$firstName$middleName$lastName".Trim()
+                    $fullName = ""
+                    if ($userDetails) {
+                        $firstName = $userDetails.firstName
+                        $middleName = if ($userDetails.middleName) { " " + $userDetails.middleName } else { "" }
+                        $lastName = $userDetails.lastName
+                        $fullName = "$firstName$middleName $lastName".Trim()
+                    }
 
                     $userObj = [PSCustomObject]@{
                         SafeName       = $safe
@@ -109,13 +117,16 @@ try {
 
                         # Iterate users in group
                         foreach ($u in $groupUsers) {
-                            Write-Host "      [USER IN GROUP] Fetching details for: $($u.username) (ID: $($u.id))..." -ForegroundColor DarkYellow
-                            $userDetails = Get-CyberArkUserDetails -PvwaUrl $pvwaUrl -Token $session.Token -UserId $u.id
+                            Write-Host "      [USER IN GROUP] Fetching cached details for: $($u.username)..." -ForegroundColor DarkYellow
+                            $userDetails = Get-CachedUserDetails -PvwaUrl $pvwaUrl -Token $session.Token -Username $u.username -RefreshDays 7
 
-                            $firstName = if ($userDetails.personalDetails.firstName) { $userDetails.personalDetails.firstName } else { "" }
-                            $middleName = if ($userDetails.personalDetails.middleName) { " " + $userDetails.personalDetails.middleName } else { "" }
-                            $lastName = if ($userDetails.personalDetails.lastName) { " " + $userDetails.personalDetails.lastName } else { "" }
-                            $fullName = "$firstName$middleName$lastName".Trim()
+                            $fullName = ""
+                            if ($userDetails) {
+                                $firstName = $userDetails.firstName
+                                $middleName = if ($userDetails.middleName) { " " + $userDetails.middleName } else { "" }
+                                $lastName = $userDetails.lastName
+                                $fullName = "$firstName$middleName $lastName".Trim()
+                            }
 
                             $deepObj = [PSCustomObject]@{
                                 SafeName       = $safe

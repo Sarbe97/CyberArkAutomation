@@ -216,8 +216,8 @@ function Get-CyberArkUserDetails {
 }
 
  
-Export-ModuleMember -Function Search-CyberArkAccounts, Get-CyberArkAccountActivities, Add-CyberArkSafe,
- Get-CyberArkSafeDetails, Get-CyberArkSafeMembers, Get-CyberArkSafeMembersFiltered, Get-CyberArkUserGroupMembers,Get-CyberArkUserDetails
+Export-ModuleMember -Function Get-CyberArkPSMRecordings, Search-CyberArkAccounts, Get-CyberArkAccountActivities, Add-CyberArkSafe,
+ Get-CyberArkSafeDetails, Get-CyberArkSafeMembers, Get-CyberArkUserGroupMembers,Get-CyberArkUserDetails
 
 
 

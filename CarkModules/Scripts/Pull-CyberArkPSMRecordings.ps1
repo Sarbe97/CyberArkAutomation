@@ -1,17 +1,17 @@
-# Pull-CyberArkPSMRecordings.ps1 - Retrieves all PSM recordings with pagination, enriches with user details, saves output
+# Pull-CyberArkPSMRecordings.ps1 - Retrieves all PSM recordings with cached user enrichment
 
 # Reload modules
-$modulesToReload = @('Auth', 'CyberArkAPIs', 'Utils')
+$modulesToReload = @('Auth', 'CyberArkAPIs', 'Utils', 'UserCache')
 foreach ($mod in $modulesToReload) {
     if (Get-Module -Name $mod) {
         Remove-Module -Name $mod -Force -ErrorAction SilentlyContinue
-        Write-Verbose "Unloaded module: $mod"
     }
 }
 
 Import-Module "$PSScriptRoot\..\Modules\Auth.psm1" -Verbose -DisableNameChecking
 Import-Module "$PSScriptRoot\..\Modules\CyberArkAPIs.psm1" -Verbose -DisableNameChecking
 Import-Module "$PSScriptRoot\..\Helpers\Utils.psm1" -Verbose -DisableNameChecking
+Import-Module "$PSScriptRoot\..\Helpers\UserCache.psm1" -Verbose -DisableNameChecking
 
 Write-Host "[INFO] Starting PSM Recordings retrieval script..." -ForegroundColor Cyan
 
@@ -32,6 +32,10 @@ $session = Connect-CyberArk -PvwaUrl $pvwaUrl
 Write-Host "[SUCCESS] Connected successfully." -ForegroundColor Green
 
 try {
+    # Initialize user cache (will check/refresh automatically)
+    Write-Host "`n[INFO] Initializing user cache..." -ForegroundColor Cyan
+    Get-CachedUserDetails -PvwaUrl $pvwaUrl -Token $session.Token -Username "dummy" -RefreshDays 7 | Out-Null
+
     $allRecordings = @()
     $limit = 25
     $offset = 0
@@ -61,10 +65,7 @@ try {
     Write-Host "`n[INFO] Total recordings retrieved: $($allRecordings.Count)" -ForegroundColor Cyan
 
     if ($allRecordings.Count -gt 0) {
-        Write-Host "`n[INFO] Enriching recordings with user details..." -ForegroundColor Cyan
-        
-        # Create a cache for user details to avoid redundant API calls
-        $userDetailsCache = @{}
+        Write-Host "`n[INFO] Enriching recordings with cached user details..." -ForegroundColor Cyan
         $recordingCounter = 0
 
         $outputObjects = $allRecordings | ForEach-Object {
@@ -79,41 +80,25 @@ try {
             $userDepartment = ""
             $fullName = ""
 
-            # Fetch user details if User field is present
+            # Fetch user details from cache
             if ($recording.User) {
-                try {
-                    # Check cache first
-                    if ($userDetailsCache.ContainsKey($recording.User)) {
-                        Write-Host "    [CACHE] Using cached user details for: $($recording.User)" -ForegroundColor DarkGray
-                        $userDetails = $userDetailsCache[$recording.User]
-                    }
-                    else {
-                        Write-Host "    [API] Fetching user details for: $($recording.User)..." -ForegroundColor Yellow
-                        # Note: PSM recordings return username, but API needs user ID
-                        # We'll attempt to fetch by username - you may need to search for user first
-                        # For now, trying direct username as ID (adjust if needed)
-                        $userDetails = Get-CyberArkUserDetails -PvwaUrl $pvwaUrl -Token $session.Token -UserId $recording.User
-                        $userDetailsCache[$recording.User] = $userDetails
-                        Write-Host "    [API] User details fetched successfully." -ForegroundColor DarkGreen
-                    }
+                $userDetails = Get-CachedUserDetails -PvwaUrl $pvwaUrl -Token $session.Token -Username $recording.User -RefreshDays 7
 
-                    if ($userDetails) {
-                        # Map enableUser to Active/Not-Active
-                        $userStatus = if ($userDetails.enableUser -eq $true) { "Active" } else { "Not-Active" }
-                        $userJobTitle = if ($userDetails.personalDetails.title) { $userDetails.personalDetails.title } else { "" }
-                        $userDepartment = if ($userDetails.personalDetails.department) { $userDetails.personalDetails.department } else { "" }
-                        
-                        $firstName = if ($userDetails.personalDetails.firstName) { $userDetails.personalDetails.firstName } else { "" }
-                        $middleName = if ($userDetails.personalDetails.middleName) { " " + $userDetails.personalDetails.middleName } else { "" }
-                        $lastName = if ($userDetails.personalDetails.lastName) { " " + $userDetails.personalDetails.lastName } else { "" }
-                        $fullName = "$firstName$middleName$lastName".Trim()
+                if ($userDetails) {
+                    $userStatus = if ($userDetails.enableUser -eq "True") { "Active" } else { "Not-Active" }
+                    $userJobTitle = $userDetails.title
+                    $userDepartment = $userDetails.department
+                    
+                    $firstName = $userDetails.firstName
+                    $middleName = if ($userDetails.middleName) { " " + $userDetails.middleName } else { "" }
+                    $lastName = $userDetails.lastName
+                    $fullName = "$firstName$middleName $lastName".Trim()
 
-                        Write-Host "    [USER INFO] Status: $userStatus, Title: $userJobTitle, Dept: $userDepartment" -ForegroundColor DarkCyan
-                    }
+                    Write-Host "    [USER] $($recording.User): $fullName ($userStatus)" -ForegroundColor DarkCyan
                 }
-                catch {
-                    Write-Host "    [WARNING] Failed to fetch user details for '$($recording.User)': $_" -ForegroundColor Red
-                    $userStatus = "Error"
+                else {
+                    Write-Host "    [WARNING] User '$($recording.User)' not found in cache" -ForegroundColor Red
+                    $userStatus = "Not Found"
                 }
             }
 

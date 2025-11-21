@@ -190,9 +190,34 @@ function Get-CyberArkUserGroupMembers {
     }
 }
 
+function Get-CyberArkUserDetails {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$PvwaUrl,
+        [Parameter(Mandatory = $true)]
+        [string]$Token,
+        [Parameter(Mandatory = $true)]
+        [string]$UserId
+    )
+
+    $uri = "$PvwaUrl/PasswordVault/API/Users/$UserId/"
+    $headers = @{ Authorization = $Token }
+
+    Write-Verbose "Fetching user details for UserID: $UserId"
+    try {
+        $user = Invoke-RestMethod -Uri $uri -Headers $headers -ContentType "application/json" -Method Get
+        return $user
+    }
+    catch {
+        Write-Warning "Failed to get user details for UserID $UserId : $_"
+        return $null
+    }
+}
+
  
 Export-ModuleMember -Function Search-CyberArkAccounts, Get-CyberArkAccountActivities, Add-CyberArkSafe,
- Get-CyberArkSafeDetails, Get-CyberArkSafeMembers, Get-CyberArkSafeMembersFiltered, Get-CyberArkUserGroupMembers
+ Get-CyberArkSafeDetails, Get-CyberArkSafeMembers, Get-CyberArkSafeMembersFiltered, Get-CyberArkUserGroupMembers,Get-CyberArkUserDetails
 
 
 

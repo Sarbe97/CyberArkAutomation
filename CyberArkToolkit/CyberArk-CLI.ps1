@@ -33,7 +33,7 @@ $ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ModuleFile = Join-Path $ScriptRoot "CyberArkToolkit.psm1"
 
 if (-not (Test-Path $ModuleFile)) {
-    Write-Host "❌ Cannot find CyberArkToolkit.psm1 in: $ScriptRoot" -ForegroundColor Red
+    Write-Host "Cannot find CyberArkToolkit.psm1 in: $ScriptRoot" -ForegroundColor Red
     Read-Host "Press Enter to exit"
     return
 }
@@ -58,7 +58,7 @@ $Global:CATKSession = Connect-CATK
 
 if (-not $Global:CATKSession -or -not $Global:CATKSession.Session) {
     Write-Host ""
-    Write-Host "⚠️ CyberArk session NOT established." -ForegroundColor Yellow
+    Write-Host " CyberArk session NOT established." -ForegroundColor Yellow
     Write-Host "Some features will not work until login succeeds."
     Write-Host ""
 }

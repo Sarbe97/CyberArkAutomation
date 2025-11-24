@@ -27,7 +27,7 @@ Import-Module psPAS -ErrorAction Stop
 Write-Host "Preparing cache folders..." -ForegroundColor DarkCyan
 
 $Global:CATK_PrivatePath = Join-Path $ModuleRoot 'Private'
-$Global:CATK_CachePath = Join-Path $Global:CATK_PrivatePath 'Cache'
+$Global:CATK_CachePath   = Join-Path $Global:CATK_PrivatePath 'Cache'
 
 foreach ($path in @($Global:CATK_PrivatePath, $Global:CATK_CachePath)) {
     if (-not (Test-Path $path)) {
@@ -76,42 +76,39 @@ function DotSource-Folder {
 # ---------------------------------------------------------
 # LOAD INFRA, CORE, CLI
 # ---------------------------------------------------------
-
 DotSource-Folder (Join-Path $ModuleRoot "Infra")
 DotSource-Folder (Join-Path $ModuleRoot "Core")
-
-$CliPath = Join-Path $ModuleRoot "CLI"
-DotSource-Folder $CliPath
+DotSource-Folder (Join-Path $ModuleRoot "CLI")
 
 # ---------------------------------------------------------
 # SAFE FUNCTION DISCOVERY
 # ---------------------------------------------------------
-
 Write-Host "`nDiscovering module functions..." -ForegroundColor Cyan
 
 $module = $MyInvocation.MyCommand.ScriptBlock.Module
 
 $allModuleFunctions = $module.Invoke({
-        Get-ChildItem function:
-    })
+    Get-ChildItem function:
+})
 
-Write-Host "Functions discovered inside module scope: $($allModuleFunctions.Count)" -ForegroundColor Green
+Write-Host "Functions discovered inside module: $($allModuleFunctions.Count)" -ForegroundColor Green
 $allModuleFunctions.Name | Sort-Object | ForEach-Object { 
     Write-Host "  - $_" -ForegroundColor DarkGray 
 }
 
 # ---------------------------------------------------------
-# BUILD EXPORT LIST
+# SELECT FUNCTIONS TO EXPORT
 # ---------------------------------------------------------
-
 Write-Host "`nSelecting functions to export..." -ForegroundColor Cyan
 
 $exportFunctions = @()
 
-# CORE
-$core = $allModuleFunctions |
-Where-Object { $_.Name -like 'Invoke-CATK*' } |
-Select-Object -ExpandProperty Name
+# CORE FUNCTIONS
+$core = @(
+    $allModuleFunctions |
+        Where-Object { $_.Name -like 'Invoke-CATK*' } |
+        Select-Object -ExpandProperty Name
+)
 
 if ($core.Count -gt 0) {
     Write-Host "Core functions:" -ForegroundColor Green
@@ -119,16 +116,18 @@ if ($core.Count -gt 0) {
 }
 $exportFunctions += $core
 
-# INFRA
-$infra = $allModuleFunctions |
-Where-Object {
-    $_.Name -like 'Connect-CATK' -or
-    $_.Name -like 'Disconnect-CATK' -or
-    $_.Name -like 'Initialize-CATK*' -or
-    $_.Name -like 'Get-CATK*' -or
-    $_.Name -like 'Set-CATK*'
-} |
-Select-Object -ExpandProperty Name
+# INFRA FUNCTIONS
+$infra = @(
+    $allModuleFunctions |
+        Where-Object {
+            $_.Name -like 'Connect-CATK'     -or
+            $_.Name -like 'Disconnect-CATK'  -or
+            $_.Name -like 'Initialize-CATK*' -or
+            $_.Name -like 'Get-CATK*'        -or
+            $_.Name -like 'Set-CATK*'
+        } |
+        Select-Object -ExpandProperty Name
+)
 
 if ($infra.Count -gt 0) {
     Write-Host "Infra functions:" -ForegroundColor Green
@@ -136,10 +135,12 @@ if ($infra.Count -gt 0) {
 }
 $exportFunctions += $infra
 
-# CLI
-$cli = $allModuleFunctions |
-Where-Object { $_.Name -like 'Show-CATK*' } |
-Select-Object -ExpandProperty Name
+# CLI FUNCTIONS
+$cli = @(
+    $allModuleFunctions |
+        Where-Object { $_.Name -like 'Show-CATK*' } |
+        Select-Object -ExpandProperty Name
+)
 
 if ($cli.Count -gt 0) {
     Write-Host "CLI functions:" -ForegroundColor Green
@@ -147,6 +148,7 @@ if ($cli.Count -gt 0) {
 }
 $exportFunctions += $cli
 
+# UNIQUE FINAL EXPORT LIST
 $exportFunctions = $exportFunctions | Select-Object -Unique
 
 Write-Host "`nFINAL exported functions:" -ForegroundColor Cyan
@@ -157,13 +159,12 @@ Export-ModuleMember -Function $exportFunctions
 # ---------------------------------------------------------
 # PUBLIC MODULE INFO
 # ---------------------------------------------------------
-
 function Get-CATKModuleInfo {
     [PSCustomObject]@{
         ModuleRoot    = $ModuleRoot
         CachePath     = $Global:CATK_CachePath
         ExportedFuncs = $exportFunctions
-        PsPASLoaded   = $null -ne (Get-Module -Name psPAS) 
+        PsPASLoaded   =  $null -ne (Get-Module -Name psPAS) 
     }
 }
 

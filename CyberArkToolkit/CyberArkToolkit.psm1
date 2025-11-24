@@ -1,9 +1,12 @@
 Set-StrictMode -Version Latest
 
+# ---------------------------------------------------------
+# MODULE ROOT
+# ---------------------------------------------------------
 $ModuleRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # ---------------------------------------------------------
-# psPAS Requirement
+# REQUIREMENTS
 # ---------------------------------------------------------
 
 if (-not (Get-Module -ListAvailable -Name psPAS)) {
@@ -18,13 +21,16 @@ Import-Module psPAS -ErrorAction Stop
 # ---------------------------------------------------------
 
 $Global:CATK_PrivatePath = Join-Path $ModuleRoot 'Private'
-$Global:CATK_CachePath   = Join-Path $Global:CATK_PrivatePath 'Cache'
+$Global:CATK_CachePath = Join-Path $Global:CATK_PrivatePath 'Cache'
 
-if (-not (Test-Path $Global:CATK_PrivatePath)) { New-Item $Global:CATK_PrivatePath -ItemType Directory -Force | Out-Null }
-if (-not (Test-Path $Global:CATK_CachePath))   { New-Item $Global:CATK_CachePath   -ItemType Directory -Force | Out-Null }
+foreach ($path in @($Global:CATK_PrivatePath, $Global:CATK_CachePath)) {
+    if (-not (Test-Path $path)) {
+        New-Item -ItemType Directory -Path $path -Force | Out-Null
+    }
+}
 
 # ---------------------------------------------------------
-# LOAD SCRIPTS HELPER
+# HELPER: DOT-SOURCE ALL .ps1 FILES IN A FOLDER
 # ---------------------------------------------------------
 
 function DotSource-Folder {
@@ -33,53 +39,69 @@ function DotSource-Folder {
     if (-not (Test-Path $FolderPath)) { return }
 
     Get-ChildItem -Path $FolderPath -Filter '*.ps1' |
-        Sort-Object Name |
-        ForEach-Object {
-            Write-Host "Loading file: $($_.FullName)" -ForegroundColor Cyan
-            try {
-                . $_.FullName
-                Write-Host "Loaded OK: $($_.Name)" -ForegroundColor Green
-            }
-            catch {
-                Write-Host "FAILED in: $($_.Name)" -ForegroundColor Red
-                Write-Warning "File: $($_.FullName)"
-                Write-Warning "Error: $($_.Exception.Message)"
-            }
+    Sort-Object Name |
+    ForEach-Object {
+        try {
+            . $_.FullName
         }
+        catch {
+            Write-Warning "Failed loading: $($_.FullName)"
+            Write-Warning $_.Exception.Message
+        }
+    }
 }
 
 # ---------------------------------------------------------
-# LOAD INFRA, CORE, CLI
+# LOAD MODULE FILES (Infra, Core, CLI)
 # ---------------------------------------------------------
 
 DotSource-Folder (Join-Path $ModuleRoot "Infra")
 DotSource-Folder (Join-Path $ModuleRoot "Core")
-
-$CliPath = Join-Path $ModuleRoot "CLI"
-DotSource-Folder $CliPath
+DotSource-Folder (Join-Path $ModuleRoot "CLI")
 
 # ---------------------------------------------------------
-# EXPORT FUNCTIONS
+# SAFE FUNCTION DISCOVERY (works INSIDE module loading)
+# ---------------------------------------------------------
+
+$module = $MyInvocation.MyCommand.ScriptBlock.Module
+
+$allModuleFunctions = $module.Invoke({
+        Get-ChildItem function:
+    })
+
+# ---------------------------------------------------------
+# BUILD EXPORT LIST
 # ---------------------------------------------------------
 
 $exportFunctions = @()
 
 # Core logic functions
-$exportFunctions += (Get-Command -CommandType Function | Where-Object { $_.Name -like 'Invoke-CATK*' }).Name
+$exportFunctions += $allModuleFunctions |
+Where-Object { $_.Name -like 'Invoke-CATK*' } |
+Select-Object -ExpandProperty Name
 
 # Infra functions
-$infraPatterns = @('Connect-CATK','Disconnect-CATK','Initialize-CATK*','Get-CATK*','Set-CATK*')
+$exportFunctions += $allModuleFunctions |
+Where-Object {
+    $_.Name -like 'Connect-CATK' -or
+    $_.Name -like 'Disconnect-CATK' -or
+    $_.Name -like 'Initialize-CATK*' -or
+    $_.Name -like 'Get-CATK*' -or
+    $_.Name -like 'Set-CATK*'
+} |
+Select-Object -ExpandProperty Name
 
-foreach ($pattern in $infraPatterns) {
-    $exportFunctions += (Get-Command -CommandType Function | Where-Object { $_.Name -like $pattern }).Name
-}
+# CLI functions
+$exportFunctions += $allModuleFunctions |
+Where-Object { $_.Name -like 'Show-CATK*' } |
+Select-Object -ExpandProperty Name
 
 $exportFunctions = $exportFunctions | Select-Object -Unique
 
 Export-ModuleMember -Function $exportFunctions
 
 # ---------------------------------------------------------
-# MODULE INFO
+# PUBLIC MODULE INFO
 # ---------------------------------------------------------
 
 function Get-CATKModuleInfo {
@@ -87,7 +109,7 @@ function Get-CATKModuleInfo {
         ModuleRoot    = $ModuleRoot
         CachePath     = $Global:CATK_CachePath
         ExportedFuncs = $exportFunctions
-        PsPASLoaded   = (Get-Module -Name psPAS) -ne $null
+        PsPASLoaded   = $null -ne (Get-Module -Name psPAS)  
     }
 }
 

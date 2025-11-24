@@ -30,17 +30,35 @@ if (-not (Test-Path $Global:CATK_CachePath))   { New-Item $Global:CATK_CachePath
 function DotSource-Folder {
     param([string]$FolderPath)
 
-    if (-not (Test-Path $FolderPath)) { return }
-
-    Get-ChildItem -Path $FolderPath -Filter '*.ps1' | Sort-Object Name | ForEach-Object {
-        try {
-            . $_.FullName
-        }
-        catch {
-            Write-Warning "Failed loading $($_.FullName): $_"
-        }
+    if (-not (Test-Path $FolderPath)) {
+        Write-Warning "Folder missing: $FolderPath"
+        return
     }
+
+    Write-Host "`n=== Loading Scripts from: $FolderPath ===" -ForegroundColor Cyan
+
+    Get-ChildItem -Path $FolderPath -Filter '*.ps1' |
+        Sort-Object Name |
+        ForEach-Object {
+
+            $file = $_.FullName
+
+            Write-Host "• Loading: $file" -ForegroundColor DarkGray
+
+            try {
+                . $file
+                Write-Host "  ✓ Loaded OK" -ForegroundColor Green
+            }
+            catch {
+                Write-Host "  ✗ FAILED to load" -ForegroundColor Red
+                Write-Warning "File: $file"
+                Write-Warning "Error: $($_.Exception.Message)"
+            }
+        }
+
+    Write-Host "=== Done loading: $FolderPath ===`n" -ForegroundColor Cyan
 }
+
 
 # ---------------------------------------------------------
 # LOAD INFRA, CORE, CLI

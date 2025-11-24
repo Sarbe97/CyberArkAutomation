@@ -1,52 +1,69 @@
 function Get-CATKCachedUser {
     <#
     .SYNOPSIS
-        Returns a CyberArk user from the CSV cache.
-        Automatically refreshes cache if missing or older than X days.
-        Supports lookup by Username OR User ID.
+        Retrieves CyberArk user details from local JSON cache.
+        If the cache is missing or expired, it will refresh it.
+        Lookup supports Username OR UserID.
+
+    .PARAMETER Query
+        Username or Numeric User ID.
+
+    .PARAMETER Session
+        CATK session object (Connect-CATK output).
+
+    .PARAMETER MaxAgeHours
+        Cache expiry time. Default 24h (same as Initialize-CATKUserCache).
     #>
 
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)]
-        [string] $Query,       # Username or ID
+        [Parameter(Mandatory=$true)]
+        [string] $Query,
 
-        [Parameter()]
+        [Parameter(Mandatory=$true)]
         $Session,
 
-        [int] $MaxAgeDays = 7
+        [int] $MaxAgeHours = 24
     )
 
-    $cacheFile = Join-Path $Global:CATK_CachePath "UserList.csv"
+    # ----------------------------
+    # Cache file location
+    # ----------------------------
+    $cacheFile = Join-Path $Global:CATK_CachePath 'UserList.json'
 
-    function _WriteCache {
+    # ----------------------------
+    # Checks cache age
+    # ----------------------------
+    function Get-CacheAge {
+        if (-not (Test-Path $cacheFile)) { return [double]::MaxValue }
+        return ((Get-Date) - (Get-Item $cacheFile).LastWriteTime).TotalHours
+    }
+
+    # ----------------------------
+    # Refresh cache logic
+    # ----------------------------
+    function Refresh-UserCache {
         try {
-            Write-Host "Fetching user list from CyberArk..." -ForegroundColor Cyan
+            Write-Host "Refreshing user cache from CyberArk..." -ForegroundColor Cyan
 
-            $result = Get-PASUser -Search '*' -SessionToken $Session.SessionToken
+            $all = @()
+            $limit = 100
+            $offset = 0
 
-            $rows = foreach ($u in $result.Users) {
-                [PSCustomObject]@{
-                    Id           = $u.id
-                    Username     = $u.username
-                    Source       = $u.source
-                    UserType     = $u.userType
-                    Location     = $u.location
+            do {
+                $page = Get-PASUser -Session $Session.Session -Limit $limit -Offset $offset -ErrorAction Stop
 
-                    FirstName    = $u.personalDetails.firstName
-                    MiddleName   = $u.personalDetails.middleName
-                    LastName     = $u.personalDetails.lastName
-                    Title        = $u.personalDetails.title
-                    Organization = $u.personalDetails.organization
-                    Department   = $u.personalDetails.department
-                    Profession   = $u.personalDetails.profession
+                if ($page -isnot [System.Collections.IEnumerable]) { $page = @($page) }
+                if (-not $page) { break }
 
-                    Groups       = ($u.groupsMembership.groupName -join ';')
-                }
+                $all += $page
+                $offset += $page.Count
             }
+            while ($page.Count -eq $limit)
 
-            $rows | Export-Csv -Path $cacheFile -NoTypeInformation -Encoding UTF8
-            Write-Host "User cache updated → $cacheFile" -ForegroundColor Green
+            # Save JSON
+            $all | ConvertTo-Json -Depth 6 | Out-File -FilePath $cacheFile -Encoding UTF8
+            Write-Host "User cache updated. Total: $($all.Count)" -ForegroundColor Green
             return $true
         }
         catch {
@@ -55,37 +72,41 @@ function Get-CATKCachedUser {
         }
     }
 
-    # Ensure cache exists or refreshed
-    if (-not (Test-Path $cacheFile)) {
-        Write-Host "User cache missing — creating..." -ForegroundColor Yellow
-        if (-not (_WriteCache)) { return $null }
-    }
-    else {
-        $fileAge = (Get-Date) - (Get-Item $cacheFile).LastWriteTime
-        if ($fileAge.Days -ge $MaxAgeDays) {
-            Write-Host "User cache older than $MaxAgeDays days — refreshing..." -ForegroundColor Yellow
-            if (-not (_WriteCache)) { return $null }
+    # ----------------------------
+    # Ensure cache exists or is fresh
+    # ----------------------------
+    if (-not (Test-Path $cacheFile) -or (Get-CacheAge) -gt $MaxAgeHours) {
+        if (-not (Refresh-UserCache)) {
+            return $null
         }
     }
 
-    # Load cache
+    # ----------------------------
+    # Load cached users
+    # ----------------------------
     try {
-        $cache = Import-Csv $cacheFile
+        $users = Get-Content $cacheFile | ConvertFrom-Json
     }
     catch {
-        Write-Warning "Error reading cache file: $_"
-        return $null
+        Write-Warning "User cache file corrupted — rebuilding..."
+        if (-not (Refresh-UserCache)) { return $null }
+        $users = Get-Content $cacheFile | ConvertFrom-Json
     }
 
-    # -----------------------------
-    # SEARCH: detect ID vs Username
-    # -----------------------------
-    if ($Query -match '^\d+$') {
-        # numeric → match ID
-        return $cache | Where-Object { $_.Id -eq $Query }
-    }
-    else {
-        # string → match Username
-        return $cache | Where-Object { $_.Username -eq $Query }
-    }
+    if (-not $users) { return $null }
+
+    # ----------------------------
+    # Query: detect numeric UserID vs Username
+    # ----------------------------
+    $match =
+        if ($Query -match '^\d+$') {
+            # ID lookup
+            $users | Where-Object { $_.id -eq $Query }
+        }
+        else {
+            # username lookup
+            $users | Where-Object { $_.username -eq $Query }
+        }
+
+    return $match
 }

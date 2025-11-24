@@ -85,15 +85,14 @@ DotSource-Folder (Join-Path $ModuleRoot "CLI")
 # ---------------------------------------------------------
 Write-Host "`nDiscovering module functions..." -ForegroundColor Cyan
 
-$module = $MyInvocation.MyCommand.ScriptBlock.Module
 
-$allModuleFunctions = $module.Invoke({
-    Get-ChildItem function:
-})
+$allModuleFunctions = Get-ChildItem function: | Where-Object {
+    $_.ScriptBlock.File -like "$ModuleRoot*"
+}
 
 Write-Host "Functions discovered inside module: $($allModuleFunctions.Count)" -ForegroundColor Green
-$allModuleFunctions.Name | Sort-Object | ForEach-Object { 
-    Write-Host "  - $_" -ForegroundColor DarkGray 
+$allModuleFunctions.Name | Sort-Object | ForEach-Object {
+    Write-Host "  - $_" -ForegroundColor DarkGray
 }
 
 # ---------------------------------------------------------
@@ -155,6 +154,7 @@ Write-Host "`nFINAL exported functions:" -ForegroundColor Cyan
 $exportFunctions | ForEach-Object { Write-Host "  - $_" }
 
 Export-ModuleMember -Function $exportFunctions
+
 
 # ---------------------------------------------------------
 # PUBLIC MODULE INFO

@@ -31,7 +31,7 @@ function Show-MainMenu {
             '2' { Show-SafeMenu }
             '3' { Show-UserMenu }
             '4' { Show-OnboardingMenu }
-            '0' { break }
+            '0' { exit }
             default { Write-Host "Invalid option!" -ForegroundColor Yellow }
         }
 
@@ -56,25 +56,21 @@ function Show-SafeMenu {
         switch ($choice) {
 
             1 {
-                Import-Module "./Modules/Safes.psm1" -Force
                 Export-CACAllSafes
                 Pause
             }
 
             2 {
-                Import-Module "./Modules/Safes.psm1" -Force
                 Export-CACSafeMembers
                 Pause
             }
 
             3 {
-                Import-Module "./Modules/Safes.psm1" -Force
                 New-CACSafe
                 Pause
             }
 
             4 {
-                Import-Module "./Modules/Safes.psm1" -Force
                 Add-CACSafeMember
                 Pause
             }
@@ -105,19 +101,16 @@ function Show-UserMenu {
         switch ($choice) {
 
             1 {
-                Import-Module "./Modules/User.psm1" -Force
                 Update-CACUserCache
                 Pause
             }
 
             2 {
-                Import-Module "./Modules/User.psm1" -Force
                 Export-CACUserCache
                 Pause
             }
 
             3 {
-                Import-Module "./Modules/User.psm1" -Force
                 $grp = Read-Host "Enter Group Name"
                 Get-CACGroupMembers -GroupName $grp | Format-Table
                 Pause

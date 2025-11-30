@@ -57,7 +57,7 @@ function Write-Log {
             "SUCCESS" { "Green" }
         }
 
-        Write-Host $line -ForegroundColor $color
+        Write-Host $Message -ForegroundColor $color
     }
 }
 

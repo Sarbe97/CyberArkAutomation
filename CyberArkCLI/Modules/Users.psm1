@@ -104,20 +104,67 @@ function Refresh-CACUserStore {
 # 2. Import User Cache (Used Internally)
 # =====================================================================
 function Import-CACUserStore {
+    Write-Log "Importing CyberArk user cache..." "DEBUG"
+
+    # -----------------------------------------------------
+    # Check if file exists
+    # -----------------------------------------------------
     if (-not (Test-Path $Script:UserCachePath)) {
         Write-Log "User cache not found — forcing refresh" "WARN"
+        Write-Host "`nDEBUG: Cache file missing at: $Script:UserCachePath`n" -ForegroundColor Yellow
+        
         Refresh-CACUserStore
     }
 
+    # -----------------------------------------------------
+    # Debug: Cache file info
+    # -----------------------------------------------------
     try {
-        return Import-Csv $Script:UserCachePath
+        $fileInfo = Get-Item $Script:UserCachePath
+        Write-Host "DEBUG: Cache file found:" -ForegroundColor Cyan
+        Write-Host " Path: $($fileInfo.FullName)"
+        Write-Host " Size: $([math]::Round($fileInfo.Length / 1KB, 2)) KB"
+        Write-Host " LastWrite: $($fileInfo.LastWriteTime)"
+        Write-Host ""
+    }
+    catch {
+        Write-Host "DEBUG: Could not read file info: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+
+    # -----------------------------------------------------
+    # Try importing CSV
+    # -----------------------------------------------------
+    try {
+        $csv = Import-Csv $Script:UserCachePath
+
+        if (-not $csv) {
+            Write-Log "CSV imported but EMPTY — will refresh cache" "ERROR"
+            Write-Host "`nDEBUG: Import-Csv returned NULL or EMPTY`n" -ForegroundColor Red
+            
+            Refresh-CACUserStore
+            $csv = Import-Csv $Script:UserCachePath
+        }
+
+        # -------------------------------------------------
+        # Debug: Show number of rows
+        # -------------------------------------------------
+        Write-Log "User cache import successful. Rows: $($csv.Count)" "DEBUG"
+
+        Write-Host "`n--- DEBUG: First 5 rows of user cache ---" -ForegroundColor Cyan
+        $csv | Select-Object -First 5 | Format-Table | Out-Host
+        Write-Host "------------------------------------------`n" -ForegroundColor Cyan
+
+        return $csv
     }
     catch {
         Write-Log "User cache corrupted — forcing refresh" "ERROR"
+        Write-Host "`nDEBUG: Import-Csv failed:`n $($_.Exception.Message)`n" -ForegroundColor Red
+        
         Refresh-CACUserStore
         return Import-Csv $Script:UserCachePath
     }
 }
+
 
 
 # =====================================================================
@@ -131,8 +178,21 @@ function Find-CACUser {
     Write-Log "Find-CACUser() input: $InputValue" "INFO"
 
     $users = Import-CACUserStore
+    if (-not $users) {
+        Write-Log "User cache is EMPTY — no records found" "ERROR"
+        Write-Host "`n--- DEBUG: Import-CACUserStore returned nothing ---`n" -ForegroundColor Red
+        return $null
+    }
 
-    $isId = $InputValue -match "^[a-fA-F0-9\-]{24,36}$"
+    Write-Log "User cache loaded. Total users: $($users.Count)" "DEBUG"
+
+    # Optional: print first few rows for debugging
+    Write-Host "`n--- DEBUG: First 5 cached users ---" -ForegroundColor Cyan
+    $users | Select-Object -First 5 | Format-Table | Out-Host
+    Write-Host "-----------------------------------`n" -ForegroundColor Cyan
+
+    
+    $isId = $InputValue -match "^\d+$"
 
     if ($isId) {
         Write-Log "Treating as USER ID" "INFO"

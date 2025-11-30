@@ -153,7 +153,7 @@ function Get-CACEnrichedMemberDetails {
 
     Write-Log "Looking up user in cache: $UserName" "DEBUG"
 
-    $details = Get-CACUserFromCache -UserName $UserName
+    $details = Find-CACUser -InputValue $UserName
 
     if ($details) {
         Write-Log "Cached user found: $UserName" "INFO"

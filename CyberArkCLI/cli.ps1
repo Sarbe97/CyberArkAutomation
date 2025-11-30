@@ -122,10 +122,11 @@ function Show-SafeMenu {
         Clear-Host
         Write-Host "=========== SAFE MENU ==========="
         Write-Host "1. Export All Safes to CSV"
-        Write-Host "2. Export Safe Members"
-        Write-Host "3. Create Safe(s)"
-        Write-Host "4. Add Safe Member(s)"
-        Write-Host "5. Search A Safe By Name"
+        Write-Host "2. Export Safe Members With Permissions"
+        Write-Host "3. View Safe Members, no permission"
+        Write-Host "4. Create Safe(s)"
+        Write-Host "5. Add Safe Member(s)"
+        Write-Host "6. Search A Safe By Name"
         Write-Host "0. Back"
         Write-Host "================================="
 
@@ -134,9 +135,10 @@ function Show-SafeMenu {
         switch ($choice) {
             1 { Export-CACAllSafes; Pause }
             2 { Export-CACSafeMembers; Pause }
-            3 { New-CACSafe; Pause }
-            4 { Add-CACSafeMember; Pause }
-            5 { Search-CACSafeByName; Pause }
+            3 { Export-CACSafeUsers; Pause }
+            4 { New-CACSafe; Pause }
+            5 { Add-CACSafeMember; Pause }
+            6 { Search-CACSafeByName; Pause }
             0 { return }
 
             default {

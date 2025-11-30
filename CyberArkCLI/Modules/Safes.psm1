@@ -123,141 +123,226 @@ function Search-CACSafeByName {
 # ---------------------------------------------------------
 # Utility: Resolve Identity (user or group)
 # ---------------------------------------------------------
-function Resolve-CACIdentity {
-    param([string]$Identity)
+# function Resolve-CACIdentity {
+#     param([string]$Identity)
 
-    Write-Log "Resolving identity: $Identity" "DEBUG"
+#     Write-Log "Resolving identity: $Identity" "DEBUG"
 
-    if ($Identity -match "^GRP_" -or $Identity -match "Group") {
-        Write-Log "Identity appears to be a group: $Identity" "INFO"
+#     if ($Identity -match "^GRP_" -or $Identity -match "Group") {
+#         Write-Log "Identity appears to be a group: $Identity" "INFO"
 
-        try {
-            $members = Get-CACGroupUsers -GroupName $Identity
-            return $members
-        }
-        catch {
-            Write-Log "Failed to resolve group $Identity - $($_.Exception.Message)" "WARN"
-            return @()
-        }
-    }
+#         try {
+#             $members = Get-CACGroupUsers -GroupName $Identity
+#             return $members
+#         }
+#         catch {
+#             Write-Log "Failed to resolve group $Identity - $($_.Exception.Message)" "WARN"
+#             return @()
+#         }
+#     }
 
-    Write-Log "Identity treated as user: $Identity" "DEBUG"
-    return @($Identity)
-}
+#     Write-Log "Identity treated as user: $Identity" "DEBUG"
+#     return @($Identity)
+# }
 
 # ---------------------------------------------------------
 # Utility: Enrich user from cache
 # ---------------------------------------------------------
-function Get-CACEnrichedMemberDetails {
-    param([string]$UserName)
 
-    Write-Log "Looking up user in cache: $UserName" "DEBUG"
-
-    $details = Find-CACUser -InputValue $UserName
-
-    if ($details) {
-        Write-Log "Cached user found: $UserName" "INFO"
-        return [PSCustomObject]@{
-            UserName     = $details.UserName
-            DisplayName  = $details.DisplayName
-            Department   = $details.Department
-            Title        = $details.Title
-            Organization = $details.Organization
-            Profession   = $details.Profession
-        }
-    }
-
-    Write-Log "User not found in cache: $UserName" "WARN"
-    return [PSCustomObject]@{
-        UserName     = $UserName
-        DisplayName  = ""
-        Department   = ""
-        Title        = ""
-        Organization = ""
-        Profession   = ""
-    }
-}
 
 # ---------------------------------------------------------
 # Export Safe Members
 # ---------------------------------------------------------
 function Export-CACSafeMembers {
-    Write-Log "Started Export-CACSafeMembers()" "DEBUG"
-    Write-Log "Prompting user for input mode" "INFO"
+    param(
+        [Parameter(Mandatory)]
+        [string]$OutputPath
+    )
 
-    Write-Host "Choose input mode:"
-    Write-Host "1. Manual"
-    Write-Host "2. CSV"
-    $mode = Read-Host "Enter choice"
+    Write-Log "Starting Export-CACSafeMembers" "INFO"
 
-    $safeList = @()
-
-    switch ($mode) {
-        "1" {
-            $inputSafeNames = Read-Host "Enter Safes (comma-separated)"
-            $safeList = $inputSafeNames.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ }
-        }
-
-        "2" {
-            $csvPath = Read-Host "Enter CSV path (column SafeName)"
-            if (-not (Test-Path $csvPath)) {
-                Write-Log "CSV missing: $csvPath" "ERROR"
-                return
-            }
-            $safeList = (Import-Csv $csvPath).SafeName
-        }
-
-        default {
-            Write-Log "Invalid input mode: $mode" "WARN"
-            return
-        }
-    }
-
-    Write-Log "Safes to process: $($safeList -join ', ')" "INFO"
-
-    $output = @()
+    $safeList = Get-PASSafe
+    $rows = @()
 
     foreach ($safe in $safeList) {
-        Write-Log "Fetching members for safe: $safe" "INFO"
+
+        Write-Log "Processing safe: $($safe.SafeName)" "INFO"
 
         try {
-            $members = Get-PASSafeMember -SafeName $safe -ErrorAction Stop
+            $members = Get-PASSafeMember -SafeName $safe.SafeName
         }
         catch {
-            Write-Log "ERROR fetching members for $safe - $($_.Exception.Message)" "ERROR"
+            Write-Log "Error getting members for $($safe.SafeName): $($_.Exception.Message)" "ERROR"
+            continue
+        }
+
+        if (-not $members) {
+            Write-Log "No members found for $($safe.SafeName)" "WARN"
             continue
         }
 
         foreach ($m in $members) {
-            Write-Log "Processing member: $($m.MemberName) (Type: $($m.MemberType))" "DEBUG"
 
-            $resolvedUsers = Resolve-CACIdentity -Identity $m.MemberName
+            # --------------------------
+            # USER
+            # --------------------------
+            if ($m.MemberType -eq "User") {
+                $enriched = Get-CACEnrichedMemberDetails -UserName $m.MemberName
 
-            foreach ($user in $resolvedUsers) {
-                $userInfo = Get-CACEnrichedMemberDetails -UserName $user
+                $rows += [PSCustomObject]@{
+                    SafeName     = $safe.SafeName
+                    UserName     = $enriched.UserName
+                    DisplayName  = $enriched.DisplayName
+                    Department   = $enriched.Department
+                    Title        = $enriched.Title
+                    Organization = $enriched.Organization
+                    Profession   = $enriched.Profession
+                }
 
-                $output += [PSCustomObject]@{
-                    SafeName     = $safe
+                continue
+            }
+
+            # --------------------------
+            # GROUP
+            # --------------------------
+            if ($m.MemberType -eq "Group") {
+
+                Write-Log "Expanding group: $($m.MemberName)" "DEBUG"
+
+                try {
+                    $groupUsers = Get-CACGroupUsers -GroupName $m.MemberName
+                }
+                catch {
+                    Write-Log "Failed to expand group $($m.MemberName): $($_.Exception.Message)" "WARN"
+                    continue
+                }
+
+                if ($groupUsers) {
+                    foreach ($g in $groupUsers) {
+                        $rows += [PSCustomObject]@{
+                            SafeName     = $safe.SafeName
+                            UserName     = $g.UserName
+                            DisplayName  = $g.DisplayName
+                            Department   = $g.Department
+                            Title        = $g.Title
+                            Organization = $g.Organization
+                            Profession   = $g.Profession
+                        }
+                    }
+                }
+
+                continue
+            }
+
+        } # end members
+    } # end safes
+
+    # --------------------------
+    # WRITE CSV
+    # --------------------------
+    $rows | Export-Csv -Path $OutputPath -NoTypeInformation
+    Write-Log "Export complete → $OutputPath" "SUCCESS"
+}
+
+
+
+
+#####################
+## get all users, member- users
+#####################
+
+function Export-CACSafeUsers {
+    param(
+        [Parameter(Mandatory)][string]$SafeName,
+        [Parameter()][string]$OutputPath = "$PSScriptRoot/../Output/${SafeName}_Users.csv"
+    )
+
+    Write-Log "Exporting SAFE USERS of safe: $SafeName" "INFO"
+
+    # Load user cache
+    $userCache = Import-CACUserStore
+    if (-not $userCache) {
+        Write-Log "User cache empty cannot enrich" "ERROR"
+        return
+    }
+
+    try {
+        $members = Get-PASSafeMember -SafeName $SafeName -ErrorAction Stop
+    }
+    catch {
+        Write-Log "Failed fetching members: $($_.Exception.Message)" "ERROR"
+        return
+    }
+
+    if (-not $members) {
+        Write-Log "No members found for safe: $SafeName" "WARN"
+        return
+    }
+
+    $finalUsers = @()
+
+    foreach ($m in $members) {
+
+        # ------------------------------
+        # CASE 1: Member is USER
+        # ------------------------------
+        if ($m.MemberType -eq "User") {
+            $row = $userCache | Where-Object { $_.UserName -eq $m.MemberName }
+
+            if ($row) {
+                $finalUsers += [PSCustomObject]@{
+                    SafeName     = $SafeName
                     MemberName   = $m.MemberName
-                    ResolvedUser = $userInfo.UserName
-                    DisplayName  = $userInfo.DisplayName
-                    Department   = $userInfo.Department
-                    Title        = $userInfo.Title
-                    Organization = $userInfo.Organization
-                    Profession   = $userInfo.Profession
-                    Permissions  = ($m.Permissions -as [string])
+                    MemberType   = "User"
+                    UserName     = $row.UserName
+                    FullName     = $row.FullName
+                    Department   = $row.Department
+                    Title        = $row.Title
+                    Organization = $row.Organization
+                }
+            }
+            else {
+                # fallback
+                $finalUsers += [PSCustomObject]@{
+                    SafeName     = $SafeName
+                    MemberName   = $m.MemberName
+                    MemberType   = "User"
+                    UserName     = $m.MemberName
+                    FullName     = ""
+                    Department   = ""
+                    Title        = ""
+                    Organization = ""
+                }
+            }
+
+        }
+
+        # ------------------------------
+        # CASE 2: Member is GROUP
+        # ------------------------------
+        elseif ($m.MemberType -eq "Group") {
+            Write-Log "Expanding group: $($m.MemberName)" "INFO"
+
+            $grpUsers = Get-CACGroupUsers -GroupName $m.MemberName
+
+            foreach ($gu in $grpUsers) {
+                $finalUsers += [PSCustomObject]@{
+                    SafeName     = $SafeName
+                    MemberName   = $m.MemberName
+                    MemberType   = "Group"
+                    UserName     = $gu.UserName
+                    FullName     = $gu.FullName
+                    Department   = $gu.Department
+                    Title        = $gu.Title
+                    Organization = $gu.Organization
                 }
             }
         }
     }
 
-    $outDir = "$PSScriptRoot/../Output"
-    if (-not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out-Null }
-
-    $outFile = "$outDir/safe_members_export.csv"
-    $output | Export-Csv -Path $outFile -NoTypeInformation -Encoding UTF8
-
-    Write-Log "Safe member export complete → $outFile" "SUCCESS"
+    # Export CSV
+    $finalUsers | Export-Csv -Path $OutputPath -NoTypeInformation
+    Write-Log "Safe USER export complete: $OutputPath" "SUCCESS"
 }
 
 # ---------------------------------------------------------

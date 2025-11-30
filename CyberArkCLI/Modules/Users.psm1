@@ -110,7 +110,7 @@ function Import-CACUserStore {
     # Check if file exists
     # -----------------------------------------------------
     if (-not (Test-Path $Script:UserCachePath)) {
-        Write-Log "User cache not found — forcing refresh" "WARN"
+        Write-Log "User cache not found - forcing refresh" "WARN"
         Write-Host "`nDEBUG: Cache file missing at: $Script:UserCachePath`n" -ForegroundColor Yellow
         
         Refresh-CACUserStore
@@ -138,26 +138,17 @@ function Import-CACUserStore {
         $csv = Import-Csv $Script:UserCachePath
 
         if (-not $csv) {
-            Write-Log "CSV imported but EMPTY — will refresh cache" "ERROR"
+            Write-Log "CSV imported but EMPTY - will refresh cache" "ERROR"
             Write-Host "`nDEBUG: Import-Csv returned NULL or EMPTY`n" -ForegroundColor Red
             
             Refresh-CACUserStore
             $csv = Import-Csv $Script:UserCachePath
         }
 
-        # -------------------------------------------------
-        # Debug: Show number of rows
-        # -------------------------------------------------
-        Write-Log "User cache import successful. Rows: $($csv.Count)" "DEBUG"
-
-        Write-Host "`n--- DEBUG: First 5 rows of user cache ---" -ForegroundColor Cyan
-        $csv | Select-Object -First 5 | Format-Table | Out-Host
-        Write-Host "------------------------------------------`n" -ForegroundColor Cyan
-
         return $csv
     }
     catch {
-        Write-Log "User cache corrupted — forcing refresh" "ERROR"
+        Write-Log "User cache corrupted - forcing refresh" "ERROR"
         Write-Host "`nDEBUG: Import-Csv failed:`n $($_.Exception.Message)`n" -ForegroundColor Red
         
         Refresh-CACUserStore
@@ -175,22 +166,16 @@ function Find-CACUser {
         [Parameter(Mandatory)][string]$InputValue
     )
 
-    Write-Log "Find-CACUser() input: $InputValue" "INFO"
+    Write-Log "Find-CACUser input- $InputValue" "INFO"
 
     $users = Import-CACUserStore
     if (-not $users) {
-        Write-Log "User cache is EMPTY — no records found" "ERROR"
+        Write-Log "User cache is EMPTY - no records found" "ERROR"
         Write-Host "`n--- DEBUG: Import-CACUserStore returned nothing ---`n" -ForegroundColor Red
         return $null
     }
 
     Write-Log "User cache loaded. Total users: $($users.Count)" "DEBUG"
-
-    # Optional: print first few rows for debugging
-    Write-Host "`n--- DEBUG: First 5 cached users ---" -ForegroundColor Cyan
-    $users | Select-Object -First 5 | Format-Table | Out-Host
-    Write-Host "-----------------------------------`n" -ForegroundColor Cyan
-
     
     $isId = $InputValue -match "^\d+$"
 
@@ -236,34 +221,53 @@ function Get-CACGroupUsers {
         return
     }
 
-    $users = Import-CACUserStore
+    Write-Log "Processing $($group.Members.Count) members" "INFO"
 
-    $output = foreach ($m in $group.Members) {
-        $row = $users | Where-Object { $_.UserName -eq $m.UserName }
+    $output = @()   # initialize array
 
-        if ($row) {
-            [PSCustomObject]@{
-                UserName     = $row.UserName
-                FullName     = $row.FullName
-                Department   = $row.Department
-                Title        = $row.Title
-                Organization = $row.Organization
-            }
-        }
-        else {
-            [PSCustomObject]@{
-                UserName     = $m.UserName
-                FullName     = ""
-                Department   = ""
-                Title        = ""
-                Organization = ""
-            }
-        }
+    foreach ($m in $group.Members) {
+
+        # Get enriched object directly from cache
+        $enriched = Get-CACEnrichedMemberDetails -UserName $m.UserName
+
+        # Directly add enriched object
+        $output += $enriched
     }
 
     $output | Format-Table -AutoSize
     return $output
 }
 
+
+
+function Get-CACEnrichedMemberDetails {
+    param([string]$UserName)
+
+    Write-Log "Looking up user in cache: $UserName" "DEBUG"
+
+    $details = Find-CACUser -InputValue $UserName
+
+    if ($details) {
+        Write-Log "Cached user found: $UserName" "INFO"
+        return [PSCustomObject]@{
+            UserName     = $details.UserName
+            DisplayName  = $details.DisplayName
+            Department   = $details.Department
+            Title        = $details.Title
+            Organization = $details.Organization
+            Profession   = $details.Profession
+        }
+    }
+
+    Write-Log "User not found in cache: $UserName" "WARN"
+    return [PSCustomObject]@{
+        UserName     = $UserName
+        DisplayName  = ""
+        Department   = ""
+        Title        = ""
+        Organization = ""
+        Profession   = ""
+    }
+}
 
 Export-ModuleMember -Function *

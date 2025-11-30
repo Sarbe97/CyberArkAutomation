@@ -1,5 +1,5 @@
 ﻿{
-  "PVWAURL": "https://mycyberark.company.com",
+  "PVWAURL": "http://localhost:8080",
   "SafePermissionSets": {
     "SAFE_READ": [
       "UseAccounts",

@@ -25,7 +25,8 @@ function Invoke-CACLogin {
     $lblCurrentUrl.Width = 320
     $lblCurrentUrl.Text = if ($needsUrl) {
         "Current PVWA URL: Not Set"
-    } else {
+    }
+    else {
         "Current PVWA URL: $($cfg.PVWAURL)"
     }
 
@@ -91,39 +92,52 @@ function Invoke-CACLogin {
 
     # ---------- LOGIN CLICK ----------
     $btnLogin.Add_Click({
-        try {
-            # FIRST RUN – USER MUST ENTER URL
-            if ($needsUrl) {
-                if ([string]::IsNullOrWhiteSpace($txtUrl.Text)) {
-                    [System.Windows.Forms.MessageBox]::Show("PVWA URL cannot be empty.") | Out-Null
-                    return
+            try {
+                # FIRST RUN – USER MUST ENTER URL
+                if ($needsUrl) {
+                    if ([string]::IsNullOrWhiteSpace($txtUrl.Text)) {
+                        [System.Windows.Forms.MessageBox]::Show("PVWA URL cannot be empty.") | Out-Null
+                        return
+                    }
+
+                    # Save for future runs
+                    Set-CACConfig -PVWAURL $txtUrl.Text
+                    $cfg = Get-CACConfig
                 }
 
-                # Save for future runs
-                Set-CACConfig -PVWAURL $txtUrl.Text
-                $cfg = Get-CACConfig
+                if ([string]::IsNullOrWhiteSpace($cfg.PVWAURL)) {
+                    throw "PVWA URL is missing in config.json"
+                }
+
+                # Build credentials
+                $secure = ConvertTo-SecureString $txtPass.Text -AsPlainText -Force
+                $cred = New-Object System.Management.Automation.PSCredential ($txtUser.Text, $secure)
+
+                # ---------- MOCK LOGIN ----------
+                if ($cfg.PVWAURL -eq "http://localhost:8080") {
+                    Write-Host "Using Mock PVWA login at $($cfg.PVWAURL)..."
+
+                    # Directly set a dummy token
+                    $global:CACSessionToken = "MOCK_TOKEN_12345"
+
+                    Write-Host "Mock login successful! Token: $global:CACSessionToken" -ForegroundColor Green
+                    [System.Windows.Forms.MessageBox]::Show("Login successful (Mock)!") | Out-Null
+                    $form.Close()
+                }
+                else {
+                    # ---------- REAL LOGIN ----------
+                    $global:CACSession = New-PASSession `
+                        -Credential $cred `
+                        -BaseURI $cfg.PVWAURL
+
+                    [System.Windows.Forms.MessageBox]::Show("Login successful!") | Out-Null
+                    $form.Close()
+                }
             }
-
-            if ([string]::IsNullOrWhiteSpace($cfg.PVWAURL)) {
-                throw "PVWA URL is missing in config.json"
+            catch {
+                [System.Windows.Forms.MessageBox]::Show("Login failed: $($_.Exception.Message)") | Out-Null
             }
-
-            # Build credentials
-            $secure = ConvertTo-SecureString $txtPass.Text -AsPlainText -Force
-            $cred = New-Object System.Management.Automation.PSCredential ($txtUser.Text, $secure)
-
-            # Login via psPAS
-            $global:CACSession = New-PASSession `
-                -Credential $cred `
-                -BaseURI $cfg.PVWAURL
-
-            [System.Windows.Forms.MessageBox]::Show("Login successful!") | Out-Null
-            $form.Close()
-        }
-        catch {
-            [System.Windows.Forms.MessageBox]::Show("Login failed: $($_.Exception.Message)") | Out-Null
-        }
-    })
+        })
 
     $form.Controls.Add($btnLogin)
     $form.ShowDialog()

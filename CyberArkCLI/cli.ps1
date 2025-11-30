@@ -6,11 +6,14 @@ Import-Module psPAS -ErrorAction Stop
 # Load our modules using RELATIVE paths
 $modulePath = Join-Path $PSScriptRoot "Modules"
 Write-Host $modulePath
-Import-Module (Join-Path $modulePath "Login.psm1")     -Force
-Import-Module (Join-Path $modulePath "Config.psm1")    -Force
-Import-Module (Join-Path $modulePath "Safes.psm1")     -Force
-Import-Module (Join-Path $modulePath "Users.psm1")     -Force
+Import-Module (Join-Path $modulePath "Login.psm1")      -Force
+Import-Module (Join-Path $modulePath "Config.psm1")     -Force
+Import-Module (Join-Path $modulePath "Safes.psm1")      -Force
+Import-Module (Join-Path $modulePath "Users.psm1")      -Force
 Import-Module (Join-Path $modulePath "Onboarding.psm1") -Force
+Import-Module (Join-Path $modulePath "Monitor.psm1")    -Force
+Import-Module (Join-Path $modulePath "Reports.psm1")    -Force
+
 
 
 function Show-MainMenu {
@@ -21,6 +24,8 @@ function Show-MainMenu {
         Write-Host "2. Safe Operations"
         Write-Host "3. User Utilities"
         Write-Host "4. Onboarding"
+        Write-Host "5. Monitor PSM Recordings"
+        Write-Host "6. Reports"
         Write-Host "0. Exit"
         Write-Host "===================================="
 
@@ -31,6 +36,9 @@ function Show-MainMenu {
             '2' { Show-SafeMenu }
             '3' { Show-UserMenu }
             '4' { Show-OnboardingMenu }
+            '5' { Show-MonitorMenu }
+            '6' { Show-ReportMenu }
+
             '0' { exit }
             default { Write-Host "Invalid option!" -ForegroundColor Yellow }
         }
@@ -148,5 +156,90 @@ function Show-OnboardingMenu {
         Pause
     }
 }
+
+
+function Show-MonitorMenu {
+    while ($true) {
+        Clear-Host
+        Write-Host "=========== MONITOR MENU ==========="
+        Write-Host "1. Fetch PSM Recordings"
+        # Future monitor features can be added here
+        # Write-Host "2. Monitor Feature 2"
+        # Write-Host "3. Monitor Feature 3"
+        Write-Host "0. Back"
+        Write-Host "==================================="
+
+        $choice = Read-Host "Enter Choice"
+
+        switch ($choice) {
+            '1' {
+                Get-CACPSMRecordings
+                Pause
+            }
+
+            # Future features:
+            # '2' { Import-Module "./Modules/Monitor.psm1" -Force; Some-MonitorFeature2; Pause }
+            # '3' { Import-Module "./Modules/Monitor.psm1" -Force; Some-MonitorFeature3; Pause }
+
+            '0' { return }
+
+            default {
+                Write-Host "Invalid option." -ForegroundColor Yellow
+                Start-Sleep 1
+            }
+        }
+    }
+}
+
+function Show-ReportMenu {
+    while ($true) {
+        Clear-Host
+        Write-Host "=========== REPORT MENU ==========="
+        Write-Host "1. User License Report"
+        Write-Host "2. Get Report (by Report ID)"
+        Write-Host "3. Get Report Schedules"
+        Write-Host "4. Create New Report Schedule"
+        Write-Host "5. Export Report"
+        Write-Host "0. Back"
+        Write-Host "==================================="
+
+        $choice = Read-Host "Enter Choice"
+
+        switch ($choice) {
+            '1' {
+                Import-Module "./Modules/Reports.psm1" -Force
+                Get-CACUserLicenseReport
+                Pause
+            }
+            '2' {
+                Import-Module "./Modules/Reports.psm1" -Force
+                Get-CACReport
+                Pause
+            }
+            '3' {
+                Import-Module "./Modules/Reports.psm1" -Force
+                Get-CACReportSchedule
+                Pause
+            }
+            '4' {
+                Import-Module "./Modules/Reports.psm1" -Force
+                New-CACReportSchedule
+                Pause
+            }
+            '5' {
+                Import-Module "./Modules/Reports.psm1" -Force
+                Export-CACReport
+                Pause
+            }
+            '0' { return }
+
+            default {
+                Write-Host "Invalid selection." -ForegroundColor Yellow
+                Start-Sleep 1
+            }
+        }
+    }
+}
+
 
 Show-MainMenu

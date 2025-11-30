@@ -14,13 +14,13 @@ function Refresh-CACUserStore {
     Write-Log "Force refreshing CyberArk user cache" "INFO"
 
     # ---------- Rename existing cache ----------
-    if (Test-Path $Script:UserCachePath) {
-        $timestamp = (Get-Date -Format "yyyyMMdd_HHmmss")
-        $backupPath = $Script:UserCachePath.Replace(".csv", "_$timestamp.csv")
+    # if (Test-Path $Script:UserCachePath) {
+    #     $timestamp = (Get-Date -Format "yyyyMMdd_HHmmss")
+    #     $backupPath = $Script:UserCachePath.Replace(".csv", "_$timestamp.csv")
 
-        Rename-Item -Path $Script:UserCachePath -NewName $backupPath -Force
-        Write-Log "Existing cache renamed to: $backupPath" "INFO"
-    }
+    #     Rename-Item -Path $Script:UserCachePath -NewName $backupPath -Force
+    #     Write-Log "Existing cache renamed to: $backupPath" "INFO"
+    # }
 
     # ---------- Fetch users (shallow details) ----------
     try {
@@ -61,13 +61,21 @@ function Refresh-CACUserStore {
         }
 
         # Build Full Name
-        $first = $detail.personalDetails.firstName
-        $middle = $detail.personalDetails.middleName
-        $last = $detail.personalDetails.lastName
+        # Build Full Name safely
+        $first = ($detail.personalDetails.firstName) -as [string]
+        $middle = ($detail.personalDetails.middleName) -as [string]
+        $last = ($detail.personalDetails.lastName) -as [string]
 
-        $fullName = ($first, $middle, $last -ne $null -and $_ -ne "") -join " "
-        $fullName = $fullName.Trim()
+        $parts = @()
+        if ($first) { $parts += $first }
+        if ($middle) { $parts += " $middle" }
+        if ($last) { $parts += " $last" }
 
+        $fullName = ($parts -join " ").Trim()
+
+        # if($detail.Source -eq "EPVUser") {
+        # }  
+         
         $finalUsers += [PSCustomObject]@{
             id           = $detail.id
             UserName     = $detail.UserName

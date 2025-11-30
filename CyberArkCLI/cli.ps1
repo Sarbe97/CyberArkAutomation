@@ -1,11 +1,16 @@
 Clear-Host
 
-# Load psPAS module (must be installed on system)
+# ------------------------------------------------------------
+# Load psPAS module (installed system-wide)
+# ------------------------------------------------------------
 Import-Module psPAS -ErrorAction Stop
 
-# Load our modules using RELATIVE paths
+# ------------------------------------------------------------
+# Load our internal modules
+# ------------------------------------------------------------
 $modulePath = Join-Path $PSScriptRoot "Modules"
 Write-Host $modulePath
+
 Import-Module (Join-Path $modulePath "Login.psm1")      -Force
 Import-Module (Join-Path $modulePath "Config.psm1")     -Force
 Import-Module (Join-Path $modulePath "Safes.psm1")      -Force
@@ -14,40 +19,103 @@ Import-Module (Join-Path $modulePath "Onboarding.psm1") -Force
 Import-Module (Join-Path $modulePath "Monitor.psm1")    -Force
 Import-Module (Join-Path $modulePath "Reports.psm1")    -Force
 
+# ------------------------------------------------------------
+# Global login state
+# ------------------------------------------------------------
+$Script:IsLoggedIn = $false
 
 
-function Show-MainMenu {
-    while ($true) {
+
+# ============================================================
+# LOGIN SCREEN (Appears before main menu)
+# ============================================================
+function Show-LoginMenu {
+    while (-not $Script:IsLoggedIn) {
+
         Clear-Host
         Write-Host "=========== CyberArk CLI ===========" -ForegroundColor Cyan
         Write-Host "1. Login"
-        Write-Host "2. Safe Operations"
-        Write-Host "3. User Utilities"
-        Write-Host "4. Onboarding"
-        Write-Host "5. Monitor PSM Recordings"
-        Write-Host "6. Reports"
+        Write-Host "0. Exit"
+        Write-Host "===================================="
+
+        $choice = Read-Host "Enter choice"
+
+        switch ($choice) {
+            '1' {
+                if (Invoke-CACLogin) {
+                    $Script:IsLoggedIn = $true
+                    return
+                } else {
+                    Write-Host "Login failed. Try again." -ForegroundColor Red
+                    Pause
+                }
+            }
+
+            '0' { exit }
+
+            default {
+                Write-Host "Invalid selection" -ForegroundColor Yellow
+                Start-Sleep 1
+            }
+        }
+    }
+}
+
+
+
+# ============================================================
+# MAIN MENU (Shown ONLY AFTER LOGIN)
+# ============================================================
+function Show-MainMenu {
+    while ($true) {
+
+        if (-not $Script:IsLoggedIn) {
+            Show-LoginMenu
+        }
+
+        Clear-Host
+        Write-Host "=========== CyberArk CLI ===========" -ForegroundColor Cyan
+        Write-Host "1. Safe Operations"
+        Write-Host "2. User Utilities"
+        Write-Host "3. Onboarding"
+        Write-Host "4. Monitor PSM Recordings"
+        Write-Host "5. Reports"
+        Write-Host "9. Logout"
         Write-Host "0. Exit"
         Write-Host "===================================="
 
         $choice = Read-Host "Select an option"
 
         switch ($choice) {
-            '1' { Invoke-CACLogin }
-            '2' { Show-SafeMenu }
-            '3' { Show-UserMenu }
-            '4' { Show-OnboardingMenu }
-            '5' { Show-MonitorMenu }
-            '6' { Show-ReportMenu }
+
+            '1' { Show-SafeMenu }
+            '2' { Show-UserMenu }
+            '3' { Show-OnboardingMenu }
+            '4' { Show-MonitorMenu }
+            '5' { Show-ReportMenu }
+
+            '9' { 
+                Write-Host "Logging out..."
+                $Script:IsLoggedIn = $false
+                Pause
+                Show-LoginMenu
+            }
 
             '0' { exit }
-            default { Write-Host "Invalid option!" -ForegroundColor Yellow }
-        }
 
-        Pause
+            default { 
+                Write-Host "Invalid option!" -ForegroundColor Yellow 
+                Pause
+            }
+        }
     }
 }
 
 
+
+# ============================================================
+# SAFE MENU
+# ============================================================
 function Show-SafeMenu {
     while ($true) {
         Clear-Host
@@ -56,33 +124,18 @@ function Show-SafeMenu {
         Write-Host "2. Export Safe Members"
         Write-Host "3. Create Safe(s)"
         Write-Host "4. Add Safe Member(s)"
+        Write-Host "5. Search A Safe By Name"
         Write-Host "0. Back"
         Write-Host "================================="
 
         $choice = Read-Host "Enter Choice"
 
         switch ($choice) {
-
-            1 {
-                Export-CACAllSafes
-                Pause
-            }
-
-            2 {
-                Export-CACSafeMembers
-                Pause
-            }
-
-            3 {
-                New-CACSafe
-                Pause
-            }
-
-            4 {
-                Add-CACSafeMember
-                Pause
-            }
-
+            1 { Export-CACAllSafes; Pause }
+            2 { Export-CACSafeMembers; Pause }
+            3 { New-CACSafe; Pause }
+            4 { Add-CACSafeMember; Pause }
+            5 { Search-CACSafeByName; Pause }
             0 { return }
 
             default {
@@ -94,12 +147,16 @@ function Show-SafeMenu {
 }
 
 
+
+# ============================================================
+# USER MENU
+# ============================================================
 function Show-UserMenu {
     while ($true) {
         Clear-Host
         Write-Host "=========== USER MENU ==========="
-        Write-Host "1. Refresh User Cache (users.csv)"
-        Write-Host "2. Export User Details (from cache)"
+        Write-Host "1. Refresh User Cache"
+        Write-Host "2. Export User Details"
         Write-Host "3. Get Members of a Group"
         Write-Host "0. Back"
         Write-Host "================================="
@@ -107,23 +164,13 @@ function Show-UserMenu {
         $choice = Read-Host "Enter Choice"
 
         switch ($choice) {
-
-            1 {
-                Update-CACUserCache
-                Pause
-            }
-
-            2 {
-                Export-CACUserCache
-                Pause
-            }
-
+            1 { Update-CACUserCache; Pause }
+            2 { Export-CACUserCache; Pause }
             3 {
                 $grp = Read-Host "Enter Group Name"
                 Get-CACGroupMembers -GroupName $grp | Format-Table
                 Pause
             }
-
             0 { return }
 
             default {
@@ -134,6 +181,11 @@ function Show-UserMenu {
     }
 }
 
+
+
+# ============================================================
+# ONBOARDING MENU
+# ============================================================
 function Show-OnboardingMenu {
     while ($true) {
         Clear-Host
@@ -148,39 +200,34 @@ function Show-OnboardingMenu {
                 $safe = Read-Host "Safe Name"
                 $user = Read-Host "Account Name"
                 Start-CACOnboarding -SafeName $safe -AccountUser $user
+                Pause
             }
             '0' { return }
-            default { Write-Host "Invalid option!" -ForegroundColor Yellow }
+            default { 
+                Write-Host "Invalid option!" -ForegroundColor Yellow 
+                Start-Sleep 1
+            }
         }
-
-        Pause
     }
 }
 
 
+
+# ============================================================
+# MONITOR MENU
+# ============================================================
 function Show-MonitorMenu {
     while ($true) {
         Clear-Host
         Write-Host "=========== MONITOR MENU ==========="
         Write-Host "1. Fetch PSM Recordings"
-        # Future monitor features can be added here
-        # Write-Host "2. Monitor Feature 2"
-        # Write-Host "3. Monitor Feature 3"
         Write-Host "0. Back"
         Write-Host "==================================="
 
         $choice = Read-Host "Enter Choice"
 
         switch ($choice) {
-            '1' {
-                Get-CACPSMRecordings
-                Pause
-            }
-
-            # Future features:
-            # '2' { Import-Module "./Modules/Monitor.psm1" -Force; Some-MonitorFeature2; Pause }
-            # '3' { Import-Module "./Modules/Monitor.psm1" -Force; Some-MonitorFeature3; Pause }
-
+            '1' { Get-CACPSMRecordings; Pause }
             '0' { return }
 
             default {
@@ -191,12 +238,17 @@ function Show-MonitorMenu {
     }
 }
 
+
+
+# ============================================================
+# REPORT MENU
+# ============================================================
 function Show-ReportMenu {
     while ($true) {
         Clear-Host
         Write-Host "=========== REPORT MENU ==========="
         Write-Host "1. User License Report"
-        Write-Host "2. Get Report (by Report ID)"
+        Write-Host "2. Get Report (by ID)"
         Write-Host "3. Get Report Schedules"
         Write-Host "4. Create New Report Schedule"
         Write-Host "5. Export Report"
@@ -206,31 +258,11 @@ function Show-ReportMenu {
         $choice = Read-Host "Enter Choice"
 
         switch ($choice) {
-            '1' {
-                Import-Module "./Modules/Reports.psm1" -Force
-                Get-CACUserLicenseReport
-                Pause
-            }
-            '2' {
-                Import-Module "./Modules/Reports.psm1" -Force
-                Get-CACReport
-                Pause
-            }
-            '3' {
-                Import-Module "./Modules/Reports.psm1" -Force
-                Get-CACReportSchedule
-                Pause
-            }
-            '4' {
-                Import-Module "./Modules/Reports.psm1" -Force
-                New-CACReportSchedule
-                Pause
-            }
-            '5' {
-                Import-Module "./Modules/Reports.psm1" -Force
-                Export-CACReport
-                Pause
-            }
+            '1' { Get-CACUserLicenseReport; Pause }
+            '2' { Get-CACReport; Pause }
+            '3' { Get-CACReportSchedule; Pause }
+            '4' { New-CACReportSchedule; Pause }
+            '5' { Export-CACReport; Pause }
             '0' { return }
 
             default {
@@ -242,4 +274,8 @@ function Show-ReportMenu {
 }
 
 
+# ============================================================
+# START THE APPLICATION
+# ============================================================
+Show-LoginMenu
 Show-MainMenu

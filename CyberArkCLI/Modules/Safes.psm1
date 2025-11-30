@@ -4,65 +4,159 @@
 
 Import-Module "$PSScriptRoot/Config.psm1" -Force
 Import-Module "$PSScriptRoot/Users.psm1" -Force
+Import-Module "$PSScriptRoot/Utils.psm1" -Force
 
-# Helper logger
-function Write-Log {
-    param([string]$Message)
-    Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Message"
+
+# =========================================================
+# Utility: Format a safe object for consistent CSV output
+# =========================================================
+function Format-CACSafe {
+    param([Parameter(Mandatory)][object]$Safe)
+
+    Write-Log "Formatting safe object: $($Safe.safeName)" "DEBUG"
+
+    return [PSCustomObject]@{
+        SafeName                  = $Safe.safeName
+        SafeUrlId                 = $Safe.safeUrlId
+        SafeNumber                = $Safe.safeNumber
+        Description               = $Safe.description
+        Location                  = $Safe.location
+
+        CreatorId                 = $Safe.creator.id
+        CreatorName               = $Safe.creator.name
+
+        NumberOfVersionsRetention = $Safe.numberOfVersionsRetention
+        NumberOfDaysRetention     = $Safe.numberOfDaysRetention
+        AutoPurgeEnabled          = $Safe.autoPurgeEnabled
+
+        CreationTime              = $Safe.creationTime
+        LastModificationTime      = $Safe.lastModificationTime
+        ManagingCPM               = $Safe.managingCPM
+        OlacEnabled               = $Safe.olacEnabled
+    }
 }
 
-# ---------------------------------------------------------
-# 1. Export ALL Safe Details → CSV
-# ---------------------------------------------------------
+
+# =========================================================
+# 1. Export ALL Safes (uses native PAS pagination)
+# =========================================================
 function Export-CACAllSafes {
-    Write-Log "Fetching all safes from PAS..."
+    Write-Log "Started Export-CACAllSafes()" "DEBUG"
+    Write-Log "Fetching all safes using Get-PASSafe" "INFO"
 
     try {
-        $safes = Get-PASSafe
-        $outputFile = "$PSScriptRoot/../Output/all_safes.csv"
+        Write-Log "Calling Get-PASSafe without manual pagination" "DEBUG"
+        $resp = Get-PASSafe
 
-        if (-not (Test-Path "$PSScriptRoot/../Output")) {
-            New-Item -ItemType Directory -Path "$PSScriptRoot/../Output" | Out-Null
+        if (-not $resp.value) {
+            Write-Log "No safes returned" "WARN"
+            return
         }
 
-        $safes |
-            Select-Object SafeName, Description, ManagingCPM, NumberOfVersionsRetention, Location |
-            Export-Csv $outputFile -NoTypeInformation
+        Write-Log "Total safes returned: $($resp.value.Count)" "INFO"
 
-        Write-Log "Export complete: $outputFile"
+        $formatted = $resp.value | ForEach-Object { Format-CACSafe $_ }
+
+        $outputDir = "$PSScriptRoot/../Output"
+        if (-not (Test-Path $outputDir)) {
+            New-Item -ItemType Directory -Path $outputDir | Out-Null
+            Write-Log "Output directory created: $outputDir" "DEBUG"
+        }
+
+        $outputFile = "$outputDir/all_safes.csv"
+        Write-Log "Exporting safe details to CSV: $outputFile" "INFO"
+
+        $formatted | Export-Csv -Path $outputFile -NoTypeInformation
+
+        Write-Log "Export complete: $outputFile" "SUCCESS"
     }
     catch {
-        Write-Host "ERROR: Failed to export safe details." -ForegroundColor Red
+        Write-Log "Error in Export-CACAllSafes(): $($_.Exception.Message)" "ERROR"
+        throw
+    }
+
+    Write-Log "Completed Export-CACAllSafes()" "DEBUG"
+}
+
+
+# =========================================================
+# 2. NEW — Search Safe by Name → CSV Output
+# =========================================================
+function Search-CACSafeByName {
+    param(
+        [Parameter(Mandatory)]
+        [string]$SafeName
+    )
+
+    Write-Log "Search-CACSafeByName() started for Safe: $SafeName" "INFO"
+
+    try {
+        Write-Log "Calling Get-PASSafe -SafeName $SafeName" "DEBUG"
+        $resp = Get-PASSafe -SafeName $SafeName
+
+        if (-not $resp.value) {
+            Write-Log "Safe '$SafeName' not found" "WARN"
+            return
+        }
+
+        $formatted = $resp.value | ForEach-Object { Format-CACSafe $_ }
+
+        $outputDir = "$PSScriptRoot/../Output"
+        if (-not (Test-Path $outputDir)) {
+            New-Item -ItemType Directory -Path $outputDir | Out-Null
+            Write-Log "Output directory created" "DEBUG"
+        }
+
+        $file = "$outputDir/search_safe_${SafeName}.csv"
+        Write-Log "Saving search results to: $file" "INFO"
+
+        $formatted | Export-Csv -Path $file -NoTypeInformation
+
+        Write-Log "Safe search export completed successfully → $file" "SUCCESS"
+    }
+    catch {
+        Write-Log "Error searching safe '$SafeName': $($_.Exception.Message)" "ERROR"
         throw
     }
 }
 
 # ---------------------------------------------------------
-# Utility: Expand users or groups
+# Utility: Resolve Identity (user or group)
 # ---------------------------------------------------------
 function Resolve-CACIdentity {
     param([string]$Identity)
 
-    # If group → resolve members
+    Write-Log "Resolving identity: $Identity" "DEBUG"
+
+    # Heuristic: if looks like group or contains 'Group' or starts with GRP_
     if ($Identity -match "^GRP_" -or $Identity -match "Group") {
-        Write-Log "Resolving group: $Identity"
-        return Get-CACGroupMembers -GroupName $Identity
+        Write-Log "Identity appears to be a group: $Identity" "INFO"
+        # Use Users.psm1 function to get group members (should return usernames)
+        try {
+            $members = Get-CACGroupMembers -GroupName $Identity
+            return $members
+        }
+        catch {
+            Write-Log "Failed to resolve group members for $Identity- $($_.Exception.Message)" "WARN"
+            return @()
+        }
     }
 
-    # Else user
-    Write-Log "Resolving user: $Identity"
+    Write-Log "Identity treated as user: $Identity" "DEBUG"
     return @($Identity)
 }
 
 # ---------------------------------------------------------
-# Utility: Enrich members with user details from cache
+# Utility: Enrich member details from cached users.csv
 # ---------------------------------------------------------
 function Get-CACEnrichedMemberDetails {
     param([string]$UserName)
 
+    Write-Log "Looking up user in cache: $UserName" "DEBUG"
     $details = Get-CACUserFromCache -UserName $UserName
 
     if ($details) {
+        Write-Log "Found cached details for: $UserName" "INFO"
         return [PSCustomObject]@{
             UserName     = $details.UserName
             DisplayName  = $details.DisplayName
@@ -73,7 +167,7 @@ function Get-CACEnrichedMemberDetails {
         }
     }
 
-    # Fallback
+    Write-Log "User not found in cache: $UserName" "WARN"
     return [PSCustomObject]@{
         UserName     = $UserName
         DisplayName  = ""
@@ -85,61 +179,78 @@ function Get-CACEnrichedMemberDetails {
 }
 
 # ---------------------------------------------------------
-# 2. Export Safe Members
-#     - Manual safe input OR CSV
-#     - Expand groups
-#     - Enrich with user details
+# Export Safe Members
+# - Manual safe input OR CSV
+# - Expand groups
+# - Enrich with user details
 # ---------------------------------------------------------
 function Export-CACSafeMembers {
-    Write-Log "Exporting Safe Members..."
+    [CmdletBinding()]
+    param()
+
+    Write-Log "Started Export-CACSafeMembers()" "DEBUG"
+    Write-Log "Prompting for input mode" "INFO"
 
     Write-Host "Choose input mode:"
     Write-Host "1. Manual (comma-separated list)"
-    Write-Host "2. From CSV file"
+    Write-Host "2. From CSV file (column SafeName)"
     $mode = Read-Host "Enter choice"
 
     $safeList = @()
 
     switch ($mode) {
         "1" {
-            $input = Read-Host "Enter Safe Names (comma-separated)"
-            $safeList = $input.Split(",") | ForEach-Object { $_.Trim() }
+            $inputSafeNames = Read-Host "Enter Safe Names (comma-separated)"
+            if (-not $inputSafeNames) {
+                Write-Log "No safes entered" "WARN"
+                return
+            }
+            $safeList = $inputSafeNames.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
         }
 
         "2" {
             $csvPath = Read-Host "Enter CSV file path containing SafeName column"
             if (-not (Test-Path $csvPath)) {
-                Write-Host "CSV file not found." -ForegroundColor Red
+                Write-Log "CSV file not found: $csvPath" "ERROR"
                 return
             }
-            $safeList = (Import-Csv $csvPath).SafeName
+            try {
+                $safeList = (Import-Csv $csvPath).SafeName | Where-Object { $_ -ne $null -and $_ -ne "" }
+            }
+            catch {
+                Write-Log "Failed to read CSV: $($_.Exception.Message)" "ERROR"
+                return
+            }
         }
 
         default {
-            Write-Host "Invalid choice." -ForegroundColor Yellow
+            Write-Log "Invalid input mode selected: $mode" "WARN"
             return
         }
     }
 
-    Write-Log "Safes to process: $($safeList -join ', ')"
+    Write-Log "Safes to process: $($safeList -join ', ')" "INFO"
 
     $output = @()
-
     foreach ($safe in $safeList) {
-        Write-Log "Processing safe: $safe"
+        Write-Log "Processing safe: $safe" "INFO"
 
         try {
-            $members = Get-PASSafeMember -SafeName $safe
+            $members = Get-PASSafeMember -SafeName $safe -ErrorAction Stop
+            if (-not $members -or $members.Count -eq 0) {
+                Write-Log "No members returned for safe: $safe" "WARN"
+                continue
+            }
         }
         catch {
-            Write-Log "ERROR: Failed fetching members for safe $safe"
+            Write-Log "ERROR fetching members for safe $safe- $($_.Exception.Message)" "ERROR"
             continue
         }
 
         foreach ($m in $members) {
-            Write-Log "Found identity: $($m.MemberName)"
+            Write-Log "Member entry: $($m.MemberName) (Type: $($m.MemberType))" "DEBUG"
 
-            # Expand if group
+            # If member is group -> expand
             $resolvedUsers = Resolve-CACIdentity -Identity $m.MemberName
 
             foreach ($user in $resolvedUsers) {
@@ -154,28 +265,33 @@ function Export-CACSafeMembers {
                     Title        = $userInfo.Title
                     Organization = $userInfo.Organization
                     Profession   = $userInfo.Profession
-                    Permissions  = ($m.Permissions | ConvertTo-Json -Compress)
+                    Permissions  = ($m.Permissions -as [string])
                 }
             }
         }
     }
 
-    $outFile = "$PSScriptRoot/../Output/safe_members_export.csv"
-
-    if (-not (Test-Path "$PSScriptRoot/../Output")) {
-        New-Item -ItemType Directory -Path "$PSScriptRoot/../Output" | Out-Null
+    $outDir = "$PSScriptRoot/../Output"
+    if (-not (Test-Path $outDir)) {
+        New-Item -ItemType Directory -Path $outDir | Out-Null
     }
 
-    $output | Export-Csv -Path $outFile -NoTypeInformation
+    $outFile = Join-Path $outDir "safe_members_export.csv"
+    $output | Export-Csv -Path $outFile -NoTypeInformation -Encoding UTF8
 
-    Write-Log "Safe member export completed -> $outFile"
+    Write-Log "Safe member export completed -> $outFile" "SUCCESS"
+    Write-Log "Completed Export-CACSafeMembers()" "DEBUG"
 }
 
 # ---------------------------------------------------------
-# 3. Create Safe(s)
-#     Manual + CSV mode
+# Create Safe(s) - Manual + CSV
 # ---------------------------------------------------------
 function New-CACSafe {
+    [CmdletBinding()]
+    param()
+
+    Write-Log "Started New-CACSafe()" "DEBUG"
+
     Write-Host "Choose mode:"
     Write-Host "1. Manual"
     Write-Host "2. CSV file"
@@ -186,11 +302,12 @@ function New-CACSafe {
     switch ($mode) {
         "1" {
             $safeName = Read-Host "Safe Name"
-            $desc     = Read-Host "Description"
-            $cpm      = Read-Host "Managing CPM"
+            $desc = Read-Host "Description"
+            $cpm = Read-Host "Managing CPM"
+            if (-not $cpm) { $cpm = "" }
 
             $safeData += [PSCustomObject]@{
-                SafeName = $safeName
+                SafeName    = $safeName
                 Description = $desc
                 ManagingCPM = $cpm
             }
@@ -199,43 +316,56 @@ function New-CACSafe {
         "2" {
             $csvPath = Read-Host "Enter Safe CSV Path"
             if (-not (Test-Path $csvPath)) {
-                Write-Host "CSV file not found" -ForegroundColor Red
+                Write-Log "CSV file not found: $csvPath" "ERROR"
                 return
             }
-            $safeData = Import-Csv $csvPath
+            try {
+                $safeData = Import-Csv $csvPath
+            }
+            catch {
+                Write-Log "Failed to import CSV: $($_.Exception.Message)" "ERROR"
+                return
+            }
         }
 
         default {
-            Write-Host "Invalid option." -ForegroundColor Yellow
+            Write-Log "Invalid option selected: $mode" "WARN"
             return
         }
     }
 
     foreach ($safe in $safeData) {
-        Write-Log "Creating safe: $($safe.SafeName)"
-
+        Write-Log "Creating safe: $($safe.SafeName)" "INFO"
         try {
             Add-PASSafe -SafeName $safe.SafeName `
-                        -Description $safe.Description `
-                        -ManagingCPM $safe.ManagingCPM
+                -Description $safe.Description `
+                -ManagingCPM $safe.ManagingCPM -ErrorAction Stop
 
-            Write-Log "Safe created successfully."
+            Write-Log "Safe created: $($safe.SafeName)" "SUCCESS"
         }
         catch {
-            Write-Log "ERROR creating safe: $($_)"
+            Write-Log "ERROR creating safe $($safe.SafeName): $($_.Exception.Message)" "ERROR"
         }
     }
+
+    Write-Log "Completed New-CACSafe()" "DEBUG"
 }
 
 # ---------------------------------------------------------
-# 4. Add Safe Member(s)
+# Add Safe Member(s)
 # ---------------------------------------------------------
 function Add-CACSafeMember {
+    [CmdletBinding()]
+    param()
+
+    Write-Log "Started Add-CACSafeMember()" "DEBUG"
 
     $config = Get-CACConfig
     $permissionSets = $config.SafePermissionSets
 
-    Write-Log "Loaded predefined permission sets from config."
+    if (-not $permissionSets) {
+        Write-Log "No permission sets defined in config" "WARN"
+    }
 
     Write-Host "Choose mode:"
     Write-Host "1. Manual"
@@ -246,22 +376,22 @@ function Add-CACSafeMember {
 
     switch ($mode) {
         "1" {
-            $safe  = Read-Host "Safe Name"
+            $safe = Read-Host "Safe Name"
             $member = Read-Host "Member Name (user/group)"
 
-            Write-Host "Select permission set:"
+            Write-Host "Available Permission Sets:"
             $i = 1
             foreach ($key in $permissionSets.Keys) {
                 Write-Host "$i. $key"
                 $i++
             }
 
-            $sel = Read-Host "Enter choice"
+            $sel = Read-Host "Enter choice (number)"
             $permKey = $permissionSets.Keys[[int]$sel - 1]
 
             $entries += [PSCustomObject]@{
-                SafeName = $safe
-                Member   = $member
+                SafeName      = $safe
+                Member        = $member
                 PermissionKey = $permKey
             }
         }
@@ -269,30 +399,43 @@ function Add-CACSafeMember {
         "2" {
             $csvPath = Read-Host "Enter CSV path for members"
             if (-not (Test-Path $csvPath)) {
-                Write-Host "CSV file missing" -ForegroundColor Red
+                Write-Log "CSV file not found: $csvPath" "ERROR"
                 return
             }
-            $entries = Import-Csv $csvPath
+            try {
+                $entries = Import-Csv $csvPath
+            }
+            catch {
+                Write-Log "Failed to import CSV: $($_.Exception.Message)" "ERROR"
+                return
+            }
         }
     }
 
     foreach ($e in $entries) {
-        Write-Log "Adding member: $($e.Member) to safe $($e.SafeName)"
+        Write-Log "Adding member: $($e.Member) to safe $($e.SafeName)" "INFO"
 
         $permissions = $permissionSets[$e.PermissionKey]
+        if (-not $permissions) {
+            Write-Log "Permission key not found: $($e.PermissionKey)" "WARN"
+            continue
+        }
 
         try {
             Add-PASSafeMember -SafeName $e.SafeName `
-                              -MemberName $e.Member `
-                              -SearchInVault $true `
-                              -Permissions $permissions
+                -MemberName $e.Member `
+                -SearchInVault $true `
+                -Permissions $permissions -ErrorAction Stop
 
-            Write-Log "Member added successfully."
+            Write-Log "Member added: $($e.Member) to $($e.SafeName)" "SUCCESS"
         }
         catch {
-            Write-Log "ERROR adding safe member: $($_)"
+            Write-Log "ERROR adding member $($e.Member) to $($e.SafeName): $($_.Exception.Message)" "ERROR"
         }
     }
+
+    Write-Log "Completed Add-CACSafeMember()" "DEBUG"
 }
 
+# Export module members
 Export-ModuleMember -Function * -Alias *

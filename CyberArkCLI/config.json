@@ -1,0 +1,30 @@
+﻿{
+  "PVWAURL": "https://mycyberark.company.com",
+  "SafePermissionSets": {
+    "SAFE_READ": [
+      "UseAccounts",
+      "ListAccounts",
+      "RetrieveAccounts",
+      "ViewAudit",
+      "ViewSafeMembers"
+    ],
+    "SAFE_READ_WRITE": [
+      "UseAccounts",
+      "ListAccounts",
+      "RetrieveAccounts",
+      "ViewAudit",
+      "ViewSafeMembers",
+      "AddAccounts",
+      "UpdateAccounts",
+      "DeleteAccounts",
+      "ManageSafe"
+    ],
+    "VAULT_ADMIN": [
+      "ManageSafe",
+      "ManageSafeMembers",
+      "ManageAccounts",
+      "ManageSafeProperties",
+      "BackupSafe"
+    ]
+  }
+}

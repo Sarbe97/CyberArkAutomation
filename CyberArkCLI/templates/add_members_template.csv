@@ -1,0 +1,3 @@
+SafeName,MemberName,MemberType,PermissionSet
+APP_TEST_SAFE_01,john.doe,user,SAFE_READ
+APP_TEST_SAFE_01,group.ops,group,SAFE_READ_WRITE

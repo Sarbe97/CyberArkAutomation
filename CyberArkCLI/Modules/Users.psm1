@@ -1,160 +1,178 @@
 # ==========================
-# Users.psm1
+# Users.psm1 (Improved)
 # ==========================
+
 Import-Module "$PSScriptRoot/Utils.psm1" -Force
 
 $Script:UserCachePath = "$PSScriptRoot/../Data/users.csv"
-$Script:CacheExpiryDays = 7
 
- 
 
-# ==========================================================
-# Update-CACUserCache — Refresh user cache if stale or missing
-# ==========================================================
-function Update-CACUserCache {
-    Write-Log "Checking user cache path: $Script:UserCachePath" "DEBUG"
+# ================================================================
+# 1. Refresh User Cache ALWAYS — Rename Old + Create New
+# ================================================================
+function Refresh-CACUserStore {
+    Write-Log "Force refreshing CyberArk user cache" "INFO"
 
-    $needsRefresh = $false
+    # ---------- Rename existing cache ----------
+    if (Test-Path $Script:UserCachePath) {
+        $timestamp = (Get-Date -Format "yyyyMMdd_HHmmss")
+        $backupPath = $Script:UserCachePath.Replace(".csv", "_$timestamp.csv")
 
-    if (-not (Test-Path $Script:UserCachePath)) {
-        Write-Log "User cache file does NOT exist — refresh required" "WARN"
-        $needsRefresh = $true
-    }
-    elseif ((Get-Item $Script:UserCachePath).Length -eq 0) {
-        Write-Log "User cache exists but EMPTY — refresh required" "WARN"
-        $needsRefresh = $true
-    }
-    else {
-        $lastWrite = (Get-Item $Script:UserCachePath).LastWriteTime
-        Write-Log "User cache last updated: $lastWrite" "DEBUG"
-
-        if ($lastWrite -lt (Get-Date).AddDays(-$Script:CacheExpiryDays)) {
-            Write-Log "User cache older than $Script:CacheExpiryDays days — refresh required" "WARN"
-            $needsRefresh = $true
-        }
-        else {
-            Write-Log "User cache is fresh — no refresh needed" "INFO"
-        }
+        Rename-Item -Path $Script:UserCachePath -NewName $backupPath -Force
+        Write-Log "Existing cache renamed to: $backupPath" "INFO"
     }
 
-    if ($needsRefresh) {
-        Write-Log "Triggering Refresh-CACUsers()" "INFO"
-        Refresh-CACUsers
-    }
-}
-
-# ==========================================================
-# Refresh-CACUsers — Fetch all PAS users and write users.csv
-# ==========================================================
-function Refresh-CACUsers {
-    Write-Log "Starting PAS user fetch using Get-PASUser..." "INFO"
-
+    # ---------- Fetch users ----------
     try {
-        Write-Log "Calling Get-PASUser -ExtendedDetails \$true" "DEBUG"
+        Write-Log "Fetching PAS users (Get-PASUser -ExtendedDetails \$true)" "INFO"
         $users = Get-PASUser -ExtendedDetails $true
 
         if (-not $users) {
-            Write-Log "Get-PASUser returned ZERO users" "WARN"
-        }
-        else {
-            Write-Log "Fetched $($users.Count) users from PAS" "SUCCESS"
+            Write-Log "ERROR: No users returned from PAS" "ERROR"
+            return
         }
 
-        $folder = Split-Path $Script:UserCachePath
-        Write-Log "Ensuring cache folder exists: $folder" "DEBUG"
-
-        if (-not (Test-Path $folder)) {
-            New-Item -ItemType Directory -Path $folder | Out-Null
-            Write-Log "Created missing folder: $folder" "INFO"
-        }
-
-        Write-Log "Writing users to CSV: $Script:UserCachePath" "INFO"
-
-        $users |
-            Select-Object UserName,
-                          DisplayName,
-                          Source,
-                          UserType,
-                          @{Name="Department";   Expression={$_.PersonalDetails.department}},
-                          @{Name="Title";        Expression={$_.PersonalDetails.title}},
-                          @{Name="Organization"; Expression={$_.PersonalDetails.organization}},
-                          @{Name="Profession";   Expression={$_.PersonalDetails.profession}} |
-            Export-Csv -Path $Script:UserCachePath -NoTypeInformation
-
-        Write-Log "User cache updated successfully" "SUCCESS"
+        Write-Log "Fetched $($users.Count) users" "SUCCESS"
     }
     catch {
-        Write-Log "ERROR fetching PAS users: $($_.Exception.Message)" "ERROR"
-        throw
+        Write-Log "ERROR while fetching PAS users: $($_.Exception.Message)" "ERROR"
+        return
+    }
+
+    # ---------- Ensure folder ----------
+    $folder = Split-Path $Script:UserCachePath
+    if (-not (Test-Path $folder)) {
+        New-Item -ItemType Directory -Path $folder | Out-Null
+        Write-Log "Created folder: $folder" "INFO"
+    }
+
+    # ---------- Export new CSV ----------
+    $users |
+    Select-Object UserName, id, DisplayName, Source, UserType,
+    @{Name = "Department"; Expression = { $_.personalDetails.department } },
+    @{Name = "Title"; Expression = { $_.personalDetails.title } },
+    @{Name = "Organization"; Expression = { $_.personalDetails.organization } },
+    @{Name = "Profession"; Expression = { $_.personalDetails.profession } } |
+    Export-Csv -Path $Script:UserCachePath -NoTypeInformation
+
+    Write-Log "New user cache created at $Script:UserCachePath" "SUCCESS"
+}
+
+
+# =====================================================================
+# 2. Import User Cache (Used Internally)
+# =====================================================================
+function Import-CACUserStore {
+    if (-not (Test-Path $Script:UserCachePath)) {
+        Write-Log "User cache not found — forcing refresh" "WARN"
+        Refresh-CACUserStore
+    }
+
+    try {
+        return Import-Csv $Script:UserCachePath
+    }
+    catch {
+        Write-Log "User cache corrupted — forcing refresh" "ERROR"
+        Refresh-CACUserStore
+        return Import-Csv $Script:UserCachePath
     }
 }
 
-# ==========================================================
-# Get-CACUserFromCache — Look up user in users.csv
-# ==========================================================
-function Get-CACUserFromCache {
-    param([string]$UserName)
 
-    Write-Log "Lookup requested for username: $UserName" "INFO"
+# =====================================================================
+# 3. Search User by Name OR ID Automatically
+# =====================================================================
+function Find-CACUser {
+    param(
+        [Parameter(Mandatory)][string]$InputValue
+    )
 
-    Update-CACUserCache
+    Write-Log "Find-CACUser() input: $InputValue" "INFO"
 
-    Write-Log "Loading user cache CSV: $Script:UserCachePath" "DEBUG"
-    try {
-        $csv = Import-Csv $Script:UserCachePath
+    $users = Import-CACUserStore
+
+    # ---------------------------
+    # Detect ID or Name
+    # ---------------------------
+    $isId = $false
+
+    # CyberArk UserId is usually GUID-like
+    if ($InputValue -match "^[a-fA-F0-9\-]{24,36}$") {
+        $isId = $true
     }
-    catch {
-        Write-Log "Failed to read user CSV: $($_.Exception.Message)" "ERROR"
-        return $null
-    }
 
-    Write-Log "Searching for exact username match..." "DEBUG"
-
-    $match = $csv | Where-Object { $_.UserName -eq $UserName }
-
-    if ($match) {
-        Write-Log "Match FOUND: DisplayName = $($match.DisplayName)" "SUCCESS"
-        return $match
+    if ($isId) {
+        Write-Log "Treating as USER ID" "INFO"
+        $match = $users | Where-Object { $_.id -eq $InputValue }
     }
     else {
-        Write-Log "No match found for '$UserName' in cached user list" "WARN"
+        Write-Log "Treating as USERNAME" "INFO"
+        $match = $users | Where-Object { $_.UserName -eq $InputValue -or $_.DisplayName -like "*$InputValue*" }
+    }
+
+    if (-not $match) {
+        Write-Host "No user found for input: $InputValue" -ForegroundColor Yellow
         return $null
     }
+
+    Write-Host "`nUser Details:" -ForegroundColor Cyan
+    $match | Format-List *
+
+    return $match
 }
 
-# ==========================================================
-# Get-CACGroupMembers — Resolve CyberArk group member list
-# ==========================================================
-function Get-CACGroupMembers {
-    param([string]$GroupName)
 
-    Write-Log "Fetching PAS group details for: $GroupName" "INFO"
+# =====================================================================
+# 4. Return Enriched Group Users
+# =====================================================================
+function Get-CACGroupUsers {
+    param([Parameter(Mandatory)][string]$GroupName)
+
+    Write-Log "Fetching group: $GroupName" "INFO"
 
     try {
-        Write-Log "Calling Get-PASGroup -GroupName $GroupName -IncludeMembers \$true" "DEBUG"
         $group = Get-PASGroup -GroupName $GroupName -IncludeMembers $true
-
-        if (-not $group) {
-            Write-Log "PAS group '$GroupName' NOT FOUND" "WARN"
-            return @()
-        }
-
-        if (-not $group.Members) {
-            Write-Log "Group '$GroupName' has ZERO members" "WARN"
-            return @()
-        }
-
-        $members = $group.Members.DisplayName
-
-        Write-Log "Group '$GroupName' contains $($members.Count) members" "SUCCESS"
-
-        return $members
     }
     catch {
-        Write-Log "ERROR resolving group members for '$GroupName': $($_.Exception.Message)" "ERROR"
-        return @()
+        Write-Log "Error fetching group: $($_.Exception.Message)" "ERROR"
+        return
     }
+
+    if (-not $group -or -not $group.Members) {
+        Write-Host "Group has no members!" -ForegroundColor Yellow
+        return
+    }
+
+    $users = Import-CACUserStore
+
+    $output = foreach ($m in $group.Members) {
+        $row = $users | Where-Object { $_.UserName -eq $m.UserName }
+
+        if ($row) {
+            [PSCustomObject]@{
+                UserName     = $row.UserName
+                DisplayName  = $row.DisplayName
+                Department   = $row.Department
+                Title        = $row.Title
+                Organization = $row.Organization
+                Profession   = $row.Profession
+            }
+        }
+        else {
+            [PSCustomObject]@{
+                UserName     = $m.UserName
+                DisplayName  = ""
+                Department   = ""
+                Title        = ""
+                Organization = ""
+                Profession   = ""
+            }
+        }
+    }
+
+    $output | Format-Table -AutoSize
+    return $output
 }
 
-# ==========================================================
-Export-ModuleMember -Function * -Alias *
+ 
+Export-ModuleMember -Function *

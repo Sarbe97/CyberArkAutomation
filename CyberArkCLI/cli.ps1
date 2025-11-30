@@ -45,7 +45,8 @@ function Show-LoginMenu {
                 if (Invoke-CACLogin) {
                     $Script:IsLoggedIn = $true
                     return
-                } else {
+                }
+                else {
                     Write-Host "Login failed. Try again." -ForegroundColor Red
                     Pause
                 }
@@ -154,23 +155,33 @@ function Show-SafeMenu {
 function Show-UserMenu {
     while ($true) {
         Clear-Host
-        Write-Host "=========== USER MENU ==========="
+        Write-Host "=========== USER MENU ===========" -ForegroundColor Cyan
         Write-Host "1. Refresh User Cache"
-        Write-Host "2. Export User Details"
-        Write-Host "3. Get Members of a Group"
+        Write-Host "2. Search User (Name or ID)"
+        Write-Host "3. Get Users in a Group"
         Write-Host "0. Back"
         Write-Host "================================="
 
-        $choice = Read-Host "Enter Choice"
+        $choice = Read-Host "Enter your choice"
 
         switch ($choice) {
-            1 { Update-CACUserCache; Pause }
-            2 { Export-CACUserCache; Pause }
-            3 {
-                $grp = Read-Host "Enter Group Name"
-                Get-CACGroupMembers -GroupName $grp | Format-Table
+
+            1 {
+                Refresh-CACUserStore; Pause
+            }
+
+            2 {
+                $val = Read-Host "Enter Username OR User ID"
+                Find-CACUser -InputValue $val
                 Pause
             }
+
+            3 {
+                $grp = Read-Host "Enter Group Name"
+                Get-CACGroupUsers -GroupName $grp | Format-Table
+                Pause
+            }
+
             0 { return }
 
             default {
@@ -180,6 +191,7 @@ function Show-UserMenu {
         }
     }
 }
+
 
 
 

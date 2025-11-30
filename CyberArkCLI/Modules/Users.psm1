@@ -25,7 +25,7 @@ function Refresh-CACUserStore {
     # ---------- Fetch users (shallow details) ----------
     try {
         Write-Log "Fetching PAS users (Get-PASUser -ExtendedDetails \$true)" "INFO"
-        $users = Get-PASUser -ExtendedDetails $true
+        $users = Get-PASUser
 
         if (-not $users) {
             Write-Log "ERROR: No users returned from PAS" "ERROR"
@@ -48,12 +48,13 @@ function Refresh-CACUserStore {
 
     # ---------- Build final enriched user list ----------
     $finalUsers = @()
-
+    $total = $users.Count
+    $counter = 1
     foreach ($u in $users) {
-        Write-Log "Fetching full details for User ID: $($u.id)" "DEBUG"
+        Write-Log "Fetching full details for User ($counter/$total) User ID: $($u.id)" "DEBUG"
 
         try {
-            $detail = Get-PASUser -id $u.id -ExtendedDetails $true
+            $detail = Get-PASUser -id $u.id
         }
         catch {
             Write-Log "Failed to fetch full details for $($u.UserName). Using shallow data." "WARN"
@@ -75,7 +76,7 @@ function Refresh-CACUserStore {
 
         # if($detail.Source -eq "EPVUser") {
         # }  
-         
+
         $finalUsers += [PSCustomObject]@{
             id           = $detail.id
             UserName     = $detail.UserName
@@ -87,6 +88,8 @@ function Refresh-CACUserStore {
             Title        = $detail.personalDetails.title
             Organization = $detail.personalDetails.organization
         }
+
+        $counter++
     }
 
     # ---------- Export to CSV ----------

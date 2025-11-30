@@ -90,7 +90,7 @@ function Search-CACSafeByName {
     try {
         Write-Log "Calling Get-PASSafe -SafeName $SafeName" "DEBUG"
         $resp = Get-PASSafe -SafeName $SafeName
-
+        Write-Host "$resp"
         if (-not $resp) {
             Write-Log "Safe '$SafeName' not found" "WARN"
             Write-Host "Safe not found!" -ForegroundColor Yellow
@@ -112,8 +112,7 @@ function Search-CACSafeByName {
 
         $formatted | Export-Csv -Path $file -NoTypeInformation
 
-        Write-Log "Safe search export completed successfully → $file" "SUCCESS"
-        Write-Host "Export completed: $file" -ForegroundColor Green
+        Write-Log "Safe search export completed successfully  $file" "SUCCESS"
     }
     catch {
         Write-Log "Error searching safe '$SafeName': $($_.Exception.Message)" "ERROR"

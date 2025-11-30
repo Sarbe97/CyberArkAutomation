@@ -1,5 +1,5 @@
 # ==========================
-# Users.psm1 (Improved)
+# Users.psm1 (Enhanced + Correct)
 # ==========================
 
 Import-Module "$PSScriptRoot/Utils.psm1" -Force
@@ -8,7 +8,7 @@ $Script:UserCachePath = "$PSScriptRoot/../Data/users.csv"
 
 
 # ================================================================
-# 1. Refresh User Cache ALWAYS — Rename Old + Create New
+# 1. Refresh User Cache WITH deep details from Get-PASUser -id
 # ================================================================
 function Refresh-CACUserStore {
     Write-Log "Force refreshing CyberArk user cache" "INFO"
@@ -22,7 +22,7 @@ function Refresh-CACUserStore {
         Write-Log "Existing cache renamed to: $backupPath" "INFO"
     }
 
-    # ---------- Fetch users ----------
+    # ---------- Fetch users (shallow details) ----------
     try {
         Write-Log "Fetching PAS users (Get-PASUser -ExtendedDetails \$true)" "INFO"
         $users = Get-PASUser -ExtendedDetails $true
@@ -32,30 +32,60 @@ function Refresh-CACUserStore {
             return
         }
 
-        Write-Log "Fetched $($users.Count) users" "SUCCESS"
+        Write-Log "Fetched $($users.Count) users (shallow results)" "SUCCESS"
     }
     catch {
         Write-Log "ERROR while fetching PAS users: $($_.Exception.Message)" "ERROR"
         return
     }
 
-    # ---------- Ensure folder ----------
+    # ---------- Ensure Data folder ----------
     $folder = Split-Path $Script:UserCachePath
     if (-not (Test-Path $folder)) {
         New-Item -ItemType Directory -Path $folder | Out-Null
         Write-Log "Created folder: $folder" "INFO"
     }
 
-    # ---------- Export new CSV ----------
-    $users |
-    Select-Object UserName, id, DisplayName, Source, UserType,
-    @{Name = "Department"; Expression = { $_.personalDetails.department } },
-    @{Name = "Title"; Expression = { $_.personalDetails.title } },
-    @{Name = "Organization"; Expression = { $_.personalDetails.organization } },
-    @{Name = "Profession"; Expression = { $_.personalDetails.profession } } |
+    # ---------- Build final enriched user list ----------
+    $finalUsers = @()
+
+    foreach ($u in $users) {
+        Write-Log "Fetching full details for User ID: $($u.id)" "DEBUG"
+
+        try {
+            $detail = Get-PASUser -id $u.id -ExtendedDetails $true
+        }
+        catch {
+            Write-Log "Failed to fetch full details for $($u.UserName). Using shallow data." "WARN"
+            $detail = $u
+        }
+
+        # Build Full Name
+        $first = $detail.personalDetails.firstName
+        $middle = $detail.personalDetails.middleName
+        $last = $detail.personalDetails.lastName
+
+        $fullName = ($first, $middle, $last -ne $null -and $_ -ne "") -join " "
+        $fullName = $fullName.Trim()
+
+        $finalUsers += [PSCustomObject]@{
+            id           = $detail.id
+            UserName     = $detail.UserName
+            Description  = $detail.Description
+            Source       = $detail.Source
+            UserType     = $detail.UserType
+            FullName     = $fullName
+            Department   = $detail.personalDetails.department
+            Title        = $detail.personalDetails.title
+            Organization = $detail.personalDetails.organization
+        }
+    }
+
+    # ---------- Export to CSV ----------
+    $finalUsers |
     Export-Csv -Path $Script:UserCachePath -NoTypeInformation
 
-    Write-Log "New user cache created at $Script:UserCachePath" "SUCCESS"
+    Write-Log "New enriched user cache created at $Script:UserCachePath" "SUCCESS"
 }
 
 
@@ -91,15 +121,7 @@ function Find-CACUser {
 
     $users = Import-CACUserStore
 
-    # ---------------------------
-    # Detect ID or Name
-    # ---------------------------
-    $isId = $false
-
-    # CyberArk UserId is usually GUID-like
-    if ($InputValue -match "^[a-fA-F0-9\-]{24,36}$") {
-        $isId = $true
-    }
+    $isId = $InputValue -match "^[a-fA-F0-9\-]{24,36}$"
 
     if ($isId) {
         Write-Log "Treating as USER ID" "INFO"
@@ -107,7 +129,7 @@ function Find-CACUser {
     }
     else {
         Write-Log "Treating as USERNAME" "INFO"
-        $match = $users | Where-Object { $_.UserName -eq $InputValue -or $_.DisplayName -like "*$InputValue*" }
+        $match = $users | Where-Object { $_.UserName -eq $InputValue -or $_.FullName -like "*$InputValue*" }
     }
 
     if (-not $match) {
@@ -151,21 +173,19 @@ function Get-CACGroupUsers {
         if ($row) {
             [PSCustomObject]@{
                 UserName     = $row.UserName
-                DisplayName  = $row.DisplayName
+                FullName     = $row.FullName
                 Department   = $row.Department
                 Title        = $row.Title
                 Organization = $row.Organization
-                Profession   = $row.Profession
             }
         }
         else {
             [PSCustomObject]@{
                 UserName     = $m.UserName
-                DisplayName  = ""
+                FullName     = ""
                 Department   = ""
                 Title        = ""
                 Organization = ""
-                Profession   = ""
             }
         }
     }
@@ -174,5 +194,5 @@ function Get-CACGroupUsers {
     return $output
 }
 
- 
+
 Export-ModuleMember -Function *

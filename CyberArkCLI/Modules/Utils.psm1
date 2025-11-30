@@ -4,22 +4,61 @@
 
 function Write-Log {
     param(
-        [Parameter(Mandatory)][string]$Message,
+        [Parameter(Mandatory)]
+        [string]$Message,
+
         [ValidateSet("INFO", "WARN", "ERROR", "DEBUG", "SUCCESS")]
-        [string]$Level = "INFO"
+        [string]$Level = "INFO",
+
+        [bool]$ShowOnScreen = $false,
+
+        [string]$LogDirectory = "$PSScriptRoot/../Logs"
     )
 
-    $timestamp = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
-
-    $color = switch ($Level) {
-        "INFO" { "White" }
-        "WARN" { "Yellow" }
-        "ERROR" { "Red" }
-        "DEBUG" { "DarkGray" }
-        "SUCCESS" { "Green" }
+    # ---------------------------------------------------------
+    # 1. Ensure log directory exists
+    # ---------------------------------------------------------
+    if (-not (Test-Path $LogDirectory)) {
+        New-Item -ItemType Directory -Path $LogDirectory | Out-Null
     }
 
-    Write-Host "[$timestamp][$Level] $Message" -ForegroundColor $color
+    # ---------------------------------------------------------
+    # 2. Determine today’s log file
+    #    Format: cyberark_2025-01-18.log
+    # ---------------------------------------------------------
+    $today = (Get-Date -Format "yyyy-MM-dd")
+    $logFile = Join-Path $LogDirectory "cyberark_$today.log"
+
+    # ---------------------------------------------------------
+    # 3. Build log line
+    # ---------------------------------------------------------
+    $timestamp = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+    $line = "[$timestamp][$Level] $Message"
+
+    # ---------------------------------------------------------
+    # 4. Write to log file (auto daily rotation)
+    # ---------------------------------------------------------
+    try {
+        Add-Content -Path $logFile -Value $line -Encoding UTF8
+    }
+    catch {
+        Write-Host "[LOG ERROR] Cannot write to log file: $logFile" -ForegroundColor Red
+    }
+
+    # ---------------------------------------------------------
+    # 5. Optional screen output
+    # ---------------------------------------------------------
+    if ($ShowOnScreen) {
+        $color = switch ($Level) {
+            "INFO" { "White" }
+            "WARN" { "Yellow" }
+            "ERROR" { "Red" }
+            "DEBUG" { "DarkGray" }
+            "SUCCESS" { "Green" }
+        }
+
+        Write-Host $line -ForegroundColor $color
+    }
 }
 
 function Convert-CACTimestamp {

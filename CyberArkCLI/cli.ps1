@@ -6,28 +6,49 @@ Clear-Host
 Import-Module psPAS -ErrorAction Stop
 
 # ------------------------------------------------------------
-# Load our internal modules
+# Module folder
 # ------------------------------------------------------------
 $modulePath = Join-Path $PSScriptRoot "Modules"
-Write-Host $modulePath
+Write-Host "Module Path: $modulePath"
 
-Import-Module (Join-Path $modulePath "Login.psm1")      -Force
-Import-Module (Join-Path $modulePath "Config.psm1")     -Force
-Import-Module (Join-Path $modulePath "Safes.psm1")      -Force
-Import-Module (Join-Path $modulePath "Users.psm1")      -Force
-Import-Module (Join-Path $modulePath "Onboarding.psm1") -Force
-Import-Module (Join-Path $modulePath "Monitor.psm1")    -Force
-Import-Module (Join-Path $modulePath "Reports.psm1")    -Force
+# ------------------------------------------------------------
+# Function to reload all modules (Hot-Reload)
+# ------------------------------------------------------------
+function Reload-Modules {
+    Write-Host "Reloading internal modules..." -ForegroundColor Cyan
+
+    # Get all .psm1 files in Modules folder
+    $psm1Files = Get-ChildItem -Path $modulePath -Filter *.psm1
+
+    foreach ($file in $psm1Files) {
+        $modName = [System.IO.Path]::GetFileNameWithoutExtension($file.Name)
+        # Remove module if already loaded
+        Remove-Module $modName -ErrorAction SilentlyContinue
+        # Import module
+        Import-Module $file.FullName -Force
+        Write-Host "Reloaded module: $modName"
+    }
+
+    # Dot-source any standalone scripts (.ps1)
+    $ps1Files = Get-ChildItem -Path $modulePath -Filter *.ps1
+    foreach ($file in $ps1Files) {
+        . $file.FullName
+        Write-Host "Dot-sourced script: $($file.Name)"
+    }
+
+    Write-Host "All modules reloaded successfully." -ForegroundColor Green
+}
+
+# Initial load
+Reload-Modules
 
 # ------------------------------------------------------------
 # Global login state
 # ------------------------------------------------------------
 $Script:IsLoggedIn = $false
 
-
- 
 # ============================================================
-# LOGIN SCREEN (Appears before main menu)
+# LOGIN SCREEN
 # ============================================================
 function Show-LoginMenu {
     while (-not $Script:IsLoggedIn) {
@@ -35,6 +56,7 @@ function Show-LoginMenu {
         Clear-Host
         Write-Host "=========== CyberArk CLI ===========" -ForegroundColor Cyan
         Write-Host "1. Login"
+        Write-Host "2. Reload Modules (Dev Only)"
         Write-Host "0. Exit"
         Write-Host "===================================="
 
@@ -52,6 +74,11 @@ function Show-LoginMenu {
                 }
             }
 
+            '2' {
+                Reload-Modules
+                Pause
+            }
+
             '0' { exit }
 
             default {
@@ -62,10 +89,8 @@ function Show-LoginMenu {
     }
 }
 
-
-
 # ============================================================
-# MAIN MENU (Shown ONLY AFTER LOGIN)
+# MAIN MENU
 # ============================================================
 function Show-MainMenu {
     while ($true) {
@@ -112,8 +137,6 @@ function Show-MainMenu {
     }
 }
 
-
-
 # ============================================================
 # SAFE MENU
 # ============================================================
@@ -148,9 +171,6 @@ function Show-SafeMenu {
         }
     }
 }
-
-
-
 
 # ============================================================
 # USER MENU
@@ -189,9 +209,6 @@ function Show-UserMenu {
     }
 }
 
-
-
-
 # ============================================================
 # ONBOARDING MENU
 # ============================================================
@@ -220,8 +237,6 @@ function Show-OnboardingMenu {
     }
 }
 
-
-
 # ============================================================
 # MONITOR MENU
 # ============================================================
@@ -246,8 +261,6 @@ function Show-MonitorMenu {
         }
     }
 }
-
-
 
 # ============================================================
 # REPORT MENU
@@ -281,7 +294,6 @@ function Show-ReportMenu {
         }
     }
 }
-
 
 # ============================================================
 # START THE APPLICATION

@@ -22,14 +22,6 @@ function Invoke-CACLogin {
     $cred = New-Object System.Management.Automation.PSCredential ($result.Username, $secure)
 
     try {
-        if ($result.Url -eq "http://localhost:8080") {
-            # MOCK SESSION
-            $global:CACSession = $null
-            $global:CACSessionToken = "MOCK_TOKEN_12345"
-            return $true
-        }
-
-        # Real login
         $global:CACSession = New-PASSession -Credential $cred -BaseURI $result.Url
         return $true
     }

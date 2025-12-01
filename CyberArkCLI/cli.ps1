@@ -14,36 +14,65 @@ Write-Host "Module Path: $modulePath"
 # ------------------------------------------------------------
 # Function to reload all modules (Hot-Reload)
 # ------------------------------------------------------------
-function Reload-Modules {
-    Write-Host "`n=== Reloading Modules ===" -ForegroundColor Cyan
+function Reload-CACModules {
+    Write-Host "==============================================" -ForegroundColor DarkGray
+    Write-Host "🔄 Reloading CyberArk CLI modules..." -ForegroundColor Cyan
+    Write-Host "=============================================="
 
-    $moduleFiles = Get-ChildItem "$PSScriptRoot/Modules" -Filter *.psm1
+    # All modules used in this project
+    $modules = @(
+        "Safes",
+        "Users",
+        "Login",
+        "Config",
+        "Utils"
+    )
 
-    foreach ($file in $moduleFiles) {
-        $moduleName = $file.BaseName
-        $modulePath = $file.FullName
-
-        # Remove module if already loaded
-        if (Get-Module $moduleName) {
-            Remove-Module $moduleName -Force
-        }
-
-        # Import again
-        Import-Module $modulePath -Force
-
-        # Show loaded functions
-        $functions = (Get-Module $moduleName).ExportedFunctions.Keys
-
-        Write-Host "`n[$moduleName] functions:" -ForegroundColor Yellow
-        if ($functions.Count -eq 0) {
-            Write-Host "  (no exported functions)" -ForegroundColor DarkGray
-        } else {
-            $functions | ForEach-Object { Write-Host "  - $_" }
+    # -----------------------------
+    # 1. UNLOAD MODULES (reverse order)
+    # -----------------------------
+    foreach ($m in $modules) {
+        if (Get-Module -Name $m) {
+            Remove-Module -Name $m -Force
+            Write-Host "✔ Unloaded module: $m" -ForegroundColor Yellow
         }
     }
 
-    Write-Host "`n=== Reload Complete ===`n" -ForegroundColor Green
+    # -----------------------------
+    # 2. LOAD MODULES (correct dependency order)
+    # -----------------------------
+    Write-Host "`n📦 Loading modules..." -ForegroundColor Green
+
+    Import-Module "$PSScriptRoot/Modules/Utils.psm1" -Force
+    Import-Module "$PSScriptRoot/Modules/Config.psm1" -Force
+    Import-Module "$PSScriptRoot/Modules/Login.psm1" -Force
+    Import-Module "$PSScriptRoot/Modules/Users.psm1" -Force
+    Import-Module "$PSScriptRoot/Modules/Safes.psm1" -Force
+
+    Write-Host "✔ All modules loaded successfully." -ForegroundColor Green
+
+    # -----------------------------
+    # 3. SHOW EXPORTED FUNCTIONS
+    # -----------------------------
+    Write-Host "`n=============================================="
+    Write-Host "📋 Exported Functions (per module)"
+    Write-Host "==============================================`n"
+
+    foreach ($m in @("Utils","Config","Login","Users","Safes")) {
+        $mod = Get-Module -Name $m
+        if ($mod) {
+            Write-Host "• $m" -ForegroundColor Cyan
+            $mod.ExportedFunctions.Keys | Sort-Object | ForEach-Object {
+                Write-Host "   - $_"
+            }
+            Write-Host
+        }
+    }
+
+    Write-Host "🔄 Module reload completed." -ForegroundColor Green
+    Write-Host "=============================================="
 }
+
 
 
 # Initial load

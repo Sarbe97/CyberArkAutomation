@@ -1,6 +1,11 @@
 # Login.psm1
 Import-Module psPAS -ErrorAction Stop
-Import-Module (Join-Path $PSScriptRoot "LoginForm.psm1") -Force
+$loginFormScript = Join-Path $PSScriptRoot "LoginForm.ps1"
+if (-not (Test-Path $loginFormScript)) {
+    throw "LoginForm.ps1 not found: $loginFormScript"
+}
+. $loginFormScript   # <-- dot-source the UI function
+
 
 function Invoke-CACLogin {
     $cfg = Get-CACConfig

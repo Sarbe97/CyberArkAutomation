@@ -2,59 +2,6 @@
 # Safes.psm1
 # ==========================
 
-# Import-Module "$PSScriptRoot/Config.psm1" -Force
-# Import-Module "$PSScriptRoot/Users.psm1" -Force
-# Import-Module "$PSScriptRoot/Utils.psm1" -Force
-
-
-# --------------------------------------------------
-# Helper: Build output row for a user
-# --------------------------------------------------
-function New-CACSafeMemberRow {
-    param(
-        [string]$SafeName,
-        [object]$UserObj
-    )
-
-    return [PSCustomObject]@{
-        SafeName     = $SafeName
-        UserName     = $UserObj.UserName
-        FullName     = $UserObj.FullName
-        Department   = $UserObj.Department
-        Title        = $UserObj.Title
-        Organization = $UserObj.Organization
-    }
-}
-# =========================================================
-# Utility: Format a safe object for consistent CSV output
-# =========================================================
-function Format-CACSafe {
-    param([Parameter(Mandatory)][object]$Safe)
-
-    Write-Log "Formatting safe object: $($Safe.safeName)" "DEBUG"
-
-    return [PSCustomObject]@{
-        SafeName                  = $Safe.safeName
-        SafeUrlId                 = $Safe.safeUrlId
-        SafeNumber                = $Safe.safeNumber
-        Description               = $Safe.description
-        Location                  = $Safe.location
-
-        CreatorId                 = $Safe.creator.id
-        CreatorName               = $Safe.creator.name
-
-        NumberOfVersionsRetention = $Safe.numberOfVersionsRetention
-        NumberOfDaysRetention     = $Safe.numberOfDaysRetention
-        AutoPurgeEnabled          = $Safe.autoPurgeEnabled
-
-        CreationTime              = Convert-CACTimestamp $Safe.creationTime
-        LastModificationTime      = Convert-CACTimestamp $Safe.lastModificationTime
-
-        ManagingCPM               = $Safe.managingCPM
-        OlacEnabled               = $Safe.olacEnabled
-    }
-}
-
 # =========================================================
 # 1. Export ALL Safes (native PAS pagination)
 # =========================================================
@@ -73,7 +20,7 @@ function Export-CACAllSafes {
 
         Write-Log "Total safes returned: $($resp.value.Count)" "INFO"
 
-        $formatted = $resp.value | ForEach-Object { Format-CACSafe $_ }
+        $formatted = $resp.value | ForEach-Object { Set-CACSafe $_ }
 
         $outputDir = "$PSScriptRoot/../Output"
         if (-not (Test-Path $outputDir)) {
@@ -117,7 +64,7 @@ function Search-CACSafeByName {
         }
 
         Write-Log "Safe object received. Formatting..." "DEBUG"
-        $formatted = Format-CACSafe -Safe $resp
+        $formatted = Set-CACSafe -Safe $resp
 
         # Ensure output directory
         $outputDir = "$PSScriptRoot/../Output"
@@ -144,9 +91,15 @@ function Search-CACSafeByName {
 # --------------------------------------------------
 # Export Safe Members (Users + Groups)
 # --------------------------------------------------
+
+# ============================================================
+# Export Safe Members WITH PERMISSIONS (Direct from psPAS)
+# ============================================================
 function Export-CACSafeMembers {
     [CmdletBinding()]
     param()
+
+    Write-Log "Started Export-CACSafeMembers()" "DEBUG"
 
     Write-Host "Choose Input Mode:" -ForegroundColor Cyan
     Write-Host "1 = Enter safe names manually (comma separated)"
@@ -162,67 +115,89 @@ function Export-CACSafeMembers {
 
         '2' {
             $csvPath = Read-Host "Enter full CSV path"
-            if (!(Test-Path $csvPath)) { Write-Host "CSV not found!" -ForegroundColor Red; return }
+            if (!(Test-Path $csvPath)) { 
+                Write-Host "CSV not found!" -ForegroundColor Red
+                Write-Log "Input CSV not found: $csvPath" "ERROR"
+                return 
+            }
 
             $safeNames = (Import-Csv $csvPath).SafeName | ForEach-Object { $_.Trim() }
-
             $outputToCsv = $true
             $outCsv = Read-Host "Enter output CSV path"
         }
 
-        default { Write-Host "Invalid option." -ForegroundColor Red; return }
+        default { 
+            Write-Host "Invalid option." -ForegroundColor Red
+            Write-Log "Invalid mode selected" "WARN"
+            return 
+        }
     }
 
     $rows = @()
 
     foreach ($safeName in $safeNames) {
+
+        Write-Log "Processing safe: $safeName" "INFO"
 
         try {
             $members = Get-PASSafeMember -SafeName $safeName -ErrorAction Stop
         }
         catch {
-            Write-Host "Error fetching members for $safeName - $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host "Error fetching members for '$safeName' - $($_.Exception.Message)" -ForegroundColor Red
+            Write-Log "Failed to fetch members for '$safeName' : $($_.Exception.Message)" "ERROR"
             continue
         }
 
-        foreach ($m in $members) {
+        if (-not $members) {
+            Write-Log "No members found for safe: $safeName" "WARN"
+            continue
+        }
 
-            if ($m.MemberType -eq "User") {
+        foreach ($member in $members) {
 
-                $u = Get-UserDetailsFromStore -InputValue $m.MemberName
-                $rows += New-CACSafeMemberRow -SafeName $safeName -UserObj $u
-            }
+            Write-Log "Processing member: $($member.MemberName) (Type: $($member.MemberType))" "DEBUG"
 
-            elseif ($m.MemberType -eq "Group") {
-
-                $groupUsers = Get-CACGroupUsers -GroupName $m.MemberName
-
-                foreach ($g in $groupUsers) {
-                    $rows += New-CACSafeMemberRow -SafeName $safeName -UserObj $g
-                }
-            }
-
+            # Create row with all permissions directly from psPAS response
+            $row = New-CACSafeMemberRowWithPermissions -SafeName $safeName -MemberObj $member
+            $rows += $row
         }
     }
 
+    if ($rows.Count -eq 0) {
+        Write-Host "No members found for the specified safes." -ForegroundColor Yellow
+        Write-Log "No safe members found" "WARN"
+        return
+    }
+
+    # Export or display results
     if ($outputToCsv) {
-        $rows | Export-Csv -Path $outCsv -NoTypeInformation
+        Write-Log "Exporting $($rows.Count) members to CSV: $outCsv" "INFO"
+        $rows | Export-Csv -Path $outCsv -NoTypeInformation -Encoding UTF8
         Write-Host "Export completed: $outCsv" -ForegroundColor Green
+        Write-Log "Safe members exported successfully to: $outCsv" "SUCCESS"
     }
     else {
-        Write-Host "`n--- SAFE MEMBERS ---" -ForegroundColor Yellow
+        Write-Host "`n--- SAFE MEMBERS WITH PERMISSIONS ---" -ForegroundColor Yellow
+        Write-Host "Total members found: $($rows.Count)" -ForegroundColor Cyan
+        Write-Host ""
         $rows | Format-Table -AutoSize
     }
+
+    Write-Log "Completed Export-CACSafeMembers()" "DEBUG"
 }
 
 
 
-# --------------------------------------------------
-# Export only Safe Users (ignore permissions)
-# --------------------------------------------------
+
+
+# ============================================================
+# Export Safe Users (Users from Safes + Groups, with Details)
+# ============================================================
 function Export-CACSafeUsers {
     [CmdletBinding()]
     param()
+
+    Write-Log "Started Export-CACSafeUsers()" "DEBUG"
 
     Write-Host "Choose Input Mode:" -ForegroundColor Cyan
     Write-Host "1 = Enter safe names manually (comma separated)"
@@ -238,57 +213,120 @@ function Export-CACSafeUsers {
 
         '2' {
             $csvPath = Read-Host "Enter full CSV path"
-            if (!(Test-Path $csvPath)) { Write-Host "CSV not found!" -ForegroundColor Red; return }
+            if (!(Test-Path $csvPath)) { 
+                Write-Host "CSV not found!" -ForegroundColor Red
+                Write-Log "Input CSV not found: $csvPath" "ERROR"
+                return 
+            }
 
             $safeNames = (Import-Csv $csvPath).SafeName | ForEach-Object { $_.Trim() }
-
             $outputToCsv = $true
             $outCsv = Read-Host "Enter output CSV path"
         }
 
-        default { Write-Host "Invalid option." -ForegroundColor Red; return }
+        default { 
+            Write-Host "Invalid option." -ForegroundColor Red
+            Write-Log "Invalid mode selected" "WARN"
+            return 
+        }
     }
 
     $rows = @()
 
     foreach ($safeName in $safeNames) {
+
+        Write-Log "Processing safe: $safeName" "INFO"
 
         try {
             $members = Get-PASSafeMember -SafeName $safeName -ErrorAction Stop
         }
         catch {
             Write-Host "Error retrieving members for '$safeName' - $($_.Exception.Message)" -ForegroundColor Red
+            Write-Log "Failed to fetch members for '$safeName' : $($_.Exception.Message)" "ERROR"
             continue
         }
 
-        foreach ($m in $members) {
+        if (-not $members) {
+            Write-Log "No members found for safe: $safeName" "WARN"
+            continue
+        }
 
-            if ($m.MemberType -eq "User") {
+        foreach ($member in $members) {
 
-                $u = Get-UserDetailsFromStore -InputValue $m.MemberName
-                $rows += New-CACSafeMemberRow -SafeName $safeName -UserObj $u
+            Write-Log "Processing member: $($member.MemberName) (Type: $($member.MemberType))" "DEBUG"
+
+            # If member is a User
+            if ($member.MemberType -eq "User") {
+
+                Write-Log "Fetching user details for: $($member.MemberName)" "DEBUG"
+
+                # Get user details from cache using MemberName (the user identifier)
+                $userDetails = Get-CACUserDetailsFromStore -InputValue $member.MemberName
+
+                # Create row with safe name, safe member (the user name), and user details
+                $row = New-CACSafeUserRow `
+                    -SafeName $safeName `
+                    -SafeMember $member.MemberName `
+                    -UserObj $userDetails
+
+                $rows += $row
             }
 
-            elseif ($m.MemberType -eq "Group") {
+            # If member is a Group
+            elseif ($member.MemberType -eq "Group") {
 
-                $grpUsers = Get-CACGroupUsers -GroupName $m.MemberName
+                Write-Log "Fetching group members for group: $($member.MemberName)" "DEBUG"
 
-                foreach ($g in $grpUsers) {
-                    $rows += New-CACSafeMemberRow -SafeName $safeName -UserObj $g
+                # Get all users in the group (returns user objects with Id and UserName)
+                $groupMembers = Get-CACGroupUsers -GroupName $member.MemberName
+
+                if ($groupMembers) {
+                    foreach ($groupMember in $groupMembers) {
+
+                        Write-Log "Processing group member: $($groupMember.UserName) (Id: $($groupMember.Id))" "DEBUG"
+
+                        # Get user details from cache using the user ID (preferred method)
+                        $userDetails = Get-CACUserDetailsFromStore -InputValue $groupMember.Id
+
+                        # Create row with safe name, safe member (the group name), and user details
+                        $row = New-CACSafeUserRow `
+                            -SafeName $safeName `
+                            -SafeMember $member.MemberName `
+                            -UserObj $userDetails
+
+                        $rows += $row
+                    }
+                }
+                else {
+                    Write-Log "No users found in group: $($member.MemberName)" "WARN"
                 }
             }
         }
     }
 
+    if ($rows.Count -eq 0) {
+        Write-Host "No users found for the specified safes." -ForegroundColor Yellow
+        Write-Log "No safe users found" "WARN"
+        return
+    }
+
+    # Export or display results
     if ($outputToCsv) {
-        $rows | Export-Csv -Path $outCsv -NoTypeInformation
+        Write-Log "Exporting $($rows.Count) users to CSV: $outCsv" "INFO"
+        $rows | Export-Csv -Path $outCsv -NoTypeInformation -Encoding UTF8
         Write-Host "Export completed: $outCsv" -ForegroundColor Green
+        Write-Log "Safe users exported successfully to: $outCsv" "SUCCESS"
     }
     else {
-        Write-Host "`n--- SAFE USERS ---" -ForegroundColor Yellow
+        Write-Host "`n--- SAFE USERS WITH DETAILS ---" -ForegroundColor Yellow
+        Write-Host "Total users found: $($rows.Count)" -ForegroundColor Cyan
+        Write-Host ""
         $rows | Format-Table -AutoSize
     }
+
+    Write-Log "Completed Export-CACSafeUsers()" "DEBUG"
 }
+
 
 
 # ---------------------------------------------------------
@@ -425,12 +463,9 @@ function Add-CACSafeMember {
 
 # Export module members
 Export-ModuleMember -Function `
-    New-CACSafe, `
-    Add-CACSafeMember, `
-    New-CACSafeMemberRow, `
-    Format-CACSafe, `
     Export-CACAllSafes, `
     Search-CACSafeByName, `
     Export-CACSafeMembers, `
-    Export-CACSafeUsers
-
+    Export-CACSafeUsers, `
+    New-CACSafe, `
+    Add-CACSafeMember

@@ -21,15 +21,16 @@ function Reload-CACModules {
 
     # All modules used in this project (in dependency order)
     $moduleFiles = @(
-    "Utils.psm1",
-    "Config.psm1",
-    "Login.psm1",
-    "Users.psm1",
-    "Safes.psm1",
-    "Onboarding.psm1",    # ← ADD THIS
-    "Monitor.psm1",        # ← ADD THIS
-    "Reports.psm1"         # ← ADD THIS
-)
+        "Utils.psm1",
+        "Config.psm1",
+        "Models.psm1",
+        "Login.psm1",
+        "Users.psm1",
+        "Safes.psm1",
+        "Onboarding.psm1", 
+        "Monitor.psm1",
+        "Reports.psm1"
+    )
 
 
     $modulePaths = $moduleFiles | ForEach-Object { Join-Path "$PSScriptRoot/Modules" $_ }
@@ -186,7 +187,7 @@ function Show-SafeMenu {
         Write-Host "=========== SAFE MENU ==========="
         Write-Host "1. Export All Safes to CSV"
         Write-Host "2. Export Safe Members With Permissions"
-        Write-Host "3. View Safe Members (No Permissions)"
+        Write-Host "3. View Safe Members With Users (No Permissions)"
         Write-Host "4. Search A Safe By Name"
         Write-Host "5. Create Safe(s)"
         Write-Host "6. Add Safe Member(s)"
@@ -229,10 +230,10 @@ function Show-UserMenu {
 
         switch ($choice) {
 
-            1 { Initialize-CACUserStore; Pause }
+            1 { New-CACUserStore; Pause }
             2 {
                 $val = Read-Host "Enter Username OR User ID"
-                Get-UserDetailsFromStore -InputValue $val
+                Get-CACUserDetailsFromStore -InputValue $val
                 Pause
             }
             3 {

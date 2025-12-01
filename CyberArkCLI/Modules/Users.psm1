@@ -1,37 +1,54 @@
 # ==========================
-# Users.psm1 (Clean + Unified Object Model)
+# Users.psm1 (Optimized - Return Only Core Fields)
 # ==========================
 
 $Script:UserCachePath = "$PSScriptRoot/../Data/users.csv"
+$Script:UserCache = $null              # In-memory cache (loaded once)
+$Script:UserCacheLoadTime = $null      # Track when cache was loaded
+$Script:CacheExpireMinutes = 30        # Refresh cache every 30 minutes
 
 # ============================================================
-# Shared reusable User Object (TypeScript-style model)
+# Load user cache into memory (with TTL)
 # ============================================================
-function New-CACUserObject {
+function Initialize-CACUserCache {
     param(
-        [string]$Id = "",
-        [string]$UserName = "",
-        [string]$FullName = "",
-        [string]$Department = "",
-        [string]$Title = "",
-        [string]$Organization = ""
+        [bool]$Force = $false
     )
 
-    return [PSCustomObject]@{
-        Id           = $Id
-        UserName     = $UserName
-        FullName     = $FullName
-        Department   = $Department
-        Title        = $Title
-        Organization = $Organization
+    Write-Log "Initializing user cache (Force: $Force)" "DEBUG"
+
+    # Check if cache is still valid
+    if (-not $Force -and $Script:UserCache -and $Script:UserCacheLoadTime) {
+        $elapsed = (Get-Date) - $Script:UserCacheLoadTime
+        if ($elapsed.TotalMinutes -lt $Script:CacheExpireMinutes) {
+            Write-Log "User cache still valid (loaded $([Math]::Round($elapsed.TotalMinutes, 2)) minutes ago)" "DEBUG"
+            return
+        }
+    }
+
+    # Load from CSV file
+    if (-not (Test-Path $Script:UserCachePath)) {
+        Write-Log "Cache file missing at: $Script:UserCachePath" "WARN"
+        $Script:UserCache = $null
+        return
+    }
+
+    try {
+        $Script:UserCache = Import-Csv $Script:UserCachePath
+        $Script:UserCacheLoadTime = Get-Date
+        Write-Log "User cache loaded into memory. Records: $($Script:UserCache.Count)" "INFO"
+    }
+    catch {
+        Write-Log "Failed to load cache: $($_.Exception.Message)" "ERROR"
+        $Script:UserCache = $null
     }
 }
 
 # ============================================================
-# Refresh full user cache from CyberArk
+# Refresh full user cache from CyberArk (write to disk)
 # ============================================================
-function Initialize-CACUserStore {
-    Write-Log "Refreshing CyberArk user cache" "INFO"
+function New-CACUserStore {
+    Write-Log "Refreshing CyberArk user cache from API" "INFO"
 
     try {
         $users = Get-PASUser
@@ -60,13 +77,22 @@ function Initialize-CACUserStore {
         $last = $detail.personalDetails.lastName
         $fullName = "$first $middle $last".Trim()
 
+        # Extended user data - Store ALL fields
         $finalUsers += New-CACUserObject `
             -Id $detail.id `
             -UserName $detail.UserName `
             -FullName $fullName `
+            -Email $detail.personalDetails.mail `
             -Department $detail.personalDetails.department `
             -Title $detail.personalDetails.title `
-            -Organization $detail.personalDetails.organization
+            -Organization $detail.personalDetails.organization `
+            -Source $detail.source `
+            -UserType $detail.userType `
+            -Phone $detail.personalDetails.phone `
+            -Mobile $detail.personalDetails.mobile `
+            -Status $detail.userStatus `
+            -Created $detail.creationTime `
+            -LastLogin $detail.lastLoginDate
 
         $counter++
     }
@@ -74,41 +100,18 @@ function Initialize-CACUserStore {
     $folder = Split-Path $Script:UserCachePath
     if (-not (Test-Path $folder)) { New-Item -ItemType Directory -Path $folder | Out-Null }
 
-    $finalUsers | Export-Csv -Path $Script:UserCachePath -NoTypeInformation
-    Write-Log "User cache updated at $Script:UserCachePath" "SUCCESS"
+    $finalUsers | Export-Csv -Path $Script:UserCachePath -NoTypeInformation -Encoding UTF8
+    Write-Log "User cache saved to disk at: $Script:UserCachePath" "SUCCESS"
+    Write-Log "Cache contains: Id, UserName, FullName, Email, Department, Title, Organization, Source, UserType, Phone, Mobile, Status, Created, LastLogin" "INFO"
+
+    # Reload into memory
+    Initialize-CACUserCache -Force $true
 }
 
 # ============================================================
-# Import Cached Users
+# Get user details from in-memory cache (CORE FIELDS ONLY)
 # ============================================================
-function Get-CACUserStore {
-
-    if (-not (Test-Path $Script:UserCachePath)) {
-        Write-Log "Cache missing   rebuilding" "WARN"
-        Initialize-CACUserStore
-    }
-
-    try {
-        $csv = Import-Csv $Script:UserCachePath
-    }
-    catch {
-        Write-Log "Cache corrupted - rebuilding" "ERROR"
-        Initialize-CACUserStore
-        $csv = Import-Csv $Script:UserCachePath
-    }
-
-    if (-not $csv -or $csv.Count -eq 0) {
-        Write-Log "Cache empty, no user data" "WARN"
-        return
-    }
-
-    return $csv
-}
-
-# ============================================================
-# Get user details from cache by ID or username
-# ============================================================
-function Get-UserDetailsFromStore {
+function Get-CACUserDetailsFromStore {
     param(
         [Parameter(Mandatory = $true)]
         [string]$InputValue
@@ -116,9 +119,11 @@ function Get-UserDetailsFromStore {
 
     Write-Log "Looking up user: $InputValue" "DEBUG"
 
-    $users = Get-CACUserStore
-    if (-not $users) {
-        Write-Log "Empty cache, cannot enrich" "ERROR"
+    # Ensure cache is loaded
+    Initialize-CACUserCache
+
+    if (-not $Script:UserCache) {
+        Write-Log "User cache empty, cannot lookup" "ERROR"
         return New-CACUserObject -UserName $InputValue
     }
 
@@ -126,10 +131,12 @@ function Get-UserDetailsFromStore {
     $searchById = $InputValue -match '^\d+$'
 
     if ($searchById) {
-        $match = $users | Where-Object { $_.Id -eq $InputValue }
+        $match = $Script:UserCache | Where-Object { $_.Id -eq $InputValue }
     }
     else {
-        $match = $users | Where-Object { $_.UserName -eq $InputValue -or $_.FullName -like "*$InputValue*" }
+        $match = $Script:UserCache | Where-Object { 
+            $_.UserName -eq $InputValue -or $_.FullName -like "*$InputValue*" 
+        }
     }
 
     if (-not $match) {
@@ -137,17 +144,18 @@ function Get-UserDetailsFromStore {
         return New-CACUserObject -UserName $InputValue
     }
 
+    # Return ONLY CORE FIELDS (Id, UserName, FullName, Department, Title, Organization)
+    # Extended fields (Email, Phone, etc.) stored in CSV but NOT returned here
     return New-CACUserObject `
         -Id $match.Id `
         -UserName $match.UserName `
         -FullName $match.FullName `
-        -Department $match.Department `
         -Title $match.Title `
         -Organization $match.Organization
 }
 
 # ============================================================
-# Get users in a group
+# Get group members (ONLY Id and UserName, no enrichment)
 # ============================================================
 function Get-CACGroupUsers {
     param(
@@ -170,12 +178,17 @@ function Get-CACGroupUsers {
         return
     }
 
+    # Return ONLY member objects with Id and UserName
+    # Do NOT call Get-CACUserDetailsFromStore here
     $output = @()
     foreach ($m in $group.Members) {
-        $output += Get-UserDetailsFromStore -InputValue $m.UserName
+        $output += [PSCustomObject]@{
+            Id       = $m.Id
+            UserName = $m.UserName
+        }
     }
 
-    $output | Format-Table -AutoSize
+    Write-Log "Retrieved $($output.Count) members from group: $GroupName" "INFO"
     return $output
 }
 
@@ -183,8 +196,7 @@ function Get-CACGroupUsers {
 # EXPORT ALL PUBLIC FUNCTIONS
 # ============================================================
 Export-ModuleMember -Function `
-    New-CACUserObject, `
-    Initialize-CACUserStore, `
-    Get-CACUserStore, `
-    Get-UserDetailsFromStore, `
+    Initialize-CACUserCache, `
+    New-CACUserStore, `
+    Get-CACUserDetailsFromStore, `
     Get-CACGroupUsers

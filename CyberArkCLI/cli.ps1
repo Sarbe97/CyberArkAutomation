@@ -16,7 +16,7 @@ Write-Host "Module Path: $modulePath"
 # ------------------------------------------------------------
 function Reload-CACModules {
     Write-Host "==============================================" -ForegroundColor DarkGray
-    Write-Host "🔄 Reloading CyberArk CLI modules..." -ForegroundColor Cyan
+    Write-Host "Reloading CyberArk CLI modules..." -ForegroundColor Cyan
     Write-Host "=============================================="
 
     # All modules used in this project
@@ -34,34 +34,34 @@ function Reload-CACModules {
     foreach ($m in $modules) {
         if (Get-Module -Name $m) {
             Remove-Module -Name $m -Force
-            Write-Host "✔ Unloaded module: $m" -ForegroundColor Yellow
+            Write-Host "Unloaded module: $m" -ForegroundColor Yellow
         }
     }
 
     # -----------------------------
     # 2. LOAD MODULES (correct dependency order)
     # -----------------------------
-    Write-Host "`n📦 Loading modules..." -ForegroundColor Green
+    Write-Host "`nLoading modules..." -ForegroundColor Green
 
-    Import-Module "$PSScriptRoot/Modules/Utils.psm1" -Force
+    Import-Module "$PSScriptRoot/Modules/Utils.psm1"  -Force
     Import-Module "$PSScriptRoot/Modules/Config.psm1" -Force
-    Import-Module "$PSScriptRoot/Modules/Login.psm1" -Force
-    Import-Module "$PSScriptRoot/Modules/Users.psm1" -Force
-    Import-Module "$PSScriptRoot/Modules/Safes.psm1" -Force
+    Import-Module "$PSScriptRoot/Modules/Login.psm1"  -Force
+    Import-Module "$PSScriptRoot/Modules/Users.psm1"  -Force
+    Import-Module "$PSScriptRoot/Modules/Safes.psm1"  -Force
 
-    Write-Host "✔ All modules loaded successfully." -ForegroundColor Green
+    Write-Host "All modules loaded successfully." -ForegroundColor Green
 
     # -----------------------------
     # 3. SHOW EXPORTED FUNCTIONS
     # -----------------------------
     Write-Host "`n=============================================="
-    Write-Host "📋 Exported Functions (per module)"
+    Write-Host "Exported Functions (per module)"
     Write-Host "==============================================`n"
 
     foreach ($m in @("Utils","Config","Login","Users","Safes")) {
         $mod = Get-Module -Name $m
         if ($mod) {
-            Write-Host "• $m" -ForegroundColor Cyan
+            Write-Host "$m" -ForegroundColor Cyan
             $mod.ExportedFunctions.Keys | Sort-Object | ForEach-Object {
                 Write-Host "   - $_"
             }
@@ -69,9 +69,10 @@ function Reload-CACModules {
         }
     }
 
-    Write-Host "🔄 Module reload completed." -ForegroundColor Green
+    Write-Host "Module reload completed." -ForegroundColor Green
     Write-Host "=============================================="
 }
+
 
 
 

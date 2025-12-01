@@ -2,9 +2,9 @@
 # Safes.psm1
 # ==========================
 
-Import-Module "$PSScriptRoot/Config.psm1" -Force
-Import-Module "$PSScriptRoot/Users.psm1" -Force
-Import-Module "$PSScriptRoot/Utils.psm1" -Force
+# Import-Module "$PSScriptRoot/Config.psm1" -Force
+# Import-Module "$PSScriptRoot/Users.psm1" -Force
+# Import-Module "$PSScriptRoot/Utils.psm1" -Force
 
 
 # --------------------------------------------------
@@ -424,4 +424,13 @@ function Add-CACSafeMember {
 }
 
 # Export module members
-Export-ModuleMember -Function * -Alias *
+Export-ModuleMember -Function `
+    New-CACSafe, `
+    Add-CACSafeMember, `
+    New-CACSafeMemberRow, `
+    Format-CACSafe, `
+    Export-CACAllSafes, `
+    Search-CACSafeByName, `
+    Export-CACSafeMembers, `
+    Export-CACSafeUsers
+

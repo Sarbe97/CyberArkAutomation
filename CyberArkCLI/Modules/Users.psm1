@@ -2,13 +2,11 @@
 # Users.psm1 (Clean + Unified Object Model)
 # ==========================
 
-Import-Module "$PSScriptRoot/Utils.psm1" -Force
-
 $Script:UserCachePath = "$PSScriptRoot/../Data/users.csv"
 
-# ------------------------------------------------------------
+# ============================================================
 # Shared reusable User Object (TypeScript-style model)
-# ------------------------------------------------------------
+# ============================================================
 function New-CACUserObject {
     param(
         [string]$Id = "",
@@ -29,9 +27,9 @@ function New-CACUserObject {
     }
 }
 
-# ------------------------------------------------------------
+# ============================================================
 # Refresh full user cache from CyberArk
-# ------------------------------------------------------------
+# ============================================================
 function Initialize-CACUserStore {
     Write-Log "Refreshing CyberArk user cache" "INFO"
 
@@ -80,54 +78,58 @@ function Initialize-CACUserStore {
     Write-Log "User cache updated at $Script:UserCachePath" "SUCCESS"
 }
 
-# ------------------------------------------------------------
+# ============================================================
 # Import Cached Users
-# ------------------------------------------------------------
+# ============================================================
 function Get-CACUserStore {
 
     if (-not (Test-Path $Script:UserCachePath)) {
-        Write-Log "Cache missing — rebuilding" "WARN"
+        Write-Log "Cache missing   rebuilding" "WARN"
         Initialize-CACUserStore
     }
 
-    try { $csv = Import-Csv $Script:UserCachePath }
+    try {
+        $csv = Import-Csv $Script:UserCachePath
+    }
     catch {
-        Write-Log "Cache corrupted — rebuilding" "ERROR"
+        Write-Log "Cache corrupted - rebuilding" "ERROR"
         Initialize-CACUserStore
         $csv = Import-Csv $Script:UserCachePath
     }
 
     if (-not $csv -or $csv.Count -eq 0) {
-        Write-Log "Cache empty — no user data" "WARN"
-        return @()
+        Write-Log "Cache empty, no user data" "WARN"
+        return
     }
 
     return $csv
 }
 
-# ------------------------------------------------------------
-# Get user by username OR ID
-# ------------------------------------------------------------
+# ============================================================
+# Get user details from cache by ID or username
+# ============================================================
 function Get-UserDetailsFromStore {
-    param([Parameter(Mandatory)][string]$InputValue)
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InputValue
+    )
 
     Write-Log "Looking up user: $InputValue" "DEBUG"
 
     $users = Get-CACUserStore
     if (-not $users) {
-        Write-Log "Empty cache — cannot enrich" "ERROR"
+        Write-Log "Empty cache, cannot enrich" "ERROR"
         return New-CACUserObject -UserName $InputValue
     }
 
-    $searchById = $InputValue -match "^\d+$"
+    # Check if searching by ID (numeric)
+    $searchById = $InputValue -match '^\d+$'
 
     if ($searchById) {
         $match = $users | Where-Object { $_.Id -eq $InputValue }
     }
     else {
-        $match = $users | Where-Object {
-            $_.UserName -eq $InputValue -or $_.FullName -like "*$InputValue*"
-        }
+        $match = $users | Where-Object { $_.UserName -eq $InputValue -or $_.FullName -like "*$InputValue*" }
     }
 
     if (-not $match) {
@@ -144,11 +146,14 @@ function Get-UserDetailsFromStore {
         -Organization $match.Organization
 }
 
-# ------------------------------------------------------------
-# Get all users inside a group (enriched)
-# ------------------------------------------------------------
+# ============================================================
+# Get users in a group
+# ============================================================
 function Get-CACGroupUsers {
-    param([Parameter(Mandatory)][string]$GroupName)
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$GroupName
+    )
 
     Write-Log "Fetching group: $GroupName" "INFO"
 
@@ -165,12 +170,21 @@ function Get-CACGroupUsers {
         return
     }
 
-    $output = foreach ($m in $group.Members) {
-        Get-UserDetailsFromStore -InputValue $m.UserName
+    $output = @()
+    foreach ($m in $group.Members) {
+        $output += Get-UserDetailsFromStore -InputValue $m.UserName
     }
 
     $output | Format-Table -AutoSize
     return $output
 }
 
-Export-ModuleMember -Function *
+# ============================================================
+# EXPORT ALL PUBLIC FUNCTIONS
+# ============================================================
+Export-ModuleMember -Function `
+    New-CACUserObject, `
+    Initialize-CACUserStore, `
+    Get-CACUserStore, `
+    Get-UserDetailsFromStore, `
+    Get-CACGroupUsers

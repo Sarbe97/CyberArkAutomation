@@ -84,4 +84,9 @@ function Export-CACReport {
     }
 }
 
-Export-ModuleMember -Function *
+Export-ModuleMember -Function `
+    Get-CACUserLicenseReport, `
+    Get-CACReport, `
+    Get-CACReportSchedule, `
+    New-CACReportSchedule, `
+    Export-CACReport

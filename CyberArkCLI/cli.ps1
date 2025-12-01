@@ -19,51 +19,53 @@ function Reload-CACModules {
     Write-Host "Reloading CyberArk CLI modules..." -ForegroundColor Cyan
     Write-Host "=============================================="
 
-    # All modules used in this project
-    $modules = @(
-        "Safes",
-        "Users",
-        "Login",
-        "Config",
-        "Utils"
-    )
+    # All modules used in this project (in dependency order)
+    $moduleFiles = @(
+    "Utils.psm1",
+    "Config.psm1",
+    "Login.psm1",
+    "Users.psm1",
+    "Safes.psm1",
+    "Onboarding.psm1",    # ← ADD THIS
+    "Monitor.psm1",        # ← ADD THIS
+    "Reports.psm1"         # ← ADD THIS
+)
 
-    # -----------------------------
-    # 1. UNLOAD MODULES (reverse order)
-    # -----------------------------
-    foreach ($m in $modules) {
-        if (Get-Module -Name $m) {
-            Remove-Module -Name $m -Force
-            Write-Host "Unloaded module: $m" -ForegroundColor Yellow
+
+    $modulePaths = $moduleFiles | ForEach-Object { Join-Path "$PSScriptRoot/Modules" $_ }
+
+    # 1. Unload modules if loaded
+    foreach ($path in $modulePaths) {
+        $loaded = Get-Module | Where-Object { $_.Path -eq $path }
+        if ($loaded) {
+            Remove-Module -Name $loaded.Name -Force
+            Write-Host ("Unloaded module: {0}" -f $loaded.Name) -ForegroundColor Yellow
         }
     }
 
-    # -----------------------------
-    # 2. LOAD MODULES (correct dependency order)
-    # -----------------------------
+    # 2. Load modules
     Write-Host "`nLoading modules..." -ForegroundColor Green
+    foreach ($path in $modulePaths) {
+        if (Test-Path $path) {
+            Import-Module $path -Force
+            Write-Host ("Loaded module: {0}" -f (Split-Path $path -Leaf)) -ForegroundColor Green
+        }
+        else {
+            Write-Host ("Module not found: {0}" -f $path) -ForegroundColor Red
+        }
+    }
 
-    Import-Module "$PSScriptRoot/Modules/Utils.psm1"  -Force
-    Import-Module "$PSScriptRoot/Modules/Config.psm1" -Force
-    Import-Module "$PSScriptRoot/Modules/Login.psm1"  -Force
-    Import-Module "$PSScriptRoot/Modules/Users.psm1"  -Force
-    Import-Module "$PSScriptRoot/Modules/Safes.psm1"  -Force
-
-    Write-Host "All modules loaded successfully." -ForegroundColor Green
-
-    # -----------------------------
-    # 3. SHOW EXPORTED FUNCTIONS
-    # -----------------------------
+    # 3. Show exported functions per module
     Write-Host "`n=============================================="
     Write-Host "Exported Functions (per module)"
     Write-Host "==============================================`n"
 
-    foreach ($m in @("Utils","Config","Login","Users","Safes")) {
-        $mod = Get-Module -Name $m
+    foreach ($path in $modulePaths) {
+        $mod = Get-Module | Where-Object { $_.Path -eq $path }
         if ($mod) {
-            Write-Host "$m" -ForegroundColor Cyan
+            Write-Host ("Module: {0}" -f (Split-Path $path -Leaf)) -ForegroundColor Cyan
             $mod.ExportedFunctions.Keys | Sort-Object | ForEach-Object {
-                Write-Host "   - $_"
+                Write-Host ("   - {0}" -f $_)
             }
             Write-Host
         }
@@ -76,8 +78,9 @@ function Reload-CACModules {
 
 
 
+
 # Initial load
-Reload-Modules
+Reload-CACModules
 
 # ------------------------------------------------------------
 # Global login state
@@ -112,7 +115,7 @@ function Show-LoginMenu {
             }
 
             '2' {
-                Reload-Modules
+                Reload-CACModules
                 Pause
             }
 

@@ -25,7 +25,7 @@ Import-Module (Join-Path $modulePath "Reports.psm1")    -Force
 $Script:IsLoggedIn = $false
 
 
-
+ 
 # ============================================================
 # LOGIN SCREEN (Appears before main menu)
 # ============================================================
@@ -95,14 +95,14 @@ function Show-MainMenu {
             '4' { Show-MonitorMenu }
             '5' { Show-ReportMenu }
 
-            '9' { 
-                Write-Host "Logging out..."
+            '9' {
+                Invoke-CACLogout
                 $Script:IsLoggedIn = $false
                 Pause
                 Show-LoginMenu
             }
 
-            '0' { exit }
+            '0' { Invoke-CACLogout; exit }
 
             default { 
                 Write-Host "Invalid option!" -ForegroundColor Yellow 
@@ -123,10 +123,10 @@ function Show-SafeMenu {
         Write-Host "=========== SAFE MENU ==========="
         Write-Host "1. Export All Safes to CSV"
         Write-Host "2. Export Safe Members With Permissions"
-        Write-Host "3. View Safe Members, no permission"
-        Write-Host "4. Create Safe(s)"
-        Write-Host "5. Add Safe Member(s)"
-        Write-Host "6. Search A Safe By Name"
+        Write-Host "3. View Safe Members (No Permissions)"
+        Write-Host "4. Search A Safe By Name"
+        Write-Host "5. Create Safe(s)"
+        Write-Host "6. Add Safe Member(s)"
         Write-Host "0. Back"
         Write-Host "================================="
 
@@ -136,9 +136,9 @@ function Show-SafeMenu {
             1 { Export-CACAllSafes; Pause }
             2 { Export-CACSafeMembers; Pause }
             3 { Export-CACSafeUsers; Pause }
-            4 { New-CACSafe; Pause }
-            5 { Add-CACSafeMember; Pause }
-            6 { Search-CACSafeByName; Pause }
+            4 { Search-CACSafeByName; Pause }
+            5 { New-CACSafe; Pause }
+            6 { Add-CACSafeMember; Pause }
             0 { return }
 
             default {
@@ -148,6 +148,7 @@ function Show-SafeMenu {
         }
     }
 }
+
 
 
 
@@ -168,24 +169,18 @@ function Show-UserMenu {
 
         switch ($choice) {
 
-            1 {
-                Refresh-CACUserStore; Pause
-            }
-
+            1 { Initialize-CACUserStore; Pause }
             2 {
                 $val = Read-Host "Enter Username OR User ID"
-                Find-CACUser -InputValue $val
+                Get-UserDetailsFromStore -InputValue $val
                 Pause
             }
-
             3 {
                 $grp = Read-Host "Enter Group Name"
                 Get-CACGroupUsers -GroupName $grp | Format-Table
                 Pause
             }
-
             0 { return }
-
             default {
                 Write-Host "Invalid option." -ForegroundColor Yellow
                 Start-Sleep 1

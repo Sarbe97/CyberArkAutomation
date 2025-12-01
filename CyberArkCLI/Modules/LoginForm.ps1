@@ -98,4 +98,3 @@ function Show-CACLoginForm {
     return $form.Tag
 }
 
-Export-ModuleMember -Function Show-CACLoginForm

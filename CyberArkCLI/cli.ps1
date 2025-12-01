@@ -15,29 +15,36 @@ Write-Host "Module Path: $modulePath"
 # Function to reload all modules (Hot-Reload)
 # ------------------------------------------------------------
 function Reload-Modules {
-    Write-Host "Reloading internal modules..." -ForegroundColor Cyan
+    Write-Host "`n=== Reloading Modules ===" -ForegroundColor Cyan
 
-    # Get all .psm1 files in Modules folder
-    $psm1Files = Get-ChildItem -Path $modulePath -Filter *.psm1
+    $moduleFiles = Get-ChildItem "$PSScriptRoot/Modules" -Filter *.psm1
 
-    foreach ($file in $psm1Files) {
-        $modName = [System.IO.Path]::GetFileNameWithoutExtension($file.Name)
+    foreach ($file in $moduleFiles) {
+        $moduleName = $file.BaseName
+        $modulePath = $file.FullName
+
         # Remove module if already loaded
-        Remove-Module $modName -ErrorAction SilentlyContinue
-        # Import module
-        Import-Module $file.FullName -Force
-        Write-Host "Reloaded module: $modName"
+        if (Get-Module $moduleName) {
+            Remove-Module $moduleName -Force
+        }
+
+        # Import again
+        Import-Module $modulePath -Force
+
+        # Show loaded functions
+        $functions = (Get-Module $moduleName).ExportedFunctions.Keys
+
+        Write-Host "`n[$moduleName] functions:" -ForegroundColor Yellow
+        if ($functions.Count -eq 0) {
+            Write-Host "  (no exported functions)" -ForegroundColor DarkGray
+        } else {
+            $functions | ForEach-Object { Write-Host "  - $_" }
+        }
     }
 
-    # Dot-source any standalone scripts (.ps1)
-    $ps1Files = Get-ChildItem -Path $modulePath -Filter *.ps1
-    foreach ($file in $ps1Files) {
-        . $file.FullName
-        Write-Host "Dot-sourced script: $($file.Name)"
-    }
-
-    Write-Host "All modules reloaded successfully." -ForegroundColor Green
+    Write-Host "`n=== Reload Complete ===`n" -ForegroundColor Green
 }
+
 
 # Initial load
 Reload-Modules

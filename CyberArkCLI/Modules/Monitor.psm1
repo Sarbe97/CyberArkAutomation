@@ -1,20 +1,20 @@
-# Monitor.psm1 - PSM Recording Monitoring (CORRECTED Field Names)
+# Monitor.psm1 - PSM Recording Monitoring (CORRECTED Field Names & Fixed Timestamp)
 
 # ==========================
 # Get-CACPSMRecordings - Fetch PSM recordings with user enrichment
 # ==========================
 function Get-CACPSMRecordings {
     param(
-        [int]$Days = 7
+        [int]$Days
     )
 
-    Write-Log "Started Get-CACPSMRecordings()" "DEBUG"
-    Write-Log "Fetching PSM recordings for last $Days days" "INFO"
-
-    # Handle interactive mode
-    if ($Days -eq 0) {
-        $userInput = Read-Host "Enter number of days to look back (e.g., 7 for last 7 days)"
-        if ([int]::TryParse($userInput, [ref]$Days)) {
+    # Handle parameter - ask if not provided
+    if (-not $PSBoundParameters.ContainsKey('Days')) {
+        $userInput = Read-Host "Enter number of days to look back (default: 7)"
+        if ([string]::IsNullOrWhiteSpace($userInput)) {
+            $Days = 7
+        }
+        elseif ([int]::TryParse($userInput, [ref]$Days)) {
             Write-Log "User entered: $Days days" "DEBUG"
         }
         else {
@@ -22,17 +22,39 @@ function Get-CACPSMRecordings {
             $Days = 7
         }
     }
+    else {
+        if ($Days -eq 0) {
+            $userInput = Read-Host "Enter number of days to look back (default: 7)"
+            if ([string]::IsNullOrWhiteSpace($userInput)) {
+                $Days = 7
+            }
+            elseif ([int]::TryParse($userInput, [ref]$Days)) {
+                Write-Log "User entered: $Days days" "DEBUG"
+            }
+            else {
+                Write-Log "Invalid input, using default 7 days" "WARN"
+                $Days = 7
+            }
+        }
+    }
+
+    Write-Log "Started Get-CACPSMRecordings()" "DEBUG"
+    Write-Log "Fetching PSM recordings for last $Days days" "INFO"
 
     try {
-        # Calculate time range
+        # Calculate time range - convert to unix timestamp
         $toTime = Get-Date
         $fromTime = $toTime.AddDays(-$Days)
 
-        Write-Log "Time range: $fromTime to $toTime" "DEBUG"
-        Write-Log "Calling Get-PASPSMRecording with FromTime and ToTime" "DEBUG"
+        # Convert to unix timestamps for psPAS
+        $toTimeUnix = [int][double]($toTime.ToUniversalTime() | ForEach-Object { $_ -as [datetimeoffset] }).ToUnixTimeSeconds()
+        $fromTimeUnix = [int][double]($fromTime.ToUniversalTime() | ForEach-Object { $_ -as [datetimeoffset] }).ToUnixTimeSeconds()
 
-        # Fetch recordings from psPAS
-        $recordings = Get-PASPSMRecording -FromTime $fromTime -ToTime $toTime
+        Write-Log "Time range: $fromTime to $toTime (Unix: $fromTimeUnix to $toTimeUnix)" "DEBUG"
+        Write-Log "Calling Get-PASPSMRecording with unix timestamps" "DEBUG"
+
+        # Fetch recordings from psPAS - pass unix timestamps
+        $recordings = Get-PASPSMRecording -FromTime $fromTimeUnix -ToTime $toTimeUnix
 
         if (-not $recordings -or $recordings.Count -eq 0) {
             Write-Log "No recordings found for the given period" "WARN"

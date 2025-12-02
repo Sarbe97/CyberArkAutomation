@@ -12,20 +12,12 @@ function Export-CACAllSafes {
 
     try {
         Write-Log "Calling Get-PASSafe" "DEBUG"
-        $resp = Get-PASSafe
-
-        if (-not $resp) {
+        $safes = Get-PASSafe
+        Write-Host $safes.GetType()  
+        
+        if (-not $safes) {
             Write-Log "No response from Get-PASSafe" "WARN"
             return
-        }
-
-        # Handle both structures
-        if ($resp.value) {
-            $safes = $resp.value
-            Write-Log "Using resp.value structure" "DEBUG"
-        } else {
-            $safes = $resp
-            Write-Log "Using resp directly (array structure)" "DEBUG"
         }
 
         if (-not $safes -or $safes.Count -eq 0) {
@@ -36,7 +28,7 @@ function Export-CACAllSafes {
         Write-Log "Total safes retrieved: $($safes.Count)" "INFO"
 
         # ============================================================
-        # STEP 1: Save raw data to text file for inspection
+        # Create Output Directory
         # ============================================================
         $outputDir = "$PSScriptRoot/../Output"
         if (-not (Test-Path $outputDir)) {
@@ -45,37 +37,15 @@ function Export-CACAllSafes {
         }
 
         $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-        $debugFile = "$outputDir/safes_raw_debug_$timestamp.txt"
-        
-        Write-Log "Saving raw safe data to debug file: $debugFile" "INFO"
-        Write-Host "[INFO] Saving raw data for inspection..." -ForegroundColor Cyan
-
-        # Save raw data
-        "=== RAW SAFE DATA DEBUG ===" | Out-File -Path $debugFile -Encoding UTF8
-        "Timestamp: $(Get-Date)" | Add-Content -Path $debugFile
-        "Total Safes: $($safes.Count)" | Add-Content -Path $debugFile
-        "=====================================`n" | Add-Content -Path $debugFile
-
-        foreach ($safe in $safes) {
-            "--- SAFE OBJECT START ---" | Add-Content -Path $debugFile
-            "Safe dump:" | Add-Content -Path $debugFile
-            ($safe | ConvertTo-Json -Depth 10) | Add-Content -Path $debugFile
-            "`n" | Add-Content -Path $debugFile
-        }
-
-        Write-Log "Raw data saved to: $debugFile" "SUCCESS"
-        Write-Host "[SUCCESS] Raw data saved: $debugFile" -ForegroundColor Green
 
         # ============================================================
-        # STEP 2: Process safes with detailed error tracking
+        # Convert safes to formatted objects
         # ============================================================
         Write-Log "Starting conversion of safes to formatted objects" "INFO"
-        Write-Host "[INFO] Converting safes to formatted objects..." -ForegroundColor Cyan
 
         $formatted = @()
         $successCount = 0
         $errorCount = 0
-        $errorLog = @()
 
         foreach ($safe in $safes) {
             $safeIndex = $safes.IndexOf($safe) + 1
@@ -83,100 +53,51 @@ function Export-CACAllSafes {
             try {
                 Write-Log "Processing safe $safeIndex/$($safes.Count): $($safe.safeName)" "DEBUG"
                 
-                # Call Format-CACSafe with error handling
                 $formattedSafe = Format-CACSafe -Safe $safe
 
                 if ($formattedSafe) {
                     $formatted += $formattedSafe
                     $successCount++
-                    Write-Log "✓ Successfully converted safe: $($safe.safeName)" "DEBUG"
+                    Write-Log "Successfully converted safe: $($safe.safeName)" "DEBUG"
                 }
                 else {
                     $errorCount++
-                    $msg = "Format-CACSafe returned null for safe: $($safe.safeName)"
-                    Write-Log "✗ $msg" "WARN"
-                    $errorLog += @{
-                        Index = $safeIndex
-                        SafeName = $safe.safeName
-                        Error = $msg
-                    }
+                    Write-Log "Format-CACSafe returned null for safe: $($safe.safeName)" "WARN"
                 }
             }
             catch {
                 $errorCount++
                 $msg = $_.Exception.Message
-                Write-Log "✗ Error processing safe $safeIndex ($($safe.safeName)): $msg" "ERROR"
-                Write-Host "  Error on safe #$safeIndex ($($safe.safeName)): $msg" -ForegroundColor Red
-                
-                $errorLog += @{
-                    Index = $safeIndex
-                    SafeName = $safe.safeName
-                    Error = $msg
-                    StackTrace = $_.ScriptStackTrace
-                }
+                Write-Log "Error processing safe $safeIndex ($($safe.safeName)): $msg" "ERROR"
             }
         }
 
         Write-Log "Conversion complete. Success: $successCount, Errors: $errorCount" "INFO"
-        Write-Host "[INFO] Conversion complete - Success: $successCount, Errors: $errorCount" -ForegroundColor Cyan
 
         # ============================================================
-        # STEP 3: Save error log if there were errors
-        # ============================================================
-        if ($errorLog.Count -gt 0) {
-            $errorFile = "$outputDir/safes_conversion_errors_$timestamp.txt"
-            Write-Log "Saving error report to: $errorFile" "INFO"
-            
-            "=== CONVERSION ERROR REPORT ===" | Out-File -Path $errorFile -Encoding UTF8
-            "Timestamp: $(Get-Date)" | Add-Content -Path $errorFile
-            "Total Errors: $($errorLog.Count)" | Add-Content -Path $errorFile
-            "=====================================`n" | Add-Content -Path $errorFile
-
-            foreach ($err in $errorLog) {
-                "Safe #$($err.Index): $($err.SafeName)" | Add-Content -Path $errorFile
-                "Error: $($err.Error)" | Add-Content -Path $errorFile
-                if ($err.StackTrace) {
-                    "StackTrace: $($err.StackTrace)" | Add-Content -Path $errorFile
-                }
-                "`n" | Add-Content -Path $errorFile
-            }
-
-            Write-Log "Error report saved: $errorFile" "SUCCESS"
-            Write-Host "[SUCCESS] Error report saved: $errorFile" -ForegroundColor Green
-        }
-
-        # ============================================================
-        # STEP 4: Export formatted data to CSV
+        # Export formatted data to CSV
         # ============================================================
         if ($formatted.Count -eq 0) {
             Write-Log "No successfully formatted safes to export" "WARN"
-            Write-Host "[WARN] No safes to export (all conversions failed)" -ForegroundColor Yellow
             return
         }
 
         $outputFile = "$outputDir/all_safes_$timestamp.csv"
         Write-Log "Exporting $($formatted.Count) formatted safes to CSV: $outputFile" "INFO"
-        Write-Host "[INFO] Exporting formatted safes to CSV..." -ForegroundColor Cyan
 
         $formatted | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
 
         Write-Log "CSV export successful: $outputFile" "SUCCESS"
-        Write-Host "[SUCCESS] CSV export saved: $outputFile" -ForegroundColor Green
 
         # ============================================================
         # Summary
         # ============================================================
         Write-Log "Completed Export-CACAllSafes()" "DEBUG"
-        Write-Host "`n[SUMMARY]" -ForegroundColor Cyan
+        Write-Host "Export Summary" -ForegroundColor Cyan
         Write-Host "  Total Safes: $($safes.Count)"
         Write-Host "  Successfully Formatted: $successCount"
         Write-Host "  Conversion Errors: $errorCount"
-        Write-Host "  Output Files:"
-        Write-Host "    - Raw Data: $debugFile"
-        if ($errorLog.Count -gt 0) {
-            Write-Host "    - Errors: $errorFile"
-        }
-        Write-Host "    - CSV Export: $outputFile`n" -ForegroundColor Green
+        Write-Host "  Output File: $outputFile" -ForegroundColor Green
     }
     catch {
         Write-Log "Error during Export-CACAllSafes(): $($_.Exception.Message)" "ERROR"

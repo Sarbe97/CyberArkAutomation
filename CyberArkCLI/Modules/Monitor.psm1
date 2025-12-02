@@ -1,4 +1,4 @@
-# Monitor.psm1 - PSM Recording Monitoring (Simplified - Single Function)
+# Monitor.psm1 - PSM Recording Monitoring (CORRECTED Field Names)
 
 # ==========================
 # Get-CACPSMRecordings - Fetch PSM recordings with user enrichment
@@ -8,7 +8,7 @@ function Get-CACPSMRecordings {
         [int]$Days = 7
     )
 
-    Write_Log "Started Get-CACPSMRecordings()" "DEBUG"
+    Write-Log "Started Get-CACPSMRecordings()" "DEBUG"
     Write-Log "Fetching PSM recordings for last $Days days" "INFO"
 
     # Handle interactive mode
@@ -72,17 +72,17 @@ function Get-CACPSMRecordings {
             $recordingIndex = $recordings.IndexOf($recording) + 1
 
             try {
-                Write-Log "Processing recording ($recordingIndex/$totalRecordings) : $($recording.RecordingID)" "DEBUG"
+                Write-Log "Processing recording ($recordingIndex/$totalRecordings): $($recording.SessionID)" "DEBUG"
 
-                # Get user details from cache
-                $psmUser = $recording.PSMVaultUserName
+                # CORRECTED: Use .User instead of .PSMVaultUserName
+                $psmUser = $recording.User
                 $userDetails = Get-CACUserDetailsFromStore -Username $psmUser
 
-                # Build enriched recording object
+                # Build enriched recording object with CORRECTED field names
                 $enrichedRecording = [PSCustomObject]@{
                     # Recording Identifiers
-                    RecordingID          = $recording.RecordingID
                     SessionID            = $recording.SessionID
+                    SessionGuid          = $recording.SessionGuid
                     FileName             = $recording.FileName
 
                     # PSM User Information
@@ -95,7 +95,7 @@ function Get-CACPSMRecordings {
 
                     # Target Machine Information
                     RemoteMachine        = $recording.RemoteMachine
-                    AccountUserName      = $recording.AccountUserName
+                    AccountUsername      = $recording.AccountUsername
                     AccountAddress       = $recording.AccountAddress
                     AccountPlatformID    = $recording.AccountPlatformID
 
@@ -108,24 +108,30 @@ function Get-CACPSMRecordings {
                     SafeName             = $recording.SafeName
                     FolderName           = $recording.FolderName
 
-                    # Session Timing
-                    PSM_StartTime        = $recording.PSMStartTime
-                    PSM_EndTime          = $recording.PSMEndTime
+                    # Session Timing (CORRECTED: Start/End instead of PSMStartTime/PSMEndTime)
+                    Start                = $recording.Start
+                    End                  = $recording.End
                     Duration_Seconds     = $recording.Duration
 
                     # Risk and Ticket
                     RiskScore            = $recording.RiskScore
+                    Severity             = $recording.Severity
                     TicketID             = $recording.TicketID
+
+                    # Additional fields
+                    ProtectedBy          = $recording.ProtectedBy
+                    ProtectionEnabled    = $recording.ProtectionEnabled
+                    ConnectionComponentID = $recording.ConnectionComponentID
                 }
 
                 $formatted += $enrichedRecording
                 $successCount++
-                Write-Log "Successfully enriched recording: $($recording.RecordingID)" "DEBUG"
+                Write-Log "Successfully enriched recording: $($recording.SessionID)" "DEBUG"
             }
             catch {
                 $errorCount++
                 $msg = $_.Exception.Message
-                Write-Log "Error processing recording $recordingIndex ($($recording.RecordingID)): $msg" "ERROR"
+                Write-Log "Error processing recording $recordingIndex ($($recording.SessionID)): $msg" "ERROR"
             }
         }
 

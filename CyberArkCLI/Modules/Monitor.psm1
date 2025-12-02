@@ -76,7 +76,7 @@ function Get-CACPSMRecordings {
 
                 # Get user details from cache
                 $psmUser = $recording.PSMVaultUserName
-                $userDetails = Get-UserDetailsFromStore -Username $psmUser
+                $userDetails = Get-CACUserDetailsFromStore -Username $psmUser
 
                 # Build enriched recording object
                 $enrichedRecording = [PSCustomObject]@{

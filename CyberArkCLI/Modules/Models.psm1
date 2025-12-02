@@ -133,7 +133,7 @@ function New-CACSafeUserRow {
         UserName     = $UserObj.UserName
         FullName     = $UserObj.FullName
         Title        = $UserObj.Title
-        Organization = $UserObj.Organization
+        Department = $UserObj.Department
     }
 }
 

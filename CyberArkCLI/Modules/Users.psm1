@@ -149,7 +149,7 @@ function Get-CACUserDetailsFromStore {
         -UserName $match.UserName `
         -FullName $match.FullName `
         -Title $match.Title `
-        -Organization $match.Organization
+        -Department $match.Department
 }
 
 # ============================================================

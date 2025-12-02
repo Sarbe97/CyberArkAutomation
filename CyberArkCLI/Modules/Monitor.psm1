@@ -110,7 +110,6 @@ function Get-CACPSMRecordings {
                     PAS_User_FullName    = $userDetails.FullName
                     PAS_User_Department  = $userDetails.Department
                     PAS_User_Title       = $userDetails.Title
-                    PAS_User_Organization = $userDetails.Organization
 
                     # Target Machine Information
                     RemoteMachine        = $recording.RemoteMachine

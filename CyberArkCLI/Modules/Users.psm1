@@ -90,9 +90,7 @@ function New-CACUserStore {
             -UserType $detail.userType `
             -Phone $detail.personalDetails.phone `
             -Mobile $detail.personalDetails.mobile `
-            -Status $detail.userStatus `
-            -Created $detail.creationTime `
-            -LastLogin $detail.lastLoginDate
+            -Status $detail.userStatus
 
         $counter++
     }

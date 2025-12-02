@@ -98,22 +98,19 @@ function Get-CACPSMRecordings {
 
                 # CORRECTED: Use .User instead of .PSMVaultUserName
                 $psmUser = $recording.User
-                $userDetails = Get-CACUserDetailsFromStore -Username $psmUser
+                $userDetails = Get-CACUserDetailsFromStore -InputValue $psmUser
 
                 # Build enriched recording object with CORRECTED field names
                 $enrichedRecording = [PSCustomObject]@{
                     # Recording Identifiers
                     SessionID            = $recording.SessionID
-                    SessionGuid          = $recording.SessionGuid
-                    FileName             = $recording.FileName
 
                     # PSM User Information
-                    PSM_User             = $psmUser
-                    PSM_User_Id          = $userDetails.Id
-                    PSM_User_FullName    = $userDetails.FullName
-                    PSM_User_Department  = $userDetails.Department
-                    PSM_User_Title       = $userDetails.Title
-                    PSM_User_Organization = $userDetails.Organization
+                    PAS_User             = $psmUser
+                    PAS_User_FullName    = $userDetails.FullName
+                    PAS_User_Department  = $userDetails.Department
+                    PAS_User_Title       = $userDetails.Title
+                    PAS_User_Organization = $userDetails.Organization
 
                     # Target Machine Information
                     RemoteMachine        = $recording.RemoteMachine
@@ -131,9 +128,9 @@ function Get-CACPSMRecordings {
                     FolderName           = $recording.FolderName
 
                     # Session Timing (CORRECTED: Start/End instead of PSMStartTime/PSMEndTime)
-                    Start                = $recording.Start
-                    End                  = $recording.End
-                    Duration_Seconds     = $recording.Duration
+                    PSM_Start                = Convert-CACTimestamp $recording.Start
+                    PSM_End                  = Convert-CACTimestamp $recording.End
+                    PSM_Duration_Seconds     = $recording.Duration
 
                     # Risk and Ticket
                     RiskScore            = $recording.RiskScore

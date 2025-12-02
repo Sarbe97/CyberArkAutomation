@@ -14,7 +14,7 @@ function Export-CACAllSafes {
         Write-Log "Calling Get-PASSafe" "DEBUG"
         $safes = Get-PASSafe
         Write-Host $safes.GetType()  
-        
+
         if (-not $safes) {
             Write-Log "No response from Get-PASSafe" "WARN"
             return
@@ -174,6 +174,7 @@ function Export-CACSafeMembers {
 
         '1' {
             $safeNames = (Read-Host "Enter safe names (comma separated)") -split "," | ForEach-Object { $_.Trim() }
+            $inputPath = $null
             $outputToCsv = $false
         }
 
@@ -186,8 +187,8 @@ function Export-CACSafeMembers {
             }
 
             $safeNames = (Import-Csv $csvPath).SafeName | ForEach-Object { $_.Trim() }
+            $inputPath = Split-Path -Path $csvPath -Parent
             $outputToCsv = $true
-            $outCsv = Read-Host "Enter output CSV path"
         }
 
         default { 
@@ -198,17 +199,19 @@ function Export-CACSafeMembers {
     }
 
     $rows = @()
+    $totalSafes = $safeNames.Count
+    $currentSafeIndex = 0
 
     foreach ($safeName in $safeNames) {
-
-        Write-Log "Processing safe: $safeName" "INFO"
+        $currentSafeIndex++
+        Write-Log "Processing safe ($currentSafeIndex/$totalSafes) : $safeName" "INFO"
 
         try {
             $members = Get-PASSafeMember -SafeName $safeName -ErrorAction Stop
         }
         catch {
             Write-Host "Error fetching members for '$safeName' - $($_.Exception.Message)" -ForegroundColor Red
-            Write-Log "Failed to fetch members for '$safeName' : $($_.Exception.Message)" "ERROR"
+            Write-Log "Failed to fetch members for '$safeName': $($_.Exception.Message)" "ERROR"
             continue
         }
 
@@ -218,7 +221,6 @@ function Export-CACSafeMembers {
         }
 
         foreach ($member in $members) {
-
             Write-Log "Processing member: $($member.MemberName) (Type: $($member.MemberType))" "DEBUG"
 
             # Create row with all permissions directly from psPAS response
@@ -233,15 +235,24 @@ function Export-CACSafeMembers {
         return
     }
 
-    # Export or display results
+    # ============================================================
+    # Generate Output File Path
+    # ============================================================
+    $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    
     if ($outputToCsv) {
-        Write-Log "Exporting $($rows.Count) members to CSV: $outCsv" "INFO"
-        $rows | Export-Csv -Path $outCsv -NoTypeInformation -Encoding UTF8
-        Write-Host "Export completed: $outCsv" -ForegroundColor Green
-        Write-Log "Safe members exported successfully to: $outCsv" "SUCCESS"
+        # Output in same folder as input
+        $outputFileName = "safe_members_export_op_$timestamp.csv"
+        $outputPath = Join-Path -Path $inputPath -ChildPath $outputFileName
+        
+        Write-Log "Exporting $($rows.Count) members to CSV: $outputPath" "INFO"
+        $rows | Export-Csv -Path $outputPath -NoTypeInformation -Encoding UTF8
+        
+        Write-Host "Export completed: $outputPath" -ForegroundColor Green
+        Write-Log "Safe members exported successfully to: $outputPath" "SUCCESS"
     }
     else {
-        Write-Host "`n--- SAFE MEMBERS WITH PERMISSIONS ---" -ForegroundColor Yellow
+        Write-Host "`nSAFE MEMBERS WITH PERMISSIONS" -ForegroundColor Yellow
         Write-Host "Total members found: $($rows.Count)" -ForegroundColor Cyan
         Write-Host ""
         $rows | Format-Table -AutoSize
@@ -249,10 +260,6 @@ function Export-CACSafeMembers {
 
     Write-Log "Completed Export-CACSafeMembers()" "DEBUG"
 }
-
-
-
-
 
 # ============================================================
 # Export Safe Users (Users from Safes + Groups, with Details)

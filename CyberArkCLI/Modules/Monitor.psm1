@@ -1,100 +1,170 @@
-# Modules/Monitor.psm1
+# Monitor.psm1 - PSM Recording Monitoring (Simplified - Single Function)
 
+# ==========================
+# Get-CACPSMRecordings - Fetch PSM recordings with user enrichment
+# ==========================
 function Get-CACPSMRecordings {
     param(
         [int]$Days = 7
     )
 
-    $cfg = Get-CACConfig
+    Write_Log "Started Get-CACPSMRecordings()" "DEBUG"
+    Write-Log "Fetching PSM recordings for last $Days days" "INFO"
 
-    # Ask user for days if not provided
-    if (-not $Days) {
-        $daysInput = Read-Host "Enter 'From Time' filter in days (e.g. 7 for last 7 days)"
-        if (-not [int]::TryParse($daysInput, [ref]$Days)) {
-            Write-Warning "Invalid input, defaulting to 7 days."
+    # Handle interactive mode
+    if ($Days -eq 0) {
+        $userInput = Read-Host "Enter number of days to look back (e.g., 7 for last 7 days)"
+        if ([int]::TryParse($userInput, [ref]$Days)) {
+            Write-Log "User entered: $Days days" "DEBUG"
+        }
+        else {
+            Write-Log "Invalid input, using default 7 days" "WARN"
             $Days = 7
         }
     }
 
-    # Convert days to epoch
-    $fromEpoch = (Get-Date).AddDays(-$Days).ToUniversalTime() | ForEach-Object { [int][double]($_ -as [datetimeoffset]).ToUnixTimeSeconds() }
+    try {
+        # Calculate time range
+        $toTime = Get-Date
+        $fromTime = $toTime.AddDays(-$Days)
 
-    Write-Host "[INFO] Fetching PSM recordings for last $Days day(s)..." -ForegroundColor Cyan
+        Write-Log "Time range: $fromTime to $toTime" "DEBUG"
+        Write-Log "Calling Get-PASPSMRecording with FromTime and ToTime" "DEBUG"
 
-    # Check if logged in
-    if (-not $global:CACSessionToken) {
-        throw "No session token found. Please login first."
-    }
+        # Fetch recordings from psPAS
+        $recordings = Get-PASPSMRecording -FromTime $fromTime -ToTime $toTime
 
-    # Load user cache
-    $usersCsv = Join-Path $PSScriptRoot "../Data/users.csv"
-    if (-not (Test-Path $usersCsv)) {
-        Write-Warning "users.csv not found. Please refresh user cache first."
-        return
-    }
-
-    $userCache = Import-Csv $usersCsv
-
-    # Pagination settings
-    $allRecordings = @()
-    $limit = 25
-    $offset = 0
-    $pageCounter = 0
-
-    do {
-        $pageCounter++
-        Write-Host "  [PAGE $pageCounter] Fetching recordings (offset: $offset, limit: $limit)..." -ForegroundColor Gray
-
-        # Fetch recordings - replace with real psPAS call or REST
-        $recordingsPage = Get-PASRecording -FromEpoch $fromEpoch -Limit $limit -Offset $offset -Token $global:CACSessionToken
-        # $recordingsPage should return an array of PSCustomObject similar to your sample
-
-        if (-not $recordingsPage -or $recordingsPage.Count -eq 0) { break }
-
-        $allRecordings += $recordingsPage
-        $offset += $recordingsPage.Count
-    }
-    while ($recordingsPage.Count -eq $limit)
-
-    Write-Host "[INFO] Total recordings retrieved: $($allRecordings.Count)" -ForegroundColor Cyan
-
-    # Enrich with user details
-    $outputObjects = $allRecordings | ForEach-Object {
-        $recording = $_
-        $userDetails = $userCache | Where-Object { $_.username -eq $recording.User }
-
-        [PSCustomObject]@{
-            SessionID                 = $recording.SessionID
-            PSM_User                  = $recording.User
-            PSM_User_FullName         = if ($userDetails) { "$($userDetails.firstName) $($userDetails.lastName)" } else { "" }
-            PSM_UserStatus            = if ($userDetails) { $userDetails.status } else { "Unknown" }
-            PSM_User_JobTitle         = if ($userDetails) { $userDetails.title } else { "" }
-            PSM_User_Department       = if ($userDetails) { $userDetails.department } else { "" }
-            PSM_RemoteMachine         = $recording.RemoteMachine
-            PSM_AccountUsername       = $recording.AccountUsername
-            PSM_AccountPlatformID     = $recording.AccountPlatformID
-            PSM_AccountAddress        = $recording.AccountAddress
-            PSM_ConnectionComponentID = $recording.ConnectionComponentID
-            PSM_FromIP                = $recording.FromIP
-            PSM_Protocol              = $recording.Protocol
-            PSM_Start                 = ([DateTimeOffset]::FromUnixTimeSeconds($recording.Start)).DateTime
-            PSM_End                   = ([DateTimeOffset]::FromUnixTimeSeconds($recording.End)).DateTime
-            DurationSeconds           = $recording.Duration
+        if (-not $recordings -or $recordings.Count -eq 0) {
+            Write-Log "No recordings found for the given period" "WARN"
+            return
         }
-    }
 
-    # Export CSV
-    if ($outputObjects.Count -gt 0) {
+        Write-Log "Total recordings retrieved: $($recordings.Count)" "INFO"
+
+        # ============================================================
+        # Initialize user cache for enrichment
+        # ============================================================
+        Write-Log "Initializing user cache for enrichment" "DEBUG"
+        Initialize-CACUserCache
+
+        # ============================================================
+        # Create output directory
+        # ============================================================
+        $outputDir = "$PSScriptRoot/../Output"
+        if (-not (Test-Path $outputDir)) {
+            New-Item -ItemType Directory -Path $outputDir | Out-Null
+            Write-Log "Output directory created: $outputDir" "DEBUG"
+        }
+
         $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-        $csvPath = Join-Path -Path (Get-Location) -ChildPath "PSMRecordings_$timestamp.csv"
 
-        Write-Host "[INFO] Exporting recordings to CSV..." -ForegroundColor Cyan
-        $outputObjects | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8
-        Write-Host "[SUCCESS] CSV saved: $csvPath" -ForegroundColor Green
+        # ============================================================
+        # Process recordings with user enrichment
+        # ============================================================
+        Write-Log "Starting enrichment of recordings with user data" "INFO"
+
+        $formatted = @()
+        $successCount = 0
+        $errorCount = 0
+        $totalRecordings = $recordings.Count
+
+        foreach ($recording in $recordings) {
+            $recordingIndex = $recordings.IndexOf($recording) + 1
+
+            try {
+                Write-Log "Processing recording ($recordingIndex/$totalRecordings) : $($recording.RecordingID)" "DEBUG"
+
+                # Get user details from cache
+                $psmUser = $recording.PSMVaultUserName
+                $userDetails = Get-UserDetailsFromStore -Username $psmUser
+
+                # Build enriched recording object
+                $enrichedRecording = [PSCustomObject]@{
+                    # Recording Identifiers
+                    RecordingID          = $recording.RecordingID
+                    SessionID            = $recording.SessionID
+                    FileName             = $recording.FileName
+
+                    # PSM User Information
+                    PSM_User             = $psmUser
+                    PSM_User_Id          = $userDetails.Id
+                    PSM_User_FullName    = $userDetails.FullName
+                    PSM_User_Department  = $userDetails.Department
+                    PSM_User_Title       = $userDetails.Title
+                    PSM_User_Organization = $userDetails.Organization
+
+                    # Target Machine Information
+                    RemoteMachine        = $recording.RemoteMachine
+                    AccountUserName      = $recording.AccountUserName
+                    AccountAddress       = $recording.AccountAddress
+                    AccountPlatformID    = $recording.AccountPlatformID
+
+                    # Connection Information
+                    FromIP               = $recording.FromIP
+                    Client               = $recording.Client
+                    Protocol             = $recording.Protocol
+
+                    # Safe Information
+                    SafeName             = $recording.SafeName
+                    FolderName           = $recording.FolderName
+
+                    # Session Timing
+                    PSM_StartTime        = $recording.PSMStartTime
+                    PSM_EndTime          = $recording.PSMEndTime
+                    Duration_Seconds     = $recording.Duration
+
+                    # Risk and Ticket
+                    RiskScore            = $recording.RiskScore
+                    TicketID             = $recording.TicketID
+                }
+
+                $formatted += $enrichedRecording
+                $successCount++
+                Write-Log "Successfully enriched recording: $($recording.RecordingID)" "DEBUG"
+            }
+            catch {
+                $errorCount++
+                $msg = $_.Exception.Message
+                Write-Log "Error processing recording $recordingIndex ($($recording.RecordingID)): $msg" "ERROR"
+            }
+        }
+
+        Write-Log "Enrichment complete. Success: $successCount, Errors: $errorCount" "INFO"
+
+        # ============================================================
+        # Export to CSV
+        # ============================================================
+        if ($formatted.Count -eq 0) {
+            Write-Log "No successfully enriched recordings to export" "WARN"
+            return
+        }
+
+        $outputFile = "$outputDir/PSM_Recordings_${Days}days_$timestamp.csv"
+        Write-Log "Exporting $($formatted.Count) recordings to CSV: $outputFile" "INFO"
+
+        $formatted | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
+
+        Write-Log "CSV export successful: $outputFile" "SUCCESS"
+
+        # ============================================================
+        # Summary
+        # ============================================================
+        Write-Log "Completed Get-CACPSMRecordings()" "DEBUG"
+        Write-Host "Export Summary" -ForegroundColor Cyan
+        Write-Host "  Days: $Days"
+        Write-Host "  Total Recordings: $($recordings.Count)"
+        Write-Host "  Successfully Enriched: $successCount"
+        Write-Host "  Enrichment Errors: $errorCount"
+        Write-Host "  Output File: $outputFile" -ForegroundColor Green
     }
-    else {
-        Write-Host "[INFO] No recordings found for the given period." -ForegroundColor Yellow
+    catch {
+        Write-Log "Error during Get-CACPSMRecordings(): $($_.Exception.Message)" "ERROR"
+        Write-Host "Fatal Error: $($_.Exception.Message)" -ForegroundColor Red
+        throw
     }
 }
 
+# ============================================================
+# EXPORT ALL PUBLIC FUNCTIONS
+# ============================================================
 Export-ModuleMember -Function Get-CACPSMRecordings

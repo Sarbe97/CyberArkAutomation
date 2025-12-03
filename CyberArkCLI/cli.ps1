@@ -19,25 +19,24 @@ function Reload-CACModules {
     Write-Host "Reloading CyberArk CLI modules..." -ForegroundColor Cyan
     Write-Host "=============================================="
 
-    # All modules used in this project (in dependency order)
     $moduleFiles = @(
         "Utils.psm1",
         "Config.psm1",
         "Models.psm1",
+        "APIClient.psm1",
         "Login.psm1",
         "Users.psm1",
         "Safes.psm1",
         "Accounts.psm1",
-        "Onboarding.psm1", 
+        "SystemHealth.psm1",
+        "Onboarding.psm1",
         "Monitor.psm1",
-        "Reports.psm1",
-        "SystemHealth.psm1"
+        "Reports.psm1"
     )
-
 
     $modulePaths = $moduleFiles | ForEach-Object { Join-Path "$PSScriptRoot/Modules" $_ }
 
-    # 1. Unload modules if loaded
+    Write-Host "Unloading existing modules..." -ForegroundColor Yellow
     foreach ($path in $modulePaths) {
         $loaded = Get-Module | Where-Object { $_.Path -eq $path }
         if ($loaded) {
@@ -46,7 +45,6 @@ function Reload-CACModules {
         }
     }
 
-    # 2. Load modules
     Write-Host "`nLoading modules..." -ForegroundColor Green
     foreach ($path in $modulePaths) {
         if (Test-Path $path) {
@@ -58,23 +56,28 @@ function Reload-CACModules {
         }
     }
 
-    # 3. Show exported functions per module
     Write-Host "`n=============================================="
-    Write-Host "Exported Functions (per module)"
-    Write-Host "==============================================`n"
+    Write-Host "Exported Functions per Module"
+    Write-Host "=============================================="
 
     foreach ($path in $modulePaths) {
         $mod = Get-Module | Where-Object { $_.Path -eq $path }
         if ($mod) {
-            Write-Host ("Module: {0}" -f (Split-Path $path -Leaf)) -ForegroundColor Cyan
-            $mod.ExportedFunctions.Keys | Sort-Object | ForEach-Object {
-                Write-Host ("   - {0}" -f $_)
+            Write-Host "`nModule: $(Split-Path $path -Leaf)" -ForegroundColor Cyan
+            $functions = $mod.ExportedFunctions.Keys | Sort-Object
+            if ($functions) {
+                $functions | ForEach-Object {
+                    Write-Host "   $($_)" -ForegroundColor Gray
+                }
             }
-            Write-Host
+            else {
+                Write-Host "   (no exported functions)" -ForegroundColor DarkGray
+            }
         }
     }
 
-    Write-Host "Module reload completed." -ForegroundColor Green
+    Write-Host "`n=============================================="
+    Write-Host "Module reload completed successfully" -ForegroundColor Green
     Write-Host "=============================================="
 }
 

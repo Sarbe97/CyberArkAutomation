@@ -4,15 +4,17 @@ function Get-CACSystemHealth {
     )
 
     Write-Log "Started Get-CACSystemHealth()" "DEBUG"
-    Write-Log "Retrieving system health summary and component details" "INFO"
+    Write-Log "Retrieving system health summary and component details from CyberArk APIs" "INFO"
 
     try {
-        Write-Log "Calling Get-PASComponentSummary" "DEBUG"
+        $allHealthData = @()
+
+        Write-Log "Calling ComponentsMonitoringSummary API" "DEBUG"
         Write-Host "Fetching component summary..." -ForegroundColor Cyan
 
-        $summary = Get-PASComponentSummary -ErrorAction Stop
+        $summaryResponse = Invoke-CACAPIRequest -Method GET -Endpoint "/PasswordVault/API/ComponentsMonitoringSummary/" -ErrorAction Stop
 
-        if (-not $summary) {
+        if (-not $summaryResponse) {
             Write-Log "Component summary returned empty" "WARN"
             Write-Host "No summary data returned from CyberArk." -ForegroundColor Yellow
             return
@@ -20,50 +22,87 @@ function Get-CACSystemHealth {
 
         Write-Log "Component summary retrieved successfully" "DEBUG"
 
-        $allComponentsHealth = @()
+        if ($summaryResponse.Vaults) {
+            Write-Log "Found $($summaryResponse.Vaults.Count) vault instances in summary" "DEBUG"
 
-        foreach ($component in $summary.Components) {
-            $componentID = $component.ComponentID
-            
-            Write-Log "Processing component: $componentID" "DEBUG"
-            Write-Host "Retrieving details for $($component.ComponentName)..." -ForegroundColor Cyan
+            foreach ($vault in $summaryResponse.Vaults) {
+                $vaultRecord = [PSCustomObject]@{
+                    HealthType          = "Vault"
+                    ComponentID         = "VAULT"
+                    ComponentName       = "Vault"
+                    ComponentIP         = $vault.ComponentIP
+                    ComponentUserName   = $vault.ComponentUserName
+                    ComponentVersion    = $vault.ComponentVersion
+                    IsLoggedOn          = $vault.IsLoggedOn
+                    LastLogonDate       = $vault.LastLogonDate
+                    ComponentSpecificStat = $null
+                    ConnectedCount      = $null
+                    TotalCount          = $null
+                    ReportedAt          = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                }
 
-            try {
-                $componentDetails = Get-PASComponentDetail -ComponentID $componentID -ErrorAction Stop
+                $allHealthData += $vaultRecord
 
-                if ($componentDetails.ComponentsDetails) {
-                    foreach ($detail in $componentDetails.ComponentsDetails) {
+                Write-Log "Added vault instance: $($vault.ComponentIP)" "DEBUG"
+            }
+        }
+
+        if (-not $summaryResponse.Components) {
+            Write-Log "No Components array in summary response" "WARN"
+            Write-Host "No components found in summary." -ForegroundColor Yellow
+        }
+        else {
+            Write-Log "Found $($summaryResponse.Components.Count) component types" "DEBUG"
+
+            foreach ($component in $summaryResponse.Components) {
+                $componentID = $component.ComponentID
+                $componentName = $component.ComponentName
+                
+                Write-Log "Processing component: $componentID - $componentName" "DEBUG"
+                Write-Host "Retrieving details for $componentName..." -ForegroundColor Cyan
+
+                try {
+                    $detailEndpoint = "/PasswordVault/API/ComponentsMonitoringDetails/$componentID/"
+                    $detailResponse = Invoke-CACAPIRequest -Method GET -Endpoint $detailEndpoint -ErrorAction Stop
+
+                    if (-not $detailResponse.ComponentsDetails) {
+                        Write-Log "No ComponentsDetails found for: $componentID" "WARN"
+                        continue
+                    }
+
+                    Write-Log "Retrieved $($detailResponse.ComponentsDetails.Count) instances for $componentID" "DEBUG"
+
+                    foreach ($detail in $detailResponse.ComponentsDetails) {
                         $healthRecord = [PSCustomObject]@{
+                            HealthType          = "Component"
                             ComponentID         = $componentID
-                            ComponentName       = $component.ComponentName
+                            ComponentName       = $componentName
                             ComponentIP         = $detail.ComponentIP
                             ComponentUserName   = $detail.ComponentUserName
                             ComponentVersion    = $detail.ComponentVersion
                             IsLoggedOn          = $detail.IsLoggedOn
                             LastLogonDate       = $detail.LastLogonDate
+                            ComponentSpecificStat = $detail.ComponentSpecificStat
                             ConnectedCount      = $component.ConnectedComponentCount
                             TotalCount          = $component.ComponentTotalCount
                             ReportedAt          = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
                         }
 
-                        $allComponentsHealth += $healthRecord
+                        $allHealthData += $healthRecord
 
-                        Write-Log "Processed component instance: $($detail.ComponentIP)" "DEBUG"
+                        Write-Log "Processed component instance: $($detail.ComponentIP) for $componentName" "DEBUG"
                     }
                 }
-                else {
-                    Write-Log "No details found for component: $componentID" "WARN"
+                catch {
+                    Write-Log "Error retrieving details for $componentID`: $($_.Exception.Message)" "WARN"
+                    Write-Host "Error retrieving $componentName details: $($_.Exception.Message)" -ForegroundColor Yellow
                 }
-            }
-            catch {
-                Write-Log "Error retrieving details for $componentID`: $($_.Exception.Message)" "WARN"
-                Write-Host "Error retrieving $($component.ComponentName) details: $($_.Exception.Message)" -ForegroundColor Yellow
             }
         }
 
-        if ($allComponentsHealth.Count -eq 0) {
-            Write-Log "No component health data retrieved" "WARN"
-            Write-Host "No component health data was retrieved." -ForegroundColor Yellow
+        if ($allHealthData.Count -eq 0) {
+            Write-Log "No health data retrieved" "WARN"
+            Write-Host "No health data was retrieved." -ForegroundColor Yellow
             return
         }
 
@@ -71,7 +110,8 @@ function Get-CACSystemHealth {
         Write-Host "System Health Summary" -ForegroundColor Cyan
         Write-Host ""
 
-        $allComponentsHealth | Format-Table -AutoSize @(
+        $allHealthData | Format-Table -AutoSize @(
+            "HealthType",
             "ComponentName",
             "ComponentIP",
             "ComponentUserName",
@@ -92,14 +132,14 @@ function Get-CACSystemHealth {
             $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
             $outputFile = "$outputDir/system_health_$timestamp.csv"
 
-            Write-Log "Exporting $($allComponentsHealth.Count) component records to CSV: $outputFile" "INFO"
-            $allComponentsHealth | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
+            Write-Log "Exporting $($allHealthData.Count) health records to CSV: $outputFile" "INFO"
+            $allHealthData | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
 
             Write-Log "CSV export successful: $outputFile" "SUCCESS"
             Write-Host ""
             Write-Host "Export Summary" -ForegroundColor Cyan
-            Write-Host "  Total Components: $($allComponentsHealth.Count)"
-            Write-Host "  Export File: $outputFile" -ForegroundColor Green
+            Write-Host "Total Records: $($allHealthData.Count)"
+            Write-Host "Export File: $outputFile" -ForegroundColor Green
         }
 
         Write-Log "Completed Get-CACSystemHealth()" "DEBUG"

@@ -14,23 +14,18 @@ function Invoke-CACAPIRequest {
     Write-Log "Started Invoke-CACAPIRequest() - Method: $Method, Endpoint: $Endpoint" "DEBUG"
 
     try {
-        if (-not $global:CACVaultAddress) {
-            Write-Log "Vault address not configured" "ERROR"
-            throw "Vault address not configured. Please login first."
+        if (-not $global:CACSession) {
+            Write-Log "CACSession not available" "ERROR"
+            throw "Not logged in. Please login first."
         }
 
-        if (-not $global:CACAuthToken) {
-            Write-Log "Authentication token not available" "ERROR"
-            throw "Authentication token not available. Please login first."
-        }
-
-        $baseURL = "https://$($global:CACVaultAddress)"
+        $baseURL = $global:CACSession.BaseURI
         $fullURL = "$baseURL$Endpoint"
 
         Write-Log "Calling API: $fullURL" "DEBUG"
 
         $headers = @{
-            "Authorization" = $global:CACAuthToken
+            "Authorization" = $global:CACSession.WebSession.Headers.Authorization
             "Content-Type"  = "application/json"
         }
 
@@ -38,6 +33,7 @@ function Invoke-CACAPIRequest {
             Uri             = $fullURL
             Method          = $Method
             Headers         = $headers
+            WebSession      = $global:CACSession.WebSession
             SkipCertificateCheck = $true
         }
 

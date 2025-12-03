@@ -5,8 +5,11 @@
 $Script:UserCachePath = "$PSScriptRoot/../Data/users.csv"
 $Script:UserCache = $null              # In-memory cache (loaded once)
 $Script:UserCacheLoadTime = $null      # Track when cache was loaded
-$Script:CacheExpireMinutes = 30        # Refresh cache every 30 minutes
+#$Script:CacheExpireMinutes = 30        # Refresh cache every 30 minutes
 
+
+$cfg = Get-CACConfig
+$Script:CacheExpireMinutes = if ($cfg.UserCacheTTL) { [int]$cfg.UserCacheTTL } else { 30 }
 # ============================================================
 # Load user cache into memory (with TTL)
 # ============================================================

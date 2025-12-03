@@ -145,7 +145,7 @@ function Show-MainMenu {
         Write-Host "1. Safe Operations"
         Write-Host "2. User Utilities"
         Write-Host "3. Onboarding"
-        Write-Host "4. Monitororing"
+        Write-Host "4. Monitoring"
         Write-Host "5. Reports"
         Write-Host "9. Logout"
         Write-Host "0. Exit"

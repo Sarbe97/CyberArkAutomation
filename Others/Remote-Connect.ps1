@@ -31,12 +31,26 @@ else {
 }
 
 #-------------------------------------------
-# Test WSMan connectivity for each server
+# Test WSMan connectivity and resolve IP
 #-------------------------------------------
 Write-Host "`nTesting remote WSMan connectivity..." -ForegroundColor Yellow
 
 $connectionStatus = @{}
+$serverIPs = @{}
+
 foreach ($srv in $servers) {
+
+    # Resolve IP
+    try {
+        $dns = Resolve-DnsName -Name $srv -ErrorAction Stop
+        $ip = ($dns | Where-Object { $_.Type -eq "A" }).IPAddress -join ", "
+        $serverIPs[$srv] = $ip
+    }
+    catch {
+        $serverIPs[$srv] = ""
+    }
+
+    # Test WSMan
     try {
         Test-WSMan -ComputerName $srv -ErrorAction Stop | Out-Null
         Write-Host "SUCCESS: $srv reachable" -ForegroundColor Green
@@ -63,9 +77,12 @@ $final = @()
 
 foreach ($srv in $servers) {
 
+    $srvIP = $serverIPs[$srv]
+
     if ($connectionStatus[$srv] -eq "Failed") {
         $final += [pscustomobject]@{
             Server           = $srv
+            ServerIP         = $srvIP
             Type             = "ConnectionError"
             GroupName        = "-"
             MemberName       = "-"
@@ -80,7 +97,7 @@ foreach ($srv in $servers) {
     }
 
     Write-Host "`n=============================="
-    Write-Host " Querying $srv"
+    Write-Host " Querying $srv  (IP: $srvIP)"
     Write-Host "=============================="
 
     #------------------------------
@@ -96,6 +113,7 @@ foreach ($srv in $servers) {
         foreach ($u in $users) {
             $final += [pscustomobject]@{
                 Server           = $srv
+                ServerIP         = $srvIP
                 Type             = "User"
                 GroupName        = "-"
                 MemberName       = $u.Name
@@ -125,13 +143,14 @@ foreach ($srv in $servers) {
         foreach ($g in $groups) {
             $members = Invoke-Command -ComputerName $srv -Credential $cred -ScriptBlock {
                 param($grp)
-                Get-LocalGroupMember -Group $grp -ErrorAction SilentlyContinue | 
+                Get-LocalGroupMember -Group $grp -ErrorAction SilentlyContinue |
                 Select-Object Name, ObjectClass, PrincipalSource
             } -ArgumentList $g.Name
 
             foreach ($m in $members) {
                 $final += [pscustomobject]@{
                     Server           = $srv
+                    ServerIP         = $srvIP
                     Type             = "GroupMember"
                     GroupName        = $g.Name
                     MemberName       = $m.Name

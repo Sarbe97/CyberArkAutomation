@@ -30,7 +30,8 @@ function Reload-CACModules {
         "Accounts.psm1",
         "Onboarding.psm1", 
         "Monitor.psm1",
-        "Reports.psm1"
+        "Reports.psm1",
+        "SystemHealth.psm1"
     )
 
 

@@ -1,15 +1,4 @@
-# ==========================
-# SystemHealth.psm1 - System Health Monitoring
-# ==========================
- 
-Import-Module psPAS -ErrorAction Stop
-
-# ============================================================
-# 1. Get Complete System Health Summary (all components)
-# ============================================================
 function Get-CACSystemHealth {
-    
-    
     param(
         [bool]$ExportToCSV = $true
     )
@@ -18,9 +7,6 @@ function Get-CACSystemHealth {
     Write-Log "Retrieving system health summary and component details" "INFO"
 
     try {
-        # ============================================================
-        # Step 1: Get component summary (overview)
-        # ============================================================
         Write-Log "Calling Get-PASComponentSummary" "DEBUG"
         Write-Host "Fetching component summary..." -ForegroundColor Cyan
 
@@ -34,10 +20,6 @@ function Get-CACSystemHealth {
 
         Write-Log "Component summary retrieved successfully" "DEBUG"
 
-        # ============================================================
-        # Step 2: Get detailed information for each component
-        # ============================================================
-        
         $allComponentsHealth = @()
         $componentTypes = @("PVWA", "SessionManagement", "CPM", "AIM")
         $componentCount = 0
@@ -51,48 +33,32 @@ function Get-CACSystemHealth {
                 Write-Log "Fetching details for component: $componentType" "DEBUG"
                 Write-Host "Retrieving $componentType details..." -ForegroundColor Cyan
 
-                # Get detailed component information
                 $componentDetails = Get-PASComponentDetail -ComponentID $componentType -ErrorAction Stop
 
                 if ($componentDetails) {
                     Write-Log "Retrieved $($componentDetails.Count) instances of $componentType" "DEBUG"
 
-                    # Process each instance
                     foreach ($instance in $componentDetails) {
                         try {
-                            # Build comprehensive health object
                             $healthRecord = [PSCustomObject]@{
-                                # Component Identification
-                                ComponentType         = $componentType
-                                ComponentID           = $instance.ComponentID
-                                ComponentInstanceName = $instance.ComponentInstanceName
-                                
-                                # Host/Server Information
-                                MachineName           = $instance.MachineName
-                                ServerAddress         = $instance.ServerAddress
-                                ServerPort            = $instance.ServerPort
-                                
-                                # Health Status
-                                HealthStatus          = $instance.HealthStatus
-                                ComponentStatus       = $instance.ComponentStatus
-                                ConnectivityStatus    = $instance.ConnectivityStatus
-                                
-                                # Version Information
-                                OSVersion             = $instance.OSVersion
-                                ProcessorCount        = $instance.ProcessorCount
-                                ComponentVersion      = $instance.ComponentVersion
-                                
-                                # Availability & Uptime
-                                IsUserLoggedIn        = $instance.IsUserLoggedIn
-                                LastHealthCheck       = Convert-CACTimestamp $instance.LastHealthCheck
-                                LastReportTime        = Convert-CACTimestamp $instance.LastReportTime
-                                
-                                # Redundancy (if applicable)
-                                RedundancyMode        = $instance.RedundancyMode
-                                SoftwareVersion       = $instance.SoftwareVersion
-                                
-                                # Audit & Timestamp
-                                ReportedAt            = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                                ComponentType           = $componentType
+                                ComponentID             = $instance.ComponentID
+                                ComponentInstanceName   = $instance.ComponentInstanceName
+                                MachineName             = $instance.MachineName
+                                ServerAddress           = $instance.ServerAddress
+                                ServerPort              = $instance.ServerPort
+                                HealthStatus            = $instance.HealthStatus
+                                ComponentStatus         = $instance.ComponentStatus
+                                ConnectivityStatus      = $instance.ConnectivityStatus
+                                OSVersion               = $instance.OSVersion
+                                ProcessorCount          = $instance.ProcessorCount
+                                ComponentVersion        = $instance.ComponentVersion
+                                IsUserLoggedIn          = $instance.IsUserLoggedIn
+                                LastHealthCheck         = Convert-CACTimestamp $instance.LastHealthCheck
+                                LastReportTime          = Convert-CACTimestamp $instance.LastReportTime
+                                RedundancyMode          = $instance.RedundancyMode
+                                SoftwareVersion         = $instance.SoftwareVersion
+                                ReportedAt              = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
                             }
 
                             $allComponentsHealth += $healthRecord
@@ -125,14 +91,10 @@ function Get-CACSystemHealth {
             return
         }
 
-        # ============================================================
-        # Step 3: Display Summary to Console
-        # ============================================================
         Write-Host ""
         Write-Host "===== System Health Summary =====" -ForegroundColor Cyan
         Write-Host ""
 
-        # Group by component type for display
         $grouped = $allComponentsHealth | Group-Object -Property ComponentType
 
         foreach ($group in $grouped) {
@@ -147,9 +109,6 @@ function Get-CACSystemHealth {
             )
         }
 
-        # ============================================================
-        # Step 4: Export to CSV
-        # ============================================================
         if ($ExportToCSV) {
             $outputDir = "$PSScriptRoot/../Output"
             if (-not (Test-Path $outputDir)) {
@@ -179,11 +138,7 @@ function Get-CACSystemHealth {
     }
 }
 
-# ============================================================
-# 2. Get Specific Component Health Details
-# ============================================================
 function Get-CACComponentHealth {
-     
     param(
         [Parameter(Mandatory = $false)]
         [ValidateSet("PVWA", "SessionManagement", "CPM", "AIM")]
@@ -193,7 +148,6 @@ function Get-CACComponentHealth {
     Write-Log "Started Get-CACComponentHealth()" "DEBUG"
 
     try {
-        # Prompt for component if not provided
         if ([string]::IsNullOrWhiteSpace($ComponentID)) {
             Write-Host "Available Components:" -ForegroundColor Cyan
             Write-Host "1 = PVWA (Web Portal)"
@@ -219,7 +173,6 @@ function Get-CACComponentHealth {
         Write-Log "Fetching component health for: $ComponentID" "INFO"
         Write-Host "Retrieving $ComponentID health details..." -ForegroundColor Cyan
 
-        # Fetch component details
         $componentDetails = Get-PASComponentDetail -ComponentID $ComponentID -ErrorAction Stop
 
         if (-not $componentDetails) {
@@ -230,33 +183,30 @@ function Get-CACComponentHealth {
 
         Write-Log "Retrieved $($componentDetails.Count) instances of $ComponentID" "INFO"
 
-        # Display to console
         Write-Host ""
         Write-Host "===== $ComponentID Health Details =====" -ForegroundColor Cyan
         Write-Host ""
 
-        # Create formatted output
         $formatted = $componentDetails | ForEach-Object {
             [PSCustomObject]@{
-                ComponentName   = $_.ComponentInstanceName
-                MachineName     = $_.MachineName
-                ServerAddress   = $_.ServerAddress
-                Port            = $_.ServerPort
-                HealthStatus    = $_.HealthStatus
-                ComponentStatus = $_.ComponentStatus
-                Connectivity    = $_.ConnectivityStatus
-                Version         = $_.ComponentVersion
-                OS              = $_.OSVersion
-                Processors      = $_.ProcessorCount
-                LastHealthCheck = Convert-CACTimestamp $_.LastHealthCheck
-                LastReport      = Convert-CACTimestamp $_.LastReportTime
-                RedundancyMode  = $_.RedundancyMode
+                ComponentName      = $_.ComponentInstanceName
+                MachineName        = $_.MachineName
+                ServerAddress      = $_.ServerAddress
+                Port               = $_.ServerPort
+                HealthStatus       = $_.HealthStatus
+                ComponentStatus    = $_.ComponentStatus
+                Connectivity       = $_.ConnectivityStatus
+                Version            = $_.ComponentVersion
+                OS                 = $_.OSVersion
+                Processors         = $_.ProcessorCount
+                LastHealthCheck    = Convert-CACTimestamp $_.LastHealthCheck
+                LastReport         = Convert-CACTimestamp $_.LastReportTime
+                RedundancyMode     = $_.RedundancyMode
             }
         }
 
         $formatted | Format-Table -AutoSize
 
-        # Optional CSV export
         Write-Host ""
         $exportChoice = Read-Host "Export to CSV? (Y/N)"
 
@@ -284,24 +234,7 @@ function Get-CACComponentHealth {
     }
 }
 
-# ============================================================
-# 3. Check Overall System Health Status (simple status view)
-# ============================================================
 function Invoke-CACHealthCheck {
-    <#
-    .SYNOPSIS
-    Performs a quick health check and displays component status summary.
-    
-    .DESCRIPTION
-    Retrieves all component statuses and displays a color-coded summary
-    of which components are healthy vs. experiencing issues.
-    
-    .EXAMPLE
-    Invoke-CACHealthCheck
-    
-    Displays overall system health status.
-    #>
-    
     Write-Log "Started Invoke-CACHealthCheck()" "DEBUG"
     Write-Log "Performing quick system health check" "INFO"
 
@@ -320,20 +253,19 @@ function Invoke-CACHealthCheck {
                 $componentDetails = Get-PASComponentDetail -ComponentID $componentType -ErrorAction Stop
 
                 if ($componentDetails) {
-                    # Determine overall status
                     $unhealthyCount = ($componentDetails | Where-Object { $_.HealthStatus -ne "OK" }).Count
                     $disconnectedCount = ($componentDetails | Where-Object { $_.ConnectivityStatus -ne "Connected" }).Count
                     
-                    $status = "✓ OK"
+                    $status = "OK"
                     $color = "Green"
 
                     if ($disconnectedCount -gt 0) {
-                        $status = "✗ DISCONNECTED"
+                        $status = "DISCONNECTED"
                         $color = "Red"
                         $allHealthy = $false
                     }
                     elseif ($unhealthyCount -gt 0) {
-                        $status = "⚠ WARNING"
+                        $status = "WARNING"
                         $color = "Yellow"
                         $allHealthy = $false
                     }
@@ -349,17 +281,17 @@ function Invoke-CACHealthCheck {
 
                     $healthSummary += $statusRecord
 
-                    Write-Host "  $status" -ForegroundColor $color
+                    Write-Host "  Status: $status" -ForegroundColor $color
                 }
                 else {
                     Write-Log "No data for component: $componentType" "WARN"
-                    Write-Host "  ⚠ NO DATA" -ForegroundColor Yellow
+                    Write-Host "  NO DATA" -ForegroundColor Yellow
                     $allHealthy = $false
                 }
             }
             catch {
                 Write-Log "Error checking $componentType`: $($_.Exception.Message)" "WARN"
-                Write-Host "  ✗ ERROR" -ForegroundColor Red
+                Write-Host "  ERROR" -ForegroundColor Red
                 $allHealthy = $false
             }
         }
@@ -372,11 +304,11 @@ function Invoke-CACHealthCheck {
 
         Write-Host ""
         if ($allHealthy) {
-            Write-Host "Overall Status: ALL SYSTEMS OPERATIONAL ✓" -ForegroundColor Green
+            Write-Host "Overall Status: ALL SYSTEMS OPERATIONAL" -ForegroundColor Green
             Write-Log "All components healthy" "SUCCESS"
         }
         else {
-            Write-Host "Overall Status: ATTENTION REQUIRED ⚠" -ForegroundColor Red
+            Write-Host "Overall Status: ATTENTION REQUIRED" -ForegroundColor Red
             Write-Log "One or more components have issues" "WARN"
         }
 
@@ -388,31 +320,11 @@ function Invoke-CACHealthCheck {
     }
 }
 
-# ============================================================
-# 4. Export Health Report (detailed + summary)
-# ============================================================
 function Export-CACSystemHealthReport {
-    <#
-    .SYNOPSIS
-    Generates a comprehensive system health report with multiple CSV files.
-    
-    .DESCRIPTION
-    Creates three CSV files:
-    - system_health_full_<timestamp>.csv - Complete health details for all components
-    - system_health_summary_<timestamp>.csv - Summary by component type
-    - system_health_status_<timestamp>.csv - Quick status reference
-    
-    .EXAMPLE
-    Export-CACSystemHealthReport
-    
-    Generates all health report files.
-    #>
-    
     Write-Log "Started Export-CACSystemHealthReport()" "DEBUG"
     Write-Log "Generating comprehensive system health reports" "INFO"
 
     try {
-        # Initialize output directory
         $outputDir = "$PSScriptRoot/../Output"
         if (-not (Test-Path $outputDir)) {
             New-Item -ItemType Directory -Path $outputDir | Out-Null
@@ -424,9 +336,6 @@ function Export-CACSystemHealthReport {
 
         Write-Host "Generating System Health Reports..." -ForegroundColor Cyan
 
-        # ============================================================
-        # File 1: Full Details
-        # ============================================================
         Write-Host "  Collecting detailed component data..." -ForegroundColor Gray
 
         $allDetails = @()
@@ -436,24 +345,24 @@ function Export-CACSystemHealthReport {
                 if ($details) {
                     foreach ($instance in $details) {
                         $allDetails += [PSCustomObject]@{
-                            ComponentType         = $componentType
-                            ComponentID           = $instance.ComponentID
-                            ComponentInstanceName = $instance.ComponentInstanceName
-                            MachineName           = $instance.MachineName
-                            ServerAddress         = $instance.ServerAddress
-                            ServerPort            = $instance.ServerPort
-                            HealthStatus          = $instance.HealthStatus
-                            ComponentStatus       = $instance.ComponentStatus
-                            ConnectivityStatus    = $instance.ConnectivityStatus
-                            OSVersion             = $instance.OSVersion
-                            ProcessorCount        = $instance.ProcessorCount
-                            ComponentVersion      = $instance.ComponentVersion
-                            IsUserLoggedIn        = $instance.IsUserLoggedIn
-                            LastHealthCheck       = Convert-CACTimestamp $instance.LastHealthCheck
-                            LastReportTime        = Convert-CACTimestamp $instance.LastReportTime
-                            RedundancyMode        = $instance.RedundancyMode
-                            SoftwareVersion       = $instance.SoftwareVersion
-                            ReportedAt            = $reportTimestamp
+                            ComponentType           = $componentType
+                            ComponentID             = $instance.ComponentID
+                            ComponentInstanceName   = $instance.ComponentInstanceName
+                            MachineName             = $instance.MachineName
+                            ServerAddress           = $instance.ServerAddress
+                            ServerPort              = $instance.ServerPort
+                            HealthStatus            = $instance.HealthStatus
+                            ComponentStatus         = $instance.ComponentStatus
+                            ConnectivityStatus      = $instance.ConnectivityStatus
+                            OSVersion               = $instance.OSVersion
+                            ProcessorCount          = $instance.ProcessorCount
+                            ComponentVersion        = $instance.ComponentVersion
+                            IsUserLoggedIn          = $instance.IsUserLoggedIn
+                            LastHealthCheck         = Convert-CACTimestamp $instance.LastHealthCheck
+                            LastReportTime          = Convert-CACTimestamp $instance.LastReportTime
+                            RedundancyMode          = $instance.RedundancyMode
+                            SoftwareVersion         = $instance.SoftwareVersion
+                            ReportedAt              = $reportTimestamp
                         }
                     }
                 }
@@ -467,27 +376,24 @@ function Export-CACSystemHealthReport {
             $fullDetailFile = "$outputDir/system_health_full_$timestamp.csv"
             $allDetails | Export-Csv -Path $fullDetailFile -NoTypeInformation -Encoding UTF8
             Write-Log "Full details report created: $fullDetailFile" "SUCCESS"
-            Write-Host "    ✓ Full Details Report" -ForegroundColor Green
+            Write-Host "    Full Details Report created" -ForegroundColor Green
         }
 
-        # ============================================================
-        # File 2: Summary by Component
-        # ============================================================
         Write-Host "  Creating summary report..." -ForegroundColor Gray
 
         $summaryData = $allDetails | Group-Object -Property ComponentType | ForEach-Object {
             [PSCustomObject]@{
-                ComponentType     = $_.Name
-                TotalInstances    = $_.Count
-                HealthyCount      = ($_.Group | Where-Object { $_.HealthStatus -eq "OK" }).Count
-                UnhealthyCount    = ($_.Group | Where-Object { $_.HealthStatus -ne "OK" }).Count
-                ConnectedCount    = ($_.Group | Where-Object { $_.ConnectivityStatus -eq "Connected" }).Count
-                DisconnectedCount = ($_.Group | Where-Object { $_.ConnectivityStatus -ne "Connected" }).Count
-                HealthyPercentage = [Math]::Round(
+                ComponentType      = $_.Name
+                TotalInstances     = $_.Count
+                HealthyCount       = ($_.Group | Where-Object { $_.HealthStatus -eq "OK" }).Count
+                UnhealthyCount     = ($_.Group | Where-Object { $_.HealthStatus -ne "OK" }).Count
+                ConnectedCount     = ($_.Group | Where-Object { $_.ConnectivityStatus -eq "Connected" }).Count
+                DisconnectedCount  = ($_.Group | Where-Object { $_.ConnectivityStatus -ne "Connected" }).Count
+                HealthyPercentage  = [Math]::Round(
                     (($_.Group | Where-Object { $_.HealthStatus -eq "OK" }).Count / $_.Count * 100),
                     2
                 )
-                ReportedAt        = $reportTimestamp
+                ReportedAt         = $reportTimestamp
             }
         }
 
@@ -495,12 +401,9 @@ function Export-CACSystemHealthReport {
             $summaryFile = "$outputDir/system_health_summary_$timestamp.csv"
             $summaryData | Export-Csv -Path $summaryFile -NoTypeInformation -Encoding UTF8
             Write-Log "Summary report created: $summaryFile" "SUCCESS"
-            Write-Host "    ✓ Summary Report" -ForegroundColor Green
+            Write-Host "    Summary Report created" -ForegroundColor Green
         }
 
-        # ============================================================
-        # File 3: Status Quick Reference
-        # ============================================================
         Write-Host "  Creating status report..." -ForegroundColor Gray
 
         $statusData = @()
@@ -512,12 +415,12 @@ function Export-CACSystemHealthReport {
                 $overallConnectivity = if (($componentInstances | Where-Object { $_.ConnectivityStatus -ne "Connected" }).Count -gt 0) { "DISCONNECTED" } else { "CONNECTED" }
                 
                 $statusData += [PSCustomObject]@{
-                    Component           = $componentType
-                    OverallHealth       = $overallHealth
+                    Component        = $componentType
+                    OverallHealth    = $overallHealth
                     OverallConnectivity = $overallConnectivity
-                    InstanceCount       = $componentInstances.Count
-                    LatestVersion       = ($componentInstances | Sort-Object -Property ComponentVersion -Descending | Select-Object -First 1).ComponentVersion
-                    ReportedAt          = $reportTimestamp
+                    InstanceCount    = $componentInstances.Count
+                    LatestVersion    = ($componentInstances | Sort-Object -Property ComponentVersion -Descending | Select-Object -First 1).ComponentVersion
+                    ReportedAt       = $reportTimestamp
                 }
             }
         }
@@ -526,7 +429,7 @@ function Export-CACSystemHealthReport {
             $statusFile = "$outputDir/system_health_status_$timestamp.csv"
             $statusData | Export-Csv -Path $statusFile -NoTypeInformation -Encoding UTF8
             Write-Log "Status report created: $statusFile" "SUCCESS"
-            Write-Host "    ✓ Status Quick Reference" -ForegroundColor Green
+            Write-Host "    Status Quick Reference created" -ForegroundColor Green
         }
 
         Write-Host ""
@@ -542,9 +445,6 @@ function Export-CACSystemHealthReport {
     }
 }
 
-# ============================================================
-# EXPORT ALL PUBLIC FUNCTIONS
-# ============================================================
 Export-ModuleMember -Function `
     Get-CACSystemHealth, `
     Get-CACComponentHealth, `

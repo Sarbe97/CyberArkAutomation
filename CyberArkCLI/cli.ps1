@@ -193,20 +193,14 @@ function Show-SystemHealthMenu {
     while ($true) {
         Clear-Host
         Write-Host "===== SYSTEM HEALTH MENU =====" -ForegroundColor Cyan
-        Write-Host "1. Quick Health Check"
-        Write-Host "2. Get Complete System Health (All Components)"
-        Write-Host "3. Get Specific Component Details"
-        Write-Host "4. Export Comprehensive Health Report"
+        Write-Host "1. System Health Summary"
         Write-Host "0. Back"
         Write-Host "=============================="
 
         $choice = Read-Host "Enter Choice"
 
         switch ($choice) {
-            '1' { Invoke-CACHealthCheck; Pause }
-            '2' { Get-CACSystemHealth; Pause }
-            '3' { Get-CACComponentHealth; Pause }
-            '4' { Export-CACSystemHealthReport; Pause }
+            '1' { Get-CACSystemHealth; Pause }
             '0' { return }
 
             default {

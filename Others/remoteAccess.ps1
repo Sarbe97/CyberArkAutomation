@@ -1,30 +1,26 @@
 
-Write-Host "===================================================="
-Write-Host " FETCH LOCAL USERS & GROUPS FROM REMOTE SERVERS"
+Write-Host "`n===================================================="
+Write-Host "  REMOTE USER & GROUP COLLECTION SCRIPT"
 Write-Host "====================================================`n"
 
-#-------------------------------------------------------
-# Ask the user for input mode
-#-------------------------------------------------------
+#-------------------------------------------
+# Get input mode
+#-------------------------------------------
 Write-Host "Choose Input Mode:"
 Write-Host "1. Enter servers manually"
-Write-Host "2. Load from CSV file (column name: Server)"
+Write-Host "2. Load from CSV file (column: Server)"
 $mode = Read-Host "Enter 1 or 2"
 
-#-------------------------------------------------------
-# Load servers list
-#-------------------------------------------------------
 $servers = @()
+$useCsv = $false
 
 if ($mode -eq "1") {
-    $userInput = Read-Host "Enter server names separated by commas"
-    $servers = $userInput.Split(",") | ForEach-Object { $_.Trim() }
-    $useCsv = $false
+    $servers = (Read-Host "Enter comma-separated server names").Split(",") | ForEach-Object { $_.Trim() }
 }
 elseif ($mode -eq "2") {
-    $csvPath = Read-Host "Enter full path of CSV file"
+    $csvPath = Read-Host "Enter full CSV path"
     if (!(Test-Path $csvPath)) {
-        Write-Host "CSV file does not exist! Exiting." -ForegroundColor Red
+        Write-Host "CSV file not found! Exiting." -ForegroundColor Red
         exit
     }
     $servers = Import-Csv $csvPath | Select-Object -ExpandProperty Server
@@ -35,122 +31,121 @@ else {
     exit
 }
 
-Write-Host "`nServers to be checked:" -ForegroundColor Cyan
-$servers | ForEach-Object { Write-Host " - $_" }
-
-Write-Host "`nPerforming WSMan connectivity check..." -ForegroundColor Yellow
-
-#-------------------------------------------------------
-# Test connectivity (No credential needed)
-#-------------------------------------------------------
+# Test WSMan connectivity
+Write-Host "`nTesting remote WSMan connectivity..." -ForegroundColor Yellow
 $validServers = @()
 
 foreach ($srv in $servers) {
     try {
-        if (Test-WSMan -ComputerName $srv -ErrorAction Stop) {
-            Write-Host "SUCCESS: WSMan available on $srv" -ForegroundColor Green
-            $validServers += $srv
-        }
+        Test-WSMan -ComputerName $srv -ErrorAction Stop | Out-Null
+        Write-Host "SUCCESS: $srv reachable" -ForegroundColor Green
+        $validServers += $srv
     }
     catch {
-        Write-Host "FAILED: Cannot reach $srv via WSMan." -ForegroundColor Red
+        Write-Host "FAILED: $srv not reachable" -ForegroundColor Red
     }
 }
 
 if ($validServers.Count -eq 0) {
-    Write-Host "`nNo servers passed WSMan test. Exiting." -ForegroundColor Red
+    Write-Host "No reachable servers found. Exiting." -ForegroundColor Red
     exit
 }
 
-Write-Host "`nValid servers ready for querying:" -ForegroundColor Cyan
-$validServers | ForEach-Object { Write-Host " - $_" }
-
-#-------------------------------------------------------
-# Ask for credentials only now
-#-------------------------------------------------------
-Write-Host "`nPlease enter domain credentials to query local accounts."
+# Get credential
+Write-Host "`nEnter domain credentials:"
 $cred = Get-Credential
 
-#-------------------------------------------------------
-# Query servers
-#-------------------------------------------------------
-$finalResults = @()
+#-------------------------------------------
+# Collect data
+#-------------------------------------------
+$final = @()
 
 foreach ($srv in $validServers) {
-    Write-Host "`n============================================="
-    Write-Host " Querying server: $srv"
-    Write-Host "============================================="
+
+    Write-Host "`n=============================="
+    Write-Host " Querying $srv"
+    Write-Host "=============================="
+
+    #------------------------------
+    # Fetch Local Users
+    #------------------------------
+    Write-Host " -> Getting local users..."
 
     try {
-        # Get Local Users
-        Write-Host " -> Fetching local users..."
         $users = Invoke-Command -ComputerName $srv -Credential $cred -ScriptBlock {
-            Get-LocalUser | Select-Object Name, Enabled, Description, LastLogon
+            Get-LocalUser | Select Name, Enabled, Description, LastLogon
         }
 
         foreach ($u in $users) {
-            $finalResults += [pscustomobject]@{
+            $final += [pscustomobject]@{
                 Server      = $srv
                 Type        = "User"
-                Name        = $u.Name
+                GroupName   = "-"
+                MemberName  = $u.Name
+                MemberType  = "LocalUser"
                 Enabled     = $u.Enabled
                 Description = $u.Description
-                Members     = "-"
                 LastLogon   = $u.LastLogon
             }
         }
+    }
+    catch {
+        Write-Host "ERROR fetching users from $srv" -ForegroundColor Red
+    }
 
-        # Get Local Groups
-        Write-Host " -> Fetching local groups..."
+    #------------------------------
+    # Fetch Groups + Members
+    #------------------------------
+    Write-Host " -> Getting local groups and members..."
+
+    try {
         $groups = Invoke-Command -ComputerName $srv -Credential $cred -ScriptBlock {
-            Get-LocalGroup | Select-Object Name, Description
+            Get-LocalGroup | Select Name, Description
         }
 
         foreach ($g in $groups) {
-            Write-Host "    -> Group: $($g.Name)"
-
             $members = Invoke-Command -ComputerName $srv -Credential $cred -ScriptBlock {
-                param($grp) 
-                Get-LocalGroupMember -Group $grp -ErrorAction SilentlyContinue | Select-Object Name
+                param($grp)
+                Get-LocalGroupMember -Group $grp -ErrorAction SilentlyContinue | 
+                    Select Name, ObjectClass, PrincipalSource
             } -ArgumentList $g.Name
 
-            $memberList = ($members.Name) -join "; "
-
-            $finalResults += [pscustomobject]@{
-                Server      = $srv
-                Type        = "Group"
-                Name        = $g.Name
-                Enabled     = "-"
-                Description = $g.Description
-                Members     = $memberList
-                LastLogon   = "-"
+            foreach ($m in $members) {
+                $final += [pscustomobject]@{
+                    Server      = $srv
+                    Type        = "GroupMember"
+                    GroupName   = $g.Name
+                    MemberName  = $m.Name
+                    MemberType  = $m.ObjectClass
+                    Enabled     = "-"
+                    Description = $g.Description
+                    LastLogon   = "-"
+                }
             }
         }
-
-        Write-Host " -> Completed: $srv" -ForegroundColor Green
     }
     catch {
-        Write-Host "ERROR querying $srv : $_" -ForegroundColor Red
+        Write-Host "ERROR fetching group details from $srv" -ForegroundColor Red
     }
+
+    Write-Host " -> Completed: $srv" -ForegroundColor Green
 }
 
-#-------------------------------------------------------
-# Output handling
-#-------------------------------------------------------
+#-------------------------------------------
+# OUTPUT
+#-------------------------------------------
 if ($useCsv -eq $false) {
-    Write-Host "`n============ FINAL OUTPUT ============" -ForegroundColor Cyan
-    $finalResults | Format-Table -AutoSize
+    Write-Host "`n===== FINAL OUTPUT =====" -ForegroundColor Cyan
+    $final | Format-Table -AutoSize
 }
 else {
-    $timestamp = (Get-Date).ToString("yyyyMMdd-HHmmss")
-    $base = [System.IO.Path]::GetFileNameWithoutExtension($csvPath)
+    $time = (Get-Date).ToString("yyyyMMdd-HHmmss")
+    $base = [IO.Path]::GetFileNameWithoutExtension($csvPath)
     $folder = Split-Path $csvPath
-    $outputPath = Join-Path $folder "$base-output-$timestamp.csv"
+    $outfile = Join-Path $folder "$base-output-$time.csv"
 
-    $finalResults | Export-Csv -Path $outputPath -NoTypeInformation
-
-    Write-Host "`nOutput CSV saved to:" -ForegroundColor Green
-    Write-Host "$outputPath"
+    $final | Export-Csv -Path $outfile -NoTypeInformation
+    Write-Host "`nOutput saved to: $outfile" -ForegroundColor Green
 }
 
-Write-Host "`nScript Completed." -ForegroundColor Cyan
+Write-Host "`nDone!" -ForegroundColor Cyan

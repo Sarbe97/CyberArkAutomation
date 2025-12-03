@@ -1,0 +1,7 @@
+SafeName,PlatformID,Address,UserName,Name,Secret,PolicyID,AutomaticManagementEnabled,ManualManagementReason
+MySafe,WinDomain,192.168.1.100,DOMAIN\Administrator,Admin Account,P@ssw0rd123!,,True,
+MySafe,WinDomain,192.168.1.101,DOMAIN\ServiceAccount,Service Account,SecurePass456!,,True,
+LinuxSafe,Unix,server.example.com,root,Linux Root,RootPass789!,,True,
+LinuxSafe,Unix,server.example.com,appuser,App User,AppPass101!,,False,Managed manually for now
+DatabaseSafe,MySQL,db.example.com,dbauser,Database Admin,DbAdmin123!,,True,
+WindowsSafe,WinLocal,workstation.local,Administrator,Local Admin,LocalAdmin99!,,True,

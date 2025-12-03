@@ -27,6 +27,7 @@ function Reload-CACModules {
         "Login.psm1",
         "Users.psm1",
         "Safes.psm1",
+        "Accounts.psm1",
         "Onboarding.psm1", 
         "Monitor.psm1",
         "Reports.psm1"
@@ -242,6 +243,44 @@ function Show-UserMenu {
                 Pause
             }
             0 { return }
+            default {
+                Write-Host "Invalid option." -ForegroundColor Yellow
+                Start-Sleep 1
+            }
+        }
+    }
+}
+
+
+# ============================================================
+# ACCOUNT MENU 
+# ============================================================
+function Show-AccountMenu {
+    while ($true) {
+        Clear-Host
+        Write-Host "=========== ACCOUNT MENU ===========" -ForegroundColor Cyan
+        Write-Host "1. Search Accounts (Keyword or Safe)"
+        Write-Host "2. Get Account Details by ID"
+        Write-Host "3. View Account Activity"
+        Write-Host "4. Reconcile Account Credentials"
+        Write-Host "5. Connect via PSM"
+        Write-Host "6. Create Account Template"
+        Write-Host "7. Add Accounts from CSV"
+        Write-Host "0. Back"
+        Write-Host "===================================="
+
+        $choice = Read-Host "Enter Choice"
+
+        switch ($choice) {
+            '1' { Get-CACAccounts; Pause }
+            '2' { Get-CACAccountById; Pause }
+            '3' { Get-CACAccountActivity; Pause }
+            '4' { Invoke-CACAccountReconcile; Pause }
+            '5' { New-CACPSMConnection; Pause }
+            '6' { New-CACAccountTemplate; Pause }
+            '7' { New-CACAccountsFromCsv; Pause }
+            '0' { return }
+
             default {
                 Write-Host "Invalid option." -ForegroundColor Yellow
                 Start-Sleep 1

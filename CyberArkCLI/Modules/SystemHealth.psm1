@@ -12,7 +12,7 @@ function Get-CACSystemHealth {
         Write-Log "Calling ComponentsMonitoringSummary API" "DEBUG"
         Write-Host "Fetching component summary..." -ForegroundColor Cyan
 
-        $summaryResponse = Invoke-CACAPIRequest -Method GET -Endpoint "/PasswordVault/API/ComponentsMonitoringSummary/" -ErrorAction Stop
+        $summaryResponse = Invoke-CACAPIRequest -Method GET -Endpoint "/API/ComponentsMonitoringSummary/" -ErrorAction Stop
 
         if (-not $summaryResponse) {
             Write-Log "Component summary returned empty" "WARN"
@@ -29,15 +29,12 @@ function Get-CACSystemHealth {
                 $vaultRecord = [PSCustomObject]@{
                     HealthType          = "Vault"
                     ComponentID         = "VAULT"
-                    ComponentName       = "Vault"
-                    ComponentIP         = $vault.ComponentIP
-                    ComponentUserName   = $vault.ComponentUserName
-                    ComponentVersion    = $vault.ComponentVersion
+                    ComponentName       = $vault.Role
+                    ComponentIP         = $vault.IP
+                    ComponentUserName   = $vault.Role
+                    ComponentVersion    = $null
                     IsLoggedOn          = $vault.IsLoggedOn
-                    LastLogonDate       = $vault.LastLogonDate
-                    ComponentSpecificStat = $null
-                    ConnectedCount      = $null
-                    TotalCount          = $null
+                    LastLogonDate       = $null
                     ReportedAt          = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
                 }
 
@@ -62,7 +59,7 @@ function Get-CACSystemHealth {
                 Write-Host "Retrieving details for $componentName..." -ForegroundColor Cyan
 
                 try {
-                    $detailEndpoint = "/PasswordVault/API/ComponentsMonitoringDetails/$componentID/"
+                    $detailEndpoint = "/API/ComponentsMonitoringDetails/$componentID/"
                     $detailResponse = Invoke-CACAPIRequest -Method GET -Endpoint $detailEndpoint -ErrorAction Stop
 
                     if (-not $detailResponse.ComponentsDetails) {
@@ -82,9 +79,6 @@ function Get-CACSystemHealth {
                             ComponentVersion    = $detail.ComponentVersion
                             IsLoggedOn          = $detail.IsLoggedOn
                             LastLogonDate       = $detail.LastLogonDate
-                            ComponentSpecificStat = $detail.ComponentSpecificStat
-                            ConnectedCount      = $component.ConnectedComponentCount
-                            TotalCount          = $component.ComponentTotalCount
                             ReportedAt          = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
                         }
 

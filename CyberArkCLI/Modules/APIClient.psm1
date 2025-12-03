@@ -29,11 +29,10 @@ function Invoke-CACAPIRequest {
         Write-Log "Calling API: $fullURL" "DEBUG"
 
         $requestParams = @{
-            Uri             = $fullURL
-            Method          = $Method
-            WebSession      = $session.WebSession
-            ContentType     = "application/json"
-            SkipCertificateCheck = $true
+            Uri         = $fullURL
+            Method      = $Method
+            WebSession  = $session.WebSession
+            ContentType = "application/json"
         }
 
         if ($Body) {

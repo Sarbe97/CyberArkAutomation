@@ -89,6 +89,8 @@ Reload-CACModules
 # ------------------------------------------------------------
 $Script:IsLoggedIn = $false
 
+
+
 # ============================================================
 # LOGIN SCREEN
 # ============================================================
@@ -144,10 +146,12 @@ function Show-MainMenu {
         Clear-Host
         Write-Host "=========== CyberArk CLI ===========" -ForegroundColor Cyan
         Write-Host "1. Safe Operations"
-        Write-Host "2. User Utilities"
-        Write-Host "3. Onboarding"
-        Write-Host "4. Monitoring"
-        Write-Host "5. Reports"
+        Write-Host "2. Account Operations"
+        Write-Host "3. User Utilities"
+        Write-Host "4. Onboarding"
+        Write-Host "5. Monitoring"
+        Write-Host "6. Reports"
+        Write-Host "7. System Health"
         Write-Host "9. Logout"
         Write-Host "0. Exit"
         Write-Host "===================================="
@@ -157,10 +161,12 @@ function Show-MainMenu {
         switch ($choice) {
 
             '1' { Show-SafeMenu }
-            '2' { Show-UserMenu }
-            '3' { Show-OnboardingMenu }
-            '4' { Show-MonitorMenu }
-            '5' { Show-ReportMenu }
+            '2' { Show-AccountMenu }
+            '3' { Show-UserMenu }
+            '4' { Show-OnboardingMenu }
+            '5' { Show-MonitorMenu }
+            '6' { Show-ReportMenu }
+            '7' { Show-SystemHealthMenu }    
 
             '9' {
                 Invoke-CACLogout
@@ -174,6 +180,37 @@ function Show-MainMenu {
             default { 
                 Write-Host "Invalid option!" -ForegroundColor Yellow 
                 Pause
+            }
+        }
+    }
+}
+
+# ============================================================
+# SYSTEM HEALTH MENU - Add this to cli.ps1
+# ============================================================
+function Show-SystemHealthMenu {
+    while ($true) {
+        Clear-Host
+        Write-Host "===== SYSTEM HEALTH MENU =====" -ForegroundColor Cyan
+        Write-Host "1. Quick Health Check"
+        Write-Host "2. Get Complete System Health (All Components)"
+        Write-Host "3. Get Specific Component Details"
+        Write-Host "4. Export Comprehensive Health Report"
+        Write-Host "0. Back"
+        Write-Host "=============================="
+
+        $choice = Read-Host "Enter Choice"
+
+        switch ($choice) {
+            '1' { Invoke-CACHealthCheck; Pause }
+            '2' { Get-CACSystemHealth; Pause }
+            '3' { Get-CACComponentHealth; Pause }
+            '4' { Export-CACSystemHealthReport; Pause }
+            '0' { return }
+
+            default {
+                Write-Host "Invalid option." -ForegroundColor Yellow
+                Start-Sleep 1
             }
         }
     }

@@ -39,7 +39,8 @@ function Invoke-CACLogin {
 function Invoke-CACLogout {
     try {
         if ($global:CACSession) {
-            Close-PASSession -Session $global:CACSession -ErrorAction SilentlyContinue
+            Write-Host "Logging out..." -ForegroundColor Yellow
+            Close-PASSession
         }
 
         $global:CACSession = $null

@@ -14,26 +14,25 @@ function Invoke-CACAPIRequest {
     Write-Log "Started Invoke-CACAPIRequest() - Method: $Method, Endpoint: $Endpoint" "DEBUG"
 
     try {
-        if (-not $global:CACSession) {
-            Write-Log "CACSession not available" "ERROR"
+        $session = Get-PASSession
+
+        if (-not $session) {
+            Write-Log "PAS session not available. Not logged in." "ERROR"
             throw "Not logged in. Please login first."
         }
 
-        $baseURL = $global:CACSession.BaseURI
+        Write-Log "PAS session found. BaseURI: $($session.BaseURI)" "DEBUG"
+
+        $baseURL = $session.BaseURI
         $fullURL = "$baseURL$Endpoint"
 
         Write-Log "Calling API: $fullURL" "DEBUG"
 
-        $headers = @{
-            "Authorization" = $global:CACSession.WebSession.Headers.Authorization
-            "Content-Type"  = "application/json"
-        }
-
         $requestParams = @{
             Uri             = $fullURL
             Method          = $Method
-            Headers         = $headers
-            WebSession      = $global:CACSession.WebSession
+            WebSession      = $session.WebSession
+            ContentType     = "application/json"
             SkipCertificateCheck = $true
         }
 
@@ -42,11 +41,13 @@ function Invoke-CACAPIRequest {
             Write-Log "Request body size: $($requestParams['Body'].Length) bytes" "DEBUG"
         }
 
-        $response = Invoke-RestMethod @requestParams -ErrorAction Stop
+        $response = Invoke-WebRequest @requestParams -ErrorAction Stop
 
-        Write-Log "API request successful. Response type: $($response.GetType().Name)" "DEBUG"
+        Write-Log "API request successful. Status: $($response.StatusCode)" "DEBUG"
 
-        return $response
+        $content = $response.Content | ConvertFrom-Json
+
+        return $content
     }
     catch {
         Write-Log "Error in Invoke-CACAPIRequest(): $($_.Exception.Message)" "ERROR"

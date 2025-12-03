@@ -1,4 +1,3 @@
-
 Write-Host "`n===================================================="
 Write-Host "  REMOTE USER & GROUP COLLECTION SCRIPT"
 Write-Host "====================================================`n"
@@ -31,36 +30,54 @@ else {
     exit
 }
 
-# Test WSMan connectivity
+#-------------------------------------------
+# Test WSMan connectivity for each server
+#-------------------------------------------
 Write-Host "`nTesting remote WSMan connectivity..." -ForegroundColor Yellow
-$validServers = @()
 
+$connectionStatus = @{}
 foreach ($srv in $servers) {
     try {
         Test-WSMan -ComputerName $srv -ErrorAction Stop | Out-Null
         Write-Host "SUCCESS: $srv reachable" -ForegroundColor Green
-        $validServers += $srv
+        $connectionStatus[$srv] = "Success"
     }
     catch {
-        Write-Host "FAILED: $srv not reachable" -ForegroundColor Red
+        Write-Host "FAILED:  $srv unreachable" -ForegroundColor Red
+        $connectionStatus[$srv] = "Failed"
     }
 }
 
-if ($validServers.Count -eq 0) {
-    Write-Host "No reachable servers found. Exiting." -ForegroundColor Red
-    exit
+#-------------------------------------------
+# Ask for credential (only if at least one success)
+#-------------------------------------------
+if ($connectionStatus.Values -contains "Success") {
+    Write-Host "`nEnter domain credentials:"
+    $cred = Get-Credential
 }
-
-# Get credential
-Write-Host "`nEnter domain credentials:"
-$cred = Get-Credential
 
 #-------------------------------------------
 # Collect data
 #-------------------------------------------
 $final = @()
 
-foreach ($srv in $validServers) {
+foreach ($srv in $servers) {
+
+    if ($connectionStatus[$srv] -eq "Failed") {
+        $final += [pscustomobject]@{
+            Server           = $srv
+            Type             = "ConnectionError"
+            GroupName        = "-"
+            MemberName       = "-"
+            MemberType       = "-"
+            Enabled          = "-"
+            Description      = "-"
+            LastLogon        = "-"
+            ConnectionStatus = "Failed"
+            Notes            = "WSMan connection failed"
+        }
+        continue
+    }
 
     Write-Host "`n=============================="
     Write-Host " Querying $srv"
@@ -78,14 +95,16 @@ foreach ($srv in $validServers) {
 
         foreach ($u in $users) {
             $final += [pscustomobject]@{
-                Server      = $srv
-                Type        = "User"
-                GroupName   = "-"
-                MemberName  = $u.Name
-                MemberType  = "LocalUser"
-                Enabled     = $u.Enabled
-                Description = $u.Description
-                LastLogon   = $u.LastLogon
+                Server           = $srv
+                Type             = "User"
+                GroupName        = "-"
+                MemberName       = $u.Name
+                MemberType       = "LocalUser"
+                Enabled          = $u.Enabled
+                Description      = $u.Description
+                LastLogon        = $u.LastLogon
+                ConnectionStatus = "Success"
+                Notes            = "-"
             }
         }
     }
@@ -107,19 +126,21 @@ foreach ($srv in $validServers) {
             $members = Invoke-Command -ComputerName $srv -Credential $cred -ScriptBlock {
                 param($grp)
                 Get-LocalGroupMember -Group $grp -ErrorAction SilentlyContinue | 
-                    Select-Object Name, ObjectClass, PrincipalSource
+                Select-Object Name, ObjectClass, PrincipalSource
             } -ArgumentList $g.Name
 
             foreach ($m in $members) {
                 $final += [pscustomobject]@{
-                    Server      = $srv
-                    Type        = "GroupMember"
-                    GroupName   = $g.Name
-                    MemberName  = $m.Name
-                    MemberType  = $m.ObjectClass
-                    Enabled     = "-"
-                    Description = $g.Description
-                    LastLogon   = "-"
+                    Server           = $srv
+                    Type             = "GroupMember"
+                    GroupName        = $g.Name
+                    MemberName       = $m.Name
+                    MemberType       = $m.ObjectClass
+                    Enabled          = "-"
+                    Description      = $g.Description
+                    LastLogon        = "-"
+                    ConnectionStatus = "Success"
+                    Notes            = "-"
                 }
             }
         }

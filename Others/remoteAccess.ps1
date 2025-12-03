@@ -73,7 +73,7 @@ foreach ($srv in $validServers) {
 
     try {
         $users = Invoke-Command -ComputerName $srv -Credential $cred -ScriptBlock {
-            Get-LocalUser | Select Name, Enabled, Description, LastLogon
+            Get-LocalUser | Select-Object Name, Enabled, Description, LastLogon
         }
 
         foreach ($u in $users) {
@@ -100,14 +100,14 @@ foreach ($srv in $validServers) {
 
     try {
         $groups = Invoke-Command -ComputerName $srv -Credential $cred -ScriptBlock {
-            Get-LocalGroup | Select Name, Description
+            Get-LocalGroup | Select-Object Name, Description
         }
 
         foreach ($g in $groups) {
             $members = Invoke-Command -ComputerName $srv -Credential $cred -ScriptBlock {
                 param($grp)
                 Get-LocalGroupMember -Group $grp -ErrorAction SilentlyContinue | 
-                    Select Name, ObjectClass, PrincipalSource
+                    Select-Object Name, ObjectClass, PrincipalSource
             } -ArgumentList $g.Name
 
             foreach ($m in $members) {

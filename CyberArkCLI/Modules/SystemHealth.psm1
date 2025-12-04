@@ -78,7 +78,7 @@ function Get-CACSystemHealth {
                             ComponentUserName   = $detail.ComponentUserName
                             ComponentVersion    = $detail.ComponentVersion
                             IsLoggedOn          = $detail.IsLoggedOn
-                            LastLogonDate       = $detail.LastLogonDate
+                            LastLogonDate       = Convert-CACTimestamp $detail.LastLogonDate
                             ReportedAt          = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
                         }
 

@@ -1,0 +1,36 @@
+ubject: PSM Adoption Analysis and New CLI Tool for Your Use
+
+Dear Team,
+
+Over the past several weeks, we have been observing CyberArk usage patterns across the organization. Despite our efforts, we continue to find that:
+
+- Majority of users are retrieving passwords directly from CyberArk instead of using PSM sessions
+- PSM session activity remains minimal
+- Manual password handling increases security and compliance risks
+
+To improve security and streamline your workflow, we strongly encourage you to start using CyberArk PSM for logging into target machines. As an alternative, we have developed a CyberArk CLI Application to make PSM access more convenient and accessible directly from your command line.
+
+How It Helps
+
+Instead of navigating the CyberArk web portal every time you need secure access, this CLI application lets you:
+
+- Initiate secure PSM sessions directly from your command line with a single command
+- Manage your privileged access efficiently from the terminal
+
+All authentication still goes through CyberArk's secure backend, but the CLI provides a faster and more convenient alternative for routine operations.
+
+Getting Started
+
+Please refer to the attached documentation:
+
+- CyberArk_CLI_Quick_Start.pdf - Installation and basic usage
+- PSM_Session_Guide.pdf - How to connect using PSM through the CLI
+- Command_Reference.pdf - Available commands
+
+If you have questions or encounter any issues, please reach out to the CyberArk team.
+
+Thank you for your attention to this security initiative.
+
+Best Regards,
+
+CyberArk Administration Team

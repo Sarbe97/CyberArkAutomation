@@ -8,11 +8,11 @@ param(
 # Configuration file path
 $configPath = "$PSScriptRoot\rdp-config.json"
 $defaultConfig = @{
-    cyberArkUser       = ""
-    connectors         = @("PSM-RDP", "PSM-SSH")
-    addresses          = @()
-    targetAccounts     = @()
-    PSM_server_address = "PSM_Server1"
+    cyberArkUser         = ""
+    connectors           = @("PSM-RDP", "PSM-SSH")
+    addresses            = @()
+    targetAccounts       = @()
+    PSM_server_address   = "PSM_Server1"
 }
 
 # ========================================
@@ -196,14 +196,13 @@ function Check-Or-CreateRDPFile($params, $config) {
     $content = Build-RDPContent $params $config.PSM_server_address
     
     try {
+         Write-Host ""
         if (Test-Path $rdpPath) {
-            Write-Host ""
-            Write-Host "Updating RDP file: $([System.IO.Path]::GetFileName($rdpPath))" -ForegroundColor Green
+            #Write-Host "Updating RDP file: $([System.IO.Path]::GetFileName($rdpPath))" -ForegroundColor Green
             Set-Content -Path $rdpPath -Value $content -Force
         }
         else {
-            Write-Host ""
-            Write-Host "RDP file created: $([System.IO.Path]::GetFileName($rdpPath))" -ForegroundColor Green
+            #Write-Host "RDP file created: $([System.IO.Path]::GetFileName($rdpPath))" -ForegroundColor Green
             Set-Content -Path $rdpPath -Value $content
         }
         return $rdpPath
@@ -218,21 +217,6 @@ function Check-Or-CreateRDPFile($params, $config) {
 # RDP Launcher
 # ========================================
 
-function Show-RDPConnectionInstructions {
-    Write-Host ""
-    Write-Host "RDP Connection Instructions:" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "1. A Remote Desktop Connection window will open momentarily" -ForegroundColor White
-    Write-Host "   - Enter your CyberArk 'U' ID password when prompted" -ForegroundColor White
-    Write-Host ""
-    Write-Host "2. If you see a 'Reason for Access' prompt" -ForegroundColor White
-    Write-Host "   - Enter the reason for accessing this system and press OK" -ForegroundColor White
-    Write-Host ""
-    Write-Host "3. Please wait while your connection is being established" -ForegroundColor White
-    Write-Host "   - The target system should appear once the connection is ready" -ForegroundColor White
-    Write-Host ""
-}
-
 function Launch-RDP($rdpPath) {
     if (-not (Test-Path $rdpPath)) {
         Write-Host "RDP file not found: $rdpPath" -ForegroundColor Red
@@ -240,7 +224,6 @@ function Launch-RDP($rdpPath) {
     }
     
     try {
-        Show-RDPConnectionInstructions
         Start-Process $rdpPath
         return $true
     }
@@ -352,9 +335,9 @@ function Edit-ConfigInteractive($config) {
 # ========================================
 
 function Show-MainMenu {
-    # Clear-Host
+    Write-Host ""
     Write-Host "================================================================================" -ForegroundColor Yellow
-    Write-Host "RDP Launcher..." -ForegroundColor Cyan
+    Write-Host "RDP Launcher" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "1. Launch RDP Connection"
     Write-Host "2. Edit Configuration"
@@ -363,6 +346,7 @@ function Show-MainMenu {
 }
 
 function Show-PreConnectionWarning {
+    Write-Host ""
     Write-Host "================================================================================" -ForegroundColor Yellow
     Write-Host "Important Information Before Connecting:" -ForegroundColor Yellow
     Write-Host ""
@@ -371,7 +355,7 @@ function Show-PreConnectionWarning {
     Write-Host "3. Your session will be monitored and recorded for security and compliance" -ForegroundColor White
     Write-Host "4. Please ensure you are authorized to access this system" -ForegroundColor White
     Write-Host "================================================================================" -ForegroundColor Yellow
-
+    Write-Host ""
 }
 
 function Main {
@@ -412,7 +396,6 @@ function Main {
                 Write-Host "CyberArk User:     $cyberArkUser"
                 Write-Host "Target Account:    $targetAccount"
                 Write-Host "Connector:         $connector"
-                Write-Host ""
                 
                 # Show important information before proceeding
                 Show-PreConnectionWarning
@@ -428,13 +411,13 @@ function Main {
                     } $config
                     
                     if ($rdpPath) {
-                       $status = Launch-RDP $rdpPath
-                       if($status) {
-                           Write-Host "RDP launched successfully." -ForegroundColor Green
-                       }
-                       else {
-                           Write-Host "Failed to launch RDP." -ForegroundColor Red
-                       }
+                        $status = Launch-RDP $rdpPath
+                        if ($status) {
+                            Write-Host "RDP launched successfully." -ForegroundColor Green
+                        }
+                        else {
+                            Write-Host "Failed to launch RDP." -ForegroundColor Red
+                        }
                     }
                 }
             }

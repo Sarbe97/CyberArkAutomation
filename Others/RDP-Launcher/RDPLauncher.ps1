@@ -8,11 +8,11 @@ param(
 # Configuration file path
 $configPath = "$PSScriptRoot\rdp-config.json"
 $defaultConfig = @{
-    cyberArkUser         = ""
-    connectors           = @("PSM-RDP", "PSM-SSH")
-    addresses            = @()
-    targetAccounts       = @()
-    PSM_server_address   = "PSM_Server1"
+    cyberArkUser       = ""
+    connectors         = @("PSM-RDP", "PSM-SSH")
+    addresses          = @()
+    targetAccounts     = @()
+    PSM_server_address = "PSM_Server1"
 }
 
 # ========================================
@@ -352,13 +352,26 @@ function Edit-ConfigInteractive($config) {
 # ========================================
 
 function Show-MainMenu {
-    Write-Host ""
-    Write-Host "RDP Launcher - Single File" -ForegroundColor Cyan
+    # Clear-Host
+    Write-Host "================================================================================" -ForegroundColor Yellow
+    Write-Host "RDP Launcher..." -ForegroundColor Cyan
     Write-Host ""
     Write-Host "1. Launch RDP Connection"
     Write-Host "2. Edit Configuration"
     Write-Host "3. Exit"
     Write-Host ""
+}
+
+function Show-PreConnectionWarning {
+    Write-Host "================================================================================" -ForegroundColor Yellow
+    Write-Host "Important Information Before Connecting:" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "1. You will need to authenticate with your CyberArk credentials" -ForegroundColor White
+    Write-Host "2. A 'Reason for Access' may be requested - please provide business justification" -ForegroundColor White
+    Write-Host "3. Your session will be monitored and recorded for security and compliance" -ForegroundColor White
+    Write-Host "4. Please ensure you are authorized to access this system" -ForegroundColor White
+    Write-Host "================================================================================" -ForegroundColor Yellow
+
 }
 
 function Main {
@@ -401,6 +414,9 @@ function Main {
                 Write-Host "Connector:         $connector"
                 Write-Host ""
                 
+                # Show important information before proceeding
+                Show-PreConnectionWarning
+                
                 $confirm = Read-Host "Proceed? (y/n)"
                 
                 if ($confirm -eq "y") {
@@ -412,7 +428,13 @@ function Main {
                     } $config
                     
                     if ($rdpPath) {
-                        Launch-RDP $rdpPath
+                       $status = Launch-RDP $rdpPath
+                       if($status) {
+                           Write-Host "RDP launched successfully." -ForegroundColor Green
+                       }
+                       else {
+                           Write-Host "Failed to launch RDP." -ForegroundColor Red
+                       }
                     }
                 }
             }

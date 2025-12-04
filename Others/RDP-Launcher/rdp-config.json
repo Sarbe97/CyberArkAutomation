@@ -1,0 +1,6 @@
+{
+  "cyberArkUser": "",
+  "connectors": ["PSM-RDP", "PSM-SSH"],
+  "addresses": [],
+  "targetAccounts": []
+}

@@ -8,10 +8,11 @@ param(
 # Configuration file path
 $configPath = "$PSScriptRoot\rdp-config.json"
 $defaultConfig = @{
-    cyberArkUser      = ""
-    connectors        = @("PSM-RDP", "PSM-SSH")
-    addresses         = @()
-    targetAccounts    = @()
+    cyberArkUser         = ""
+    connectors           = @("PSM-RDP", "PSM-SSH")
+    addresses            = @()
+    targetAccounts       = @()
+    PSM_server_address   = "PSM_Server1"
 }
 
 # ========================================
@@ -178,8 +179,8 @@ function Get-ConnectorInput($config) {
 # RDP File Management
 # ========================================
 
-function Build-RDPContent($params) {
-    $rdpContent = "full address:s:$($params.address)`r`nalternate shell:s:psm /u $($params.targetAccount) /a $($params.address) /c $($params.connector)`r`nusername:s:$($params.cyberArkUser)`r`ndesktopwidth:i:1920`r`ndesktopheight:i:1080`r`nsession bpp:i:32"
+function Build-RDPContent($params, $psmServerAddress) {
+    $rdpContent = "full address:s:$psmServerAddress`r`nalternate shell:s:psm /u $($params.targetAccount) /a $($params.address) /c $($params.connector)`r`nusername:s:$($params.cyberArkUser)`r`ndesktopwidth:i:1920`r`ndesktopheight:i:1080`r`nsession bpp:i:32"
     return $rdpContent
 }
 
@@ -189,7 +190,7 @@ function Get-RDPFilePath($targetAccount, $address) {
     return $rdpPath
 }
 
-function Check-Or-CreateRDPFile($params) {
+function Check-Or-CreateRDPFile($params, $config) {
     $rdpPath = Get-RDPFilePath $params.targetAccount $params.address
     
     if (Test-Path $rdpPath) {
@@ -198,7 +199,7 @@ function Check-Or-CreateRDPFile($params) {
         return $rdpPath
     }
     
-    $content = Build-RDPContent $params
+    $content = Build-RDPContent $params $config.PSM_server_address
     
     try {
         Set-Content -Path $rdpPath -Value $content
@@ -249,7 +250,8 @@ function Edit-ConfigInteractive($config) {
         Write-Host "4. Add new target account"
         Write-Host "5. View all target accounts"
         Write-Host "6. View connectors"
-        Write-Host "7. Back to main menu"
+        Write-Host "7. View PSM Server Address"
+        Write-Host "8. Back to main menu"
         
         $choice = Read-Host "Select option"
         
@@ -318,7 +320,14 @@ function Edit-ConfigInteractive($config) {
                     Write-Host "  $_"
                 }
             }
-            "7" { return $config }
+            "7" {
+                Write-Host ""
+                Write-Host "PSM Server Address (Read-Only):" -ForegroundColor Yellow
+                Write-Host "  $($config.PSM_server_address)"
+                Write-Host ""
+                Write-Host "Note: This is a fixed system value and cannot be modified from this interface." -ForegroundColor Gray
+            }
+            "8" { return $config }
             default { Write-Host "Invalid option" -ForegroundColor Red }
         }
     }
@@ -386,7 +395,7 @@ function Main {
                         cyberArkUser  = $cyberArkUser
                         targetAccount = $targetAccount
                         connector     = $connector
-                    }
+                    } $config
                     
                     if ($rdpPath) {
                         Launch-RDP $rdpPath

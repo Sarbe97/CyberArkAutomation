@@ -1,6 +1,7 @@
 {
   "cyberArkUser": "",
   "connectors": ["PSM-RDP", "PSM-SSH"],
-  "addresses": [],
-  "targetAccounts": []
+  "addresses": ["10.2.5.6"],
+  "targetAccounts": [],
+  "PSM_server_address": "PSM_Server1"
 }

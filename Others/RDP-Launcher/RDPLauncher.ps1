@@ -193,18 +193,19 @@ function Get-RDPFilePath($targetAccount, $address) {
 function Check-Or-CreateRDPFile($params, $config) {
     $rdpPath = Get-RDPFilePath $params.targetAccount $params.address
     
-    if (Test-Path $rdpPath) {
-        Write-Host ""
-        Write-Host "RDP file found: $([System.IO.Path]::GetFileName($rdpPath))" -ForegroundColor Green
-        return $rdpPath
-    }
-    
     $content = Build-RDPContent $params $config.PSM_server_address
     
     try {
-        Set-Content -Path $rdpPath -Value $content
-        Write-Host ""
-        Write-Host "RDP file created: $([System.IO.Path]::GetFileName($rdpPath))" -ForegroundColor Green
+        if (Test-Path $rdpPath) {
+            Write-Host ""
+            Write-Host "Updating RDP file: $([System.IO.Path]::GetFileName($rdpPath))" -ForegroundColor Green
+            Set-Content -Path $rdpPath -Value $content -Force
+        }
+        else {
+            Write-Host ""
+            Write-Host "RDP file created: $([System.IO.Path]::GetFileName($rdpPath))" -ForegroundColor Green
+            Set-Content -Path $rdpPath -Value $content
+        }
         return $rdpPath
     }
     catch {
@@ -217,6 +218,21 @@ function Check-Or-CreateRDPFile($params, $config) {
 # RDP Launcher
 # ========================================
 
+function Show-RDPConnectionInstructions {
+    Write-Host ""
+    Write-Host "RDP Connection Instructions:" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "1. A Remote Desktop Connection window will open momentarily" -ForegroundColor White
+    Write-Host "   - Enter your CyberArk 'U' ID password when prompted" -ForegroundColor White
+    Write-Host ""
+    Write-Host "2. If you see a 'Reason for Access' prompt" -ForegroundColor White
+    Write-Host "   - Enter the reason for accessing this system and press OK" -ForegroundColor White
+    Write-Host ""
+    Write-Host "3. Please wait while your connection is being established" -ForegroundColor White
+    Write-Host "   - The target system should appear once the connection is ready" -ForegroundColor White
+    Write-Host ""
+}
+
 function Launch-RDP($rdpPath) {
     if (-not (Test-Path $rdpPath)) {
         Write-Host "RDP file not found: $rdpPath" -ForegroundColor Red
@@ -224,10 +240,8 @@ function Launch-RDP($rdpPath) {
     }
     
     try {
-        Write-Host ""
-        Write-Host "Launching RDP connection..." -ForegroundColor Cyan
+        Show-RDPConnectionInstructions
         Start-Process $rdpPath
-        Write-Host "RDP session started" -ForegroundColor Green
         return $true
     }
     catch {

@@ -1,9 +1,6 @@
-# ==========================
-# Accounts.psm1 - Account Management
-# ==========================
- 
-
 Import-Module psPAS -ErrorAction Stop
+
+
 
 # ============================================================
 # 1. Get Accounts by Search/Safe with Pagination (limit 100 per page)
@@ -254,11 +251,12 @@ function Get-CACAccountById {
 }
 
 # ============================================================
-# 3. Get Account Activity by Account ID
+# 3. Get Account Activity by Account ID (Updated: Better formatting & auto-export)
 # ============================================================
 function Get-CACAccountActivity {
     param(
-        [string]$AccountID
+        [string]$AccountID,
+        [switch]$AutoExport
     )
 
     Write-Log "Started Get-CACAccountActivity()" "DEBUG"
@@ -303,9 +301,8 @@ function Get-CACAccountActivity {
 
         $formattedActivities | Format-Table -AutoSize
 
-        # Optional: Export to CSV
-        Write-Host ""
-        $exportChoice = Read-Host "Export to CSV? (Y/N)"
+        # Export to CSV
+        $exportChoice = if ($AutoExport) { "y" } else { (Read-Host "`nExport to CSV? (Y/N)") }
 
         if ($exportChoice -eq 'Y' -or $exportChoice -eq 'y') {
             $outputDir = "$PSScriptRoot/../Output"
@@ -330,7 +327,6 @@ function Get-CACAccountActivity {
         Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
-
 # ============================================================
 # 4. Reconcile Account Credentials
 # ============================================================

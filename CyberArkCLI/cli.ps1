@@ -1,15 +1,18 @@
 Clear-Host
 
+
 # ------------------------------------------------------------
 # Load psPAS module (installed system-wide)
 # ------------------------------------------------------------
 Import-Module psPAS -ErrorAction Stop
+
 
 # ------------------------------------------------------------
 # Module folder
 # ------------------------------------------------------------
 $modulePath = Join-Path $PSScriptRoot "Modules"
 Write-Host "Module Path: $modulePath"
+
 
 # ------------------------------------------------------------
 # Function to reload all modules (Hot-Reload)
@@ -18,6 +21,7 @@ function Reload-CACModules {
     Write-Host "==============================================" -ForegroundColor DarkGray
     Write-Host "Reloading CyberArk CLI modules..." -ForegroundColor Cyan
     Write-Host "=============================================="
+
 
     $moduleFiles = @(
         "Utils.psm1",
@@ -34,7 +38,9 @@ function Reload-CACModules {
         "Reports.psm1"
     )
 
+
     $modulePaths = $moduleFiles | ForEach-Object { Join-Path "$PSScriptRoot/Modules" $_ }
+
 
     Write-Host "Unloading existing modules..." -ForegroundColor Yellow
     foreach ($path in $modulePaths) {
@@ -44,6 +50,7 @@ function Reload-CACModules {
             Write-Host ("Unloaded module: {0}" -f $loaded.Name) -ForegroundColor Yellow
         }
     }
+
 
     Write-Host "`nLoading modules..." -ForegroundColor Green
     foreach ($path in $modulePaths) {
@@ -56,9 +63,11 @@ function Reload-CACModules {
         }
     }
 
+
     Write-Host "`n=============================================="
     Write-Host "Exported Functions per Module"
     Write-Host "=============================================="
+
 
     foreach ($path in $modulePaths) {
         $mod = Get-Module | Where-Object { $_.Path -eq $path }
@@ -76,22 +85,22 @@ function Reload-CACModules {
         }
     }
 
+
     Write-Host "`n=============================================="
     Write-Host "Module reload completed successfully" -ForegroundColor Green
     Write-Host "=============================================="
 }
 
 
-
-
-
 # Initial load
 Reload-CACModules
+
 
 # ------------------------------------------------------------
 # Global login state
 # ------------------------------------------------------------
 $Script:IsLoggedIn = $false
+
 
 
 
@@ -101,6 +110,7 @@ $Script:IsLoggedIn = $false
 function Show-LoginMenu {
     while (-not $Script:IsLoggedIn) {
 
+
         Clear-Host
         Write-Host "=========== CyberArk CLI ===========" -ForegroundColor Cyan
         Write-Host "1. Login"
@@ -108,7 +118,9 @@ function Show-LoginMenu {
         Write-Host "0. Exit"
         Write-Host "===================================="
 
+
         $choice = Read-Host "Enter choice"
+
 
         switch ($choice) {
             '1' {
@@ -122,12 +134,15 @@ function Show-LoginMenu {
                 }
             }
 
+
             '2' {
                 Reload-CACModules
                 Pause
             }
 
+
             '0' { exit }
+
 
             default {
                 Write-Host "Invalid selection" -ForegroundColor Yellow
@@ -137,15 +152,19 @@ function Show-LoginMenu {
     }
 }
 
+
 # ============================================================
 # MAIN MENU
 # ============================================================
+
 function Show-MainMenu {
     while ($true) {
+
 
         if (-not $Script:IsLoggedIn) {
             Show-LoginMenu
         }
+
 
         Clear-Host
         Write-Host "=========== CyberArk CLI ===========" -ForegroundColor Cyan
@@ -160,9 +179,12 @@ function Show-MainMenu {
         Write-Host "0. Exit"
         Write-Host "===================================="
 
+
         $choice = Read-Host "Select an option"
 
+
         switch ($choice) {
+
 
             '1' { Show-SafeMenu }
             '2' { Show-AccountMenu }
@@ -172,6 +194,7 @@ function Show-MainMenu {
             '6' { Show-ReportMenu }
             '7' { Show-SystemHealthMenu }    
 
+
             '9' {
                 Invoke-CACLogout
                 $Script:IsLoggedIn = $false
@@ -179,7 +202,9 @@ function Show-MainMenu {
                 Show-LoginMenu
             }
 
+
             '0' { Invoke-CACLogout; exit }
+
 
             default { 
                 Write-Host "Invalid option!" -ForegroundColor Yellow 
@@ -189,8 +214,9 @@ function Show-MainMenu {
     }
 }
 
+
 # ============================================================
-# SYSTEM HEALTH MENU - Add this to cli.ps1
+# SYSTEM HEALTH MENU
 # ============================================================
 function Show-SystemHealthMenu {
     while ($true) {
@@ -200,11 +226,14 @@ function Show-SystemHealthMenu {
         Write-Host "0. Back"
         Write-Host "=============================="
 
+
         $choice = Read-Host "Enter Choice"
+
 
         switch ($choice) {
             '1' { Get-CACSystemHealth; Pause }
             '0' { return }
+
 
             default {
                 Write-Host "Invalid option." -ForegroundColor Yellow
@@ -214,9 +243,11 @@ function Show-SystemHealthMenu {
     }
 }
 
+
 # ============================================================
 # SAFE MENU
 # ============================================================
+
 function Show-SafeMenu {
     while ($true) {
         Clear-Host
@@ -230,7 +261,9 @@ function Show-SafeMenu {
         Write-Host "0. Back"
         Write-Host "================================="
 
+
         $choice = Read-Host "Enter Choice"
+
 
         switch ($choice) {
             1 { Export-CACAllSafes; Pause }
@@ -241,6 +274,7 @@ function Show-SafeMenu {
             6 { Add-CACSafeMember; Pause }
             0 { return }
 
+
             default {
                 Write-Host "Invalid option." -ForegroundColor Yellow
                 Start-Sleep 1
@@ -248,6 +282,7 @@ function Show-SafeMenu {
         }
     }
 }
+
 
 # ============================================================
 # USER MENU
@@ -262,9 +297,12 @@ function Show-UserMenu {
         Write-Host "0. Back"
         Write-Host "================================="
 
+
         $choice = Read-Host "Enter your choice"
 
+
         switch ($choice) {
+
 
             1 { New-CACUserStore; Pause }
             2 {
@@ -287,6 +325,7 @@ function Show-UserMenu {
 }
 
 
+
 # ============================================================
 # ACCOUNT MENU 
 # ============================================================
@@ -296,7 +335,7 @@ function Show-AccountMenu {
         Write-Host "=========== ACCOUNT MENU ===========" -ForegroundColor Cyan
         Write-Host "1. Search Accounts (Keyword or Safe)"
         Write-Host "2. Get Account Details by ID"
-        Write-Host "3. View Account Activity"
+        Write-Host "3. View Account Activity by ID"
         Write-Host "4. Reconcile Account Credentials"
         Write-Host "5. Connect via PSM"
         Write-Host "6. Create Account Template"
@@ -304,7 +343,9 @@ function Show-AccountMenu {
         Write-Host "0. Back"
         Write-Host "===================================="
 
+
         $choice = Read-Host "Enter Choice"
+
 
         switch ($choice) {
             '1' { Get-CACAccounts; Pause }
@@ -316,6 +357,7 @@ function Show-AccountMenu {
             '7' { New-CACAccountsFromCsv; Pause }
             '0' { return }
 
+
             default {
                 Write-Host "Invalid option." -ForegroundColor Yellow
                 Start-Sleep 1
@@ -323,6 +365,7 @@ function Show-AccountMenu {
         }
     }
 }
+
 
 # ============================================================
 # ONBOARDING MENU
@@ -334,7 +377,9 @@ function Show-OnboardingMenu {
         Write-Host "1. Start Onboarding Workflow"
         Write-Host "0. Back"
 
+
         $choice = Read-Host "Select option"
+
 
         switch ($choice) {
             '1' {
@@ -352,6 +397,7 @@ function Show-OnboardingMenu {
     }
 }
 
+
 # ============================================================
 # MONITOR MENU
 # ============================================================
@@ -360,14 +406,19 @@ function Show-MonitorMenu {
         Clear-Host
         Write-Host "=========== MONITOR MENU ==========="
         Write-Host "1. Fetch PSM Recordings"
+        Write-Host "2. Fetch Account Activities by Name"
         Write-Host "0. Back"
         Write-Host "==================================="
 
+
         $choice = Read-Host "Enter Choice"
+
 
         switch ($choice) {
             '1' { Get-CACPSMRecordings; Pause }
+            '2' { Get-CACAccountActivityByName; Pause }
             '0' { return }
+
 
             default {
                 Write-Host "Invalid option." -ForegroundColor Yellow
@@ -376,6 +427,7 @@ function Show-MonitorMenu {
         }
     }
 }
+
 
 # ============================================================
 # REPORT MENU
@@ -392,7 +444,9 @@ function Show-ReportMenu {
         Write-Host "0. Back"
         Write-Host "==================================="
 
+
         $choice = Read-Host "Enter Choice"
+
 
         switch ($choice) {
             '1' { Get-CACUserLicenseReport; Pause }
@@ -402,6 +456,7 @@ function Show-ReportMenu {
             '5' { Export-CACReport; Pause }
             '0' { return }
 
+
             default {
                 Write-Host "Invalid selection." -ForegroundColor Yellow
                 Start-Sleep 1
@@ -409,6 +464,7 @@ function Show-ReportMenu {
         }
     }
 }
+
 
 # ============================================================
 # START THE APPLICATION

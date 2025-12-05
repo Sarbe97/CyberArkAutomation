@@ -1,36 +1,44 @@
-ubject: PSM Adoption Analysis and New CLI Tool for Your Use
+Subject: Secure Remote Access Made Simple - Now Using Direct RDP via CyberArk
 
 Dear Team,
 
 Over the past several weeks, we have been observing CyberArk usage patterns across the organization. Despite our efforts, we continue to find that:
 
-- Majority of users are retrieving passwords directly from CyberArk instead of using PSM sessions
-- PSM session activity remains minimal
-- Manual password handling increases security and compliance risks
+Majority of users are retrieving passwords directly from CyberArk instead of using PSM sessions
 
-To improve security and streamline your workflow, we strongly encourage you to start using CyberArk PSM for logging into target machines. As an alternative, we have developed a CyberArk CLI Application to make PSM access more convenient and accessible directly from your command line.
+PSM session activity remains minimal
 
-How It Helps
+Manual password handling increases security and compliance risks
 
-Instead of navigating the CyberArk web portal every time you need secure access, this CLI application lets you:
+To improve security and streamline your workflow, we strongly encourage you to use CyberArk PSM for all remote server access. As an alternative to navigating the CyberArk web portal, we are providing pre-configured RDP files that connect to your target servers through CyberArk PSM in the background.
 
-- Initiate secure PSM sessions directly from your command line with a single command
-- Manage your privileged access efficiently from the terminal
+RDP File Configuration
+When you receive your RDP file, it will contain the following pre-configured settings:
 
-All authentication still goes through CyberArk's secure backend, but the CLI provides a faster and more convenient alternative for routine operations.
+text
+full address:s:[PSM_SERVER]
+alternate shell:s:psm /u [TARGET_ACCOUNT] /a [TARGET_SERVER] /c PSM-RDP
+username:s:[CYBERARK_USERNAME]
+desktopwidth:i:1920
+desktopheight:i:1080
+session bpp:i:32
+Variable Placeholders:
 
-Getting Started
+[PSM_SERVER] - Your CyberArk PSM server (e.g., PSM_Server1)
 
-Please refer to the attached documentation:
+[TARGET_ACCOUNT] - Target account with domain (e.g., user@domain.com)
 
-- CyberArk_CLI_Quick_Start.pdf - Installation and basic usage
-- PSM_Session_Guide.pdf - How to connect using PSM through the CLI
-- Command_Reference.pdf - Available commands
+[TARGET_SERVER] - Target server IP or hostname (e.g., 10.2.5.6)
 
-If you have questions or encounter any issues, please reach out to the CyberArk team.
+[CYBERARK_USERNAME] - Your CyberArk login (e.g., u146647)
 
-Thank you for your attention to this security initiative.
+Example Configuration:
 
-Best Regards,
-
-CyberArk Administration Team
+text
+full address:s:PSM_Server1
+alternate shell:s:psm /u admin@corp.com /a 10.2.5.6 /c PSM-RDP
+username:s:u146647
+desktopwidth:i:1920
+desktopheight:i:1080
+session bpp:i:32
+Simply double-click the RDP file, and these settings will automatically connect you through CyberArk PSM.

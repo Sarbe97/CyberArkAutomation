@@ -150,24 +150,30 @@ function Get-CACAccountActivityByName {
         Write-Log "Searching for accounts matching: $AccountName" "INFO"
         Write-Host "Searching for accounts matching: $AccountName" -ForegroundColor Cyan
 
-        # Use Get-CACAccounts from Accounts.psm1 to search
-        $searchResults = Get-CACAccounts -Search $AccountName
+        # Call psPAS directly to search accounts
+        $accounts = Get-PASAccount -search $AccountName -ErrorAction Stop
 
-        if (-not $searchResults) {
-            Write-Log "No accounts found or search returned empty" "WARN"
+        if (-not $accounts -or $accounts.Count -eq 0) {
+            Write-Log "No accounts found matching: $AccountName" "WARN"
+            Write-Host "No accounts found matching '$AccountName'." -ForegroundColor Yellow
             return
         }
 
-        Write-Log "Search completed. Extracting account IDs for activity fetch" "INFO"
-
-        # Parse the exported CSV to get account IDs (Get-CACAccounts exports to CSV)
-        # Note: This assumes Get-CACAccounts exports properly
-        Write-Host ""
-        Write-Host "Now fetching activities for found accounts..." -ForegroundColor Cyan
+        Write-Log "Found $($accounts.Count) account(s) matching: $AccountName" "INFO"
+        Write-Host "Found $($accounts.Count) account(s)" -ForegroundColor Green
         Write-Host ""
 
-        # Prompt user to provide account ID(s) or get from search results
-        $accountId = Read-Host "Enter Account ID to fetch activities (from search results above)"
+        # Display search results
+        $accounts | Format-Table -AutoSize @(
+            @{Label = "ID"; Expression = { $_.id } },
+            @{Label = "Name"; Expression = { $_.name } },
+            @{Label = "Username"; Expression = { $_.userName } },
+            @{Label = "Address"; Expression = { $_.address } },
+            @{Label = "Safe"; Expression = { $_.safeName } }
+        )
+
+        Write-Host ""
+        $accountId = Read-Host "Enter Account ID to fetch activities (from list above)"
 
         if ([string]::IsNullOrWhiteSpace($accountId)) {
             Write-Log "Account ID not provided" "WARN"
@@ -175,10 +181,55 @@ function Get-CACAccountActivityByName {
             return
         }
 
-        Write-Log "Fetching activities for Account ID: $accountId with AutoExport" "INFO"
+        Write-Log "Fetching activities for Account ID: $accountId" "DEBUG"
+        Write-Host "Fetching activities for Account ID: $accountId..." -ForegroundColor Cyan
 
-        # Use Get-CACAccountActivity from Accounts.psm1 with AutoExport
-        Get-CACAccountActivity -AccountID $accountId -AutoExport
+        # Call psPAS directly to get account activity
+        $activities = Get-PASAccountActivity -AccountID $accountId -ErrorAction Stop
+
+        if (-not $activities -or $activities.Count -eq 0) {
+            Write-Log "No activities found for account: $accountId" "WARN"
+            Write-Host "No activities found for this account." -ForegroundColor Yellow
+            return
+        }
+
+        Write-Log "Retrieved $($activities.Count) activity records" "INFO"
+
+        Write-Host ""
+        Write-Host "Account Activity Summary" -ForegroundColor Cyan
+        Write-Host ""
+
+        # Format and display activities
+        $formattedActivities = $activities | ForEach-Object {
+            [PSCustomObject]@{
+                Time        = Convert-CACTimestamp $_.Time
+                Activity    = $_.Activity
+                UserName    = $_.UserName
+                AccountName = $_.AccountName
+            }
+        }
+
+        $formattedActivities | Format-Table -AutoSize
+
+        # Export to CSV
+        $outputDir = "$PSScriptRoot/../Output"
+        if (-not (Test-Path $outputDir)) {
+            New-Item -ItemType Directory -Path $outputDir | Out-Null
+            Write-Log "Output directory created: $outputDir" "DEBUG"
+        }
+
+        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+        $outputFile = "$outputDir/account_activity_${accountId}_$timestamp.csv"
+
+        Write-Log "Exporting $($formattedActivities.Count) activity records to CSV: $outputFile" "INFO"
+        $formattedActivities | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
+
+        Write-Log "CSV export successful: $outputFile" "SUCCESS"
+
+        Write-Host ""
+        Write-Host "Export Summary" -ForegroundColor Cyan
+        Write-Host "Total Activities: $($formattedActivities.Count)"
+        Write-Host "Output File: $outputFile" -ForegroundColor Green
 
         Write-Log "Completed Get-CACAccountActivityByName()" "DEBUG"
     }

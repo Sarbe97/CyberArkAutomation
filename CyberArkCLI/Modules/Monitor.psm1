@@ -147,111 +147,40 @@ function Get-CACAccountActivityByName {
             }
         }
 
-        Write-Log "Searching for account: $AccountName" "INFO"
+        Write-Log "Searching for accounts matching: $AccountName" "INFO"
         Write-Host "Searching for accounts matching: $AccountName" -ForegroundColor Cyan
 
-        $accounts = Find-PASAccount -search $AccountName
+        # Use Get-CACAccounts from Accounts.psm1 to search
+        $searchResults = Get-CACAccounts -Search $AccountName
 
-        if (-not $accounts -or $accounts.Count -eq 0) {
-            Write-Log "No accounts found matching: $AccountName" "WARN"
-            Write-Host "No accounts found matching '$AccountName'." -ForegroundColor Yellow
+        if (-not $searchResults) {
+            Write-Log "No accounts found or search returned empty" "WARN"
             return
         }
 
-        Write-Log "Found $($accounts.Count) account(s) matching: $AccountName" "INFO"
-        Write-Host "Found $($accounts.Count) account(s)" -ForegroundColor Green
+        Write-Log "Search completed. Extracting account IDs for activity fetch" "INFO"
 
-        $accountIds = @()
-        foreach ($account in $accounts) {
-            $accountIds += $account.id
-            Write-Log "Found account: $($account.name) (ID: $($account.id))" "DEBUG"
-        }
+        # Parse the exported CSV to get account IDs (Get-CACAccounts exports to CSV)
+        # Note: This assumes Get-CACAccounts exports properly
+        Write-Host ""
+        Write-Host "Now fetching activities for found accounts..." -ForegroundColor Cyan
+        Write-Host ""
 
-        $allActivities = @()
-        $totalActivities = 0
-        $errorCount = 0
+        # Prompt user to provide account ID(s) or get from search results
+        $accountId = Read-Host "Enter Account ID to fetch activities (from search results above)"
 
-        foreach ($accountId in $accountIds) {
-            try {
-                Write-Log "Fetching activity for account ID: $accountId" "DEBUG"
-                Write-Host "Fetching activity for account ID: $accountId..." -ForegroundColor Gray
-
-                $activities = Get-PASAccountActivity -AccountID $accountId
-
-                if ($activities -and $activities.Count -gt 0) {
-                    Write-Log "Retrieved $($activities.Count) activities for account ID: $accountId" "DEBUG"
-
-                    $accountName = ($accounts | Where-Object { $_.id -eq $accountId }).name
-
-                    foreach ($activity in $activities) {
-                        $activityRecord = [PSCustomObject]@{
-                            AccountID        = $accountId
-                            AccountName      = $accountName
-                            Time             = Convert-CACTimestamp $activity.Time
-                            Activity         = $activity.Activity
-                            UserName         = $activity.UserName
-                            ReasonForAccess  = $activity.ReasonForAccess
-                            SourceIP         = $activity.SourceIP
-                            ReportedAt       = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-                        }
-
-                        $allActivities += $activityRecord
-                        $totalActivities++
-                    }
-
-                    Write-Log "Successfully processed activities for account ID: $accountId" "DEBUG"
-                }
-                else {
-                    Write-Log "No activities found for account ID: $accountId" "WARN"
-                }
-            }
-            catch {
-                $errorCount++
-                Write-Log "Error fetching activity for account ID $accountId`: $($_.Exception.Message)" "WARN"
-                Write-Host "Error fetching activity for account ID $accountId`: $($_.Exception.Message)" -ForegroundColor Yellow
-            }
-        }
-
-        if ($allActivities.Count -eq 0) {
-            Write-Log "No activities retrieved from any account" "WARN"
-            Write-Host "No activities found for the selected accounts." -ForegroundColor Yellow
+        if ([string]::IsNullOrWhiteSpace($accountId)) {
+            Write-Log "Account ID not provided" "WARN"
+            Write-Host "Account ID is required to fetch activities." -ForegroundColor Yellow
             return
         }
 
-        Write-Host ""
-        Write-Host "Account Activity Summary" -ForegroundColor Cyan
-        Write-Host ""
+        Write-Log "Fetching activities for Account ID: $accountId with AutoExport" "INFO"
 
-        $allActivities | Format-Table -AutoSize @(
-            "AccountName",
-            "UserName",
-            "Time",
-            "Activity",
-            "ReasonForAccess",
-            "SourceIP"
-        )
-
-        $outputDir = "$PSScriptRoot/../Output"
-        if (-not (Test-Path $outputDir)) {
-            New-Item -ItemType Directory -Path $outputDir | Out-Null
-            Write-Log "Output directory created: $outputDir" "DEBUG"
-        }
-
-        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-        $outputFile = "$outputDir/Account_Activity_${AccountName}_$timestamp.csv"
-
-        Write-Log "Exporting $($allActivities.Count) activity records to CSV: $outputFile" "INFO"
-        $allActivities | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
-
-        Write-Log "CSV export successful: $outputFile" "SUCCESS"
+        # Use Get-CACAccountActivity from Accounts.psm1 with AutoExport
+        Get-CACAccountActivity -AccountID $accountId -AutoExport
 
         Write-Log "Completed Get-CACAccountActivityByName()" "DEBUG"
-        Write-Host ""
-        Write-Host "Export Summary" -ForegroundColor Cyan
-        Write-Host "Accounts Searched: $($accountIds.Count)"
-        Write-Host "Total Activities: $totalActivities"
-        Write-Host "Errors: $errorCount"
-        Write-Host "Output File: $outputFile" -ForegroundColor Green
     }
     catch {
         Write-Log "Error during Get-CACAccountActivityByName(): $($_.Exception.Message)" "ERROR"

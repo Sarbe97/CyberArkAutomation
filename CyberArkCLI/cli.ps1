@@ -35,7 +35,8 @@ function Reload-CACModules {
         "SystemHealth.psm1",
         "Onboarding.psm1",
         "Monitor.psm1",
-        "Reports.psm1"
+        "Reports.psm1",
+        "Platforms.psm1"
     )
 
 
@@ -175,6 +176,7 @@ function Show-MainMenu {
         Write-Host "5. Monitoring"
         Write-Host "6. Reports"
         Write-Host "7. System Health"
+        Write-Host "8. Platform Operations"
         Write-Host "9. Logout"
         Write-Host "0. Exit"
         Write-Host "===================================="
@@ -192,8 +194,8 @@ function Show-MainMenu {
             '4' { Show-OnboardingMenu }
             '5' { Show-MonitorMenu }
             '6' { Show-ReportMenu }
-            '7' { Show-SystemHealthMenu }    
-
+            '7' { Show-SystemHealthMenu }
+            '8' { Show-PlatformMenu }
 
             '9' {
                 Invoke-CACLogout
@@ -456,6 +458,32 @@ function Show-ReportMenu {
             '5' { Export-CACReport; Pause }
             '0' { return }
 
+
+            default {
+                Write-Host "Invalid selection." -ForegroundColor Yellow
+                Start-Sleep 1
+            }
+        }
+    }
+}
+
+
+# ============================================================
+# PLATFORM MENU
+# ============================================================
+function Show-PlatformMenu {
+    while ($true) {
+        Clear-Host
+        Write-Host "=========== PLATFORM MENU ==========="
+        Write-Host "1. Export Platform Packages (ZIP)"
+        Write-Host "0. Back"
+        Write-Host "====================================="
+
+        $choice = Read-Host "Enter Choice"
+
+        switch ($choice) {
+            '1' { Export-CACPlatform; Pause }
+            '0' { return }
 
             default {
                 Write-Host "Invalid selection." -ForegroundColor Yellow

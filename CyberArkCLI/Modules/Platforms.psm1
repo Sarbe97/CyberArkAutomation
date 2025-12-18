@@ -87,19 +87,13 @@ function Get-CACPlatformReport {
         return
     }
 
-    # 1. Verification: Print structure of the first platform
-    Write-Host "`n--- VERIFICATION: Sample Platform Structure (First Item) ---" -ForegroundColor Yellow
-    try {
-        $SampleDetail = Get-PASPlatform -ID $AllPlatforms[0].ID -ErrorAction Stop
-        $SampleDetail | ConvertTo-Json -Depth 10 | Write-Host
-    }
-    catch {
-        Write-Warning "Failed to fetch sample detail: $_"
-    }
+    # 1. Verification: Print structure of the first platform from the list
+    Write-Host "`n--- VERIFICATION: Sample Platform Structure (First Item from List) ---" -ForegroundColor Yellow
+    $AllPlatforms[0] | ConvertTo-Json -Depth 10 | Write-Host
     Write-Host "--- END OF VERIFICATION ---`n" -ForegroundColor Yellow
 
     $Total = $AllPlatforms.Count
-    Write-Host "Found $Total platforms. Starting detailed retrieval..." -ForegroundColor Cyan
+    Write-Host "Found $Total platforms. Mapping data..." -ForegroundColor Cyan
 
     $Results = @()
     $Counter = 0
@@ -108,48 +102,29 @@ function Get-CACPlatformReport {
         $Counter++
         $ProgressParams = @{
             Activity = "Processing Platforms"
-            Status   = "Processing $($Plat.ID) ($Counter / $Total)"
+            Status   = "Mapping $($Plat.general.id) ($Counter / $Total)"
             PercentComplete = ($Counter / $Total) * 100
         }
         Write-Progress @ProgressParams
 
-        try {
-            # Since details were missing, we fetch by ID to get the full structure
-            $Details = Get-PASPlatform -ID $Plat.ID -ErrorAction Stop
+        # Mapping based on the provided JSON structure, using the list object directly
+        $Gen = $Plat.general
+        $Workflows = $Plat.privilegedAccessWorkflows
+
+        $Obj = [PSCustomObject]@{
+            PlatformID          = $Gen.id
+            PlatformName        = $Gen.name
+            Active              = $Gen.active
+            SystemType          = $Gen.systemType
+            PlatformType        = $Gen.platformType
             
-            # Mapping based on the provided JSON structure
-            $Gen = $Details.general
-            $Workflows = $Details.privilegedAccessWorkflows
-
-            $Obj = [PSCustomObject]@{
-                PlatformID          = $Gen.id
-                PlatformName        = $Gen.name
-                Active              = $Gen.active
-                SystemType          = $Gen.systemType
-                PlatformType        = $Gen.platformType
-                
-                # Privileged Access Workflows
-                CheckinCheckout     = if ($null -ne $Workflows.enforceCheckinCheckoutExclusiveAccess) { $Workflows.enforceCheckinCheckoutExclusiveAccess } else { "N/A" }
-                OTP                 = if ($null -ne $Workflows.enforceOnetimePasswordAccess) { $Workflows.enforceOnetimePasswordAccess } else { "N/A" }
-                DualControl         = if ($null -ne $Workflows.requireDualControlPasswordAccessApproval) { $Workflows.requireDualControlPasswordAccessApproval } else { "N/A" }
-            }
-
-            $Results += $Obj
+            # Privileged Access Workflows
+            CheckinCheckout     = if ($null -ne $Workflows.enforceCheckinCheckoutExclusiveAccess) { $Workflows.enforceCheckinCheckoutExclusiveAccess } else { "N/A" }
+            OTP                 = if ($null -ne $Workflows.enforceOnetimePasswordAccess) { $Workflows.enforceOnetimePasswordAccess } else { "N/A" }
+            DualControl         = if ($null -ne $Workflows.requireDualControlPasswordAccessApproval) { $Workflows.requireDualControlPasswordAccessApproval } else { "N/A" }
         }
-        catch {
-            Write-Warning "Failed to fetch details for platform '$($Plat.ID)': $_"
-            # Add basic info if detail fetch fails
-            $Results += [PSCustomObject]@{
-                PlatformID      = $Plat.ID
-                PlatformName    = $Plat.Name
-                Active          = $Plat.Active
-                SystemType      = "ERROR"
-                PlatformType    = "ERROR"
-                CheckinCheckout = "ERROR"
-                OTP             = "ERROR"
-                DualControl     = "ERROR"
-            }
-        }
+
+        $Results += $Obj
     }
 
     # Generate Report File in CyberArkCLI/output

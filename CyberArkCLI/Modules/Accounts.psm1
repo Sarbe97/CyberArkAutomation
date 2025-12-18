@@ -5,7 +5,193 @@ Import-Module psPAS -ErrorAction Stop
 # ============================================================
 # 1. Get Accounts by Search/Safe with Pagination (limit 100 per page)
 # ============================================================
+# ============================================================
+# 1. Get Accounts by Search/Safe or Batch CSV with Pagination
+# ============================================================
+# ============================================================
+# 1. Get Accounts by Search/Safe or Batch CSV with Pagination
+# ============================================================
 function Get-CACAccounts {
+    param(
+        [string]$Search,
+        [string]$SafeName,
+        [int]$LimitPerPage = 100
+    )
+
+    Write-Log "Started Get-CACAccounts()" "DEBUG"
+    Write-Log "Search: '$Search', Safe: '$SafeName', Limit: $LimitPerPage" "INFO"
+
+    try {
+        $searchQueries = @()
+
+        # 1. Determine Search Mode and Build Queries
+        if (-not [string]::IsNullOrWhiteSpace($Search) -or -not [string]::IsNullOrWhiteSpace($SafeName)) {
+            # Single Parameter Mode
+            $searchQueries += [PSCustomObject]@{
+                Search = $Search
+                Safe   = $SafeName
+            }
+        }
+        else {
+            # Interactive Mode
+            Write-Host "Choose search method:" -ForegroundColor Cyan
+            Write-Host "1 = Search by keyword"
+            Write-Host "2 = Search by safe name"
+            Write-Host "3 = Batch search from CSV"
+            $method = Read-Host "Enter choice (1, 2, or 3)"
+
+            switch ($method) {
+                '1' {
+                    $k = Read-Host "Enter search keywords"
+                    if ([string]::IsNullOrWhiteSpace($k)) { return }
+                    $searchQueries += [PSCustomObject]@{ Search = $k; Safe = $null }
+                }
+                '2' {
+                    $s = Read-Host "Enter safe name"
+                    if ([string]::IsNullOrWhiteSpace($s)) { return }
+                    $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $s }
+                }
+                '3' {
+                    $p = Read-Host "Enter path to CSV file"
+                    if (-not (Test-Path $p)) { Write-Host "File not found." -ForegroundColor Red; return }
+                    $csvData = Import-Csv -Path $p
+                    if (-not $csvData) { Write-Host "CSV empty." -ForegroundColor Yellow; return }
+                    
+                    foreach ($row in $csvData) {
+                        # Support flexible column names or just assume standard
+                        $qSearch = if ($row.Search) { $row.Search } else { $null }
+                        $qSafe = if ($row.Safe) { $row.Safe } else { $null }
+                        
+                        if ($qSearch -or $qSafe) {
+                             $searchQueries += [PSCustomObject]@{ Search = $qSearch; Safe = $qSafe }
+                        }
+                    }
+                    Write-Log "Loaded $($searchQueries.Count) queries from CSV" "INFO"
+                }
+                default {
+                    Write-Host "Invalid choice." -ForegroundColor Yellow
+                    return
+                }
+            }
+        }
+
+        if ($searchQueries.Count -eq 0) {
+            Write-Host "No search criteria provided." -ForegroundColor Yellow
+            return
+        }
+
+        # Initialize output directory
+        $outputDir = "$PSScriptRoot/../Output"
+        if (-not (Test-Path $outputDir)) {
+            New-Item -ItemType Directory -Path $outputDir | Out-Null
+        }
+
+        $allAccounts = @{} # Hashtable for deduplication [AccountID -> AccountObj]
+        $totalQueries = $searchQueries.Count
+        $currentQuery = 0
+
+        # 2. Process Queries
+        foreach ($query in $searchQueries) {
+            $currentQuery++
+            $qSearch = $query.Search
+            $qSafe = $query.Safe
+            
+            Write-Log "Processing Query $currentQuery/$totalQueries`: Search='$qSearch', Safe='$qSafe'" "DEBUG"
+
+            $offset = 0
+            $pageCount = 0
+            
+            # Pagination for each query
+            while ($true) {
+                $pageCount++
+                try {
+                    $params = @{
+                        Limit  = $LimitPerPage
+                        Offset = $offset
+                    }
+                    if (-not [string]::IsNullOrWhiteSpace($qSearch)) { $params['Keywords'] = $qSearch }
+                    if (-not [string]::IsNullOrWhiteSpace($qSafe)) { $params['Safe'] = $qSafe }
+
+                    $accounts = Get-PASAccount @params -ErrorAction Stop
+
+                    if (-not $accounts -or $accounts.Count -eq 0) { break }
+
+                    foreach ($acc in $accounts) {
+                        if (-not $allAccounts.ContainsKey($acc.id)) {
+                            $allAccounts[$acc.id] = $acc
+                        }
+                    }
+
+                    if ($accounts.Count -lt $LimitPerPage) { break }
+                    $offset += $LimitPerPage
+                }
+                catch {
+                    Write-Log "Error in query loop: $($_.Exception.Message)" "ERROR"
+                    break
+                }
+            }
+        }
+
+        $totalUnique = $allAccounts.Count
+        Write-Log "Total unique accounts retrieved: $totalUnique" "INFO"
+
+        if ($totalUnique -eq 0) {
+            Write-Host "No accounts found." -ForegroundColor Yellow
+            return
+        }
+
+        # 3. Format and Export
+        $formatted = @()
+        $successCount = 0
+        $errorCount = 0
+
+        foreach ($account in $allAccounts.Values) {
+            try {
+                $formattedAccount = [PSCustomObject]@{
+                    AccountID                  = $account.id
+                    AccountName                = $account.name
+                    UserName                   = $account.userName
+                    Address                    = $account.address
+                    PlatformID                 = $account.platformId
+                    SafeName                   = $account.safeName
+                    PolicyID                   = $account.policyId
+                    AutomaticManagementEnabled = $account.automaticManagementEnabled
+                    ManualManagementReason     = $account.manualManagementReason
+                    CreatedDate                = Convert-CACTimestamp $account.createdTime
+                    LastModifiedDate           = Convert-CACTimestamp $account.lastModifiedTime
+                }
+                $formatted += $formattedAccount
+                $successCount++
+            }
+            catch { $errorCount++ }
+        }
+
+        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+        if ($searchQueries.Count -gt 1) {
+            $desc = "batch_search"
+        } else {
+            $desc = if ($searchQueries[0].Search) { "keyword_$($searchQueries[0].Search)" } else { "safe_$($searchQueries[0].Safe)" }
+        }
+        
+        $outputFile = "$outputDir/accounts_${desc}_$totalUnique`_$timestamp.csv"
+        
+        $formatted | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
+
+        Write-Log "Export successful: $outputFile" "SUCCESS"
+
+        # Summary
+        Write-Host "Export Summary" -ForegroundColor Cyan
+        Write-Host "  Total Queries Processed: $totalQueries"
+        Write-Host "  Total Unique Accounts: $totalUnique"
+        Write-Host "  Output File: $outputFile" -ForegroundColor Green
+
+    }
+    catch {
+        Write-Log "Fatal error in Get-CACAccounts(): $($_.Exception.Message)" "ERROR"
+        Write-Host "Fatal Error: $($_.Exception.Message)" -ForegroundColor Red
+        throw
+    }
+}
     param(
         [string]$Search,
         [string]$SafeName,
@@ -754,6 +940,76 @@ function New-CACAccountTemplate {
 }
 
 # ============================================================
+# 7. Remove Account by ID
+# ============================================================
+function Remove-CACAccount {
+    param(
+        [string]$AccountID
+    )
+
+    Write-Log "Started Remove-CACAccount()" "DEBUG"
+
+    try {
+        # Prompt for ID if not provided
+        if ([string]::IsNullOrWhiteSpace($AccountID)) {
+            $AccountID = Read-Host "Enter Account ID to delete"
+            if ([string]::IsNullOrWhiteSpace($AccountID)) {
+                Write-Log "Account ID is empty" "WARN"
+                Write-Host "Account ID cannot be empty." -ForegroundColor Yellow
+                return
+            }
+        }
+
+        Write-Log "Preparing to delete account: $AccountID" "INFO"
+
+        # Get account details for confirmation
+        try {
+            $account = Get-PASAccount -id $AccountID -ErrorAction Stop
+            if (-not $account) {
+                Write-Log "Account not found for ID: $AccountID" "WARN"
+                Write-Host "Account not found." -ForegroundColor Yellow
+                return
+            }
+        }
+        catch {
+            Write-Log "Error retrieving account details: $($_.Exception.Message)" "ERROR"
+            Write-Host "Error retrieving account: $($_.Exception.Message)" -ForegroundColor Red
+            return
+        }
+
+        Write-Host "===== Delete Confirmation =====" -ForegroundColor Red
+        Write-Host "Account ID: $AccountID"
+        Write-Host "Account Name: $($account.name)"
+        Write-Host "Safe: $($account.safeName)"
+        Write-Host "Username: $($account.userName)"
+        Write-Host ""
+        Write-Host "WARNING: This action cannot be undone." -ForegroundColor Red
+
+        $confirm = Read-Host "Are you sure you want to PERMANENTLY DELETE this account? (Y/N)"
+
+        if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+            Write-Log "Delete cancelled by user" "INFO"
+            Write-Host "Delete cancelled." -ForegroundColor Yellow
+            return
+        }
+
+        Write-Log "User confirmed; deleting account: $AccountID" "WARN"
+
+        # Remove Account
+        Remove-PASAccount -id $AccountID -ErrorAction Stop
+
+        Write-Log "Account deleted successfully: $AccountID" "SUCCESS"
+        Write-Host "Account deleted successfully." -ForegroundColor Green
+    }
+    catch {
+        Write-Log "Error in Remove-CACAccount(): $($_.Exception.Message)" "ERROR"
+        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+
+
+# ============================================================
 # EXPORT ALL PUBLIC FUNCTIONS
 # ============================================================
 Export-ModuleMember -Function `
@@ -763,4 +1019,5 @@ Export-ModuleMember -Function `
     Invoke-CACAccountReconcile, `
     New-CACPSMConnection, `
     New-CACAccountsFromCsv, `
-    New-CACAccountTemplate
+    New-CACAccountTemplate, `
+    Remove-CACAccount

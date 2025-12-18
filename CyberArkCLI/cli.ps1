@@ -476,6 +476,7 @@ function Show-PlatformMenu {
         Clear-Host
         Write-Host "=========== PLATFORM MENU ==========="
         Write-Host "1. Export Platform Packages (ZIP)"
+        Write-Host "2. Export Platform Report to CSV"
         Write-Host "0. Back"
         Write-Host "====================================="
 
@@ -483,6 +484,7 @@ function Show-PlatformMenu {
 
         switch ($choice) {
             '1' { Export-CACPlatform; Pause }
+            '2' { Get-CACPlatformReport; Pause }
             '0' { return }
 
             default {

@@ -102,48 +102,27 @@ function Get-CACPlatformReport {
         }
         Write-Progress @ProgressParams
 
-        try {
-            # Get full details for the platform to ensure we have all policy settings
-            # Some versions of psPAS/PVWA might require fetching by ID to get policy details
-            $Details = Get-PASPlatform -ID $Plat.ID -ErrorAction Stop
+        # Optimization: User confirmed list object contains required details
+        # Relying on $Plat object directly without secondary lookup
+        
+        # Extract Policy Settings
+        $PrivilegedAccessWorkflows = $Plat.PrivilegedAccessWorkflows
 
-            # Extract Policy Settings
-            # structure might vary based on API version, attempting to handle common structure
-            $PrivilegedAccessWorkflows = $Details.PrivilegedAccessWorkflows
-            $PasswordManagement = $Details.PasswordManagement
-
-            $Obj = [PSCustomObject]@{
-                PlatformID          = $Details.ID
-                PlatformName        = $Details.Name
-                Active              = $Details.Active
-                SystemType          = $Details.SystemType
-                # Check-in/Check-out usually maps to Exclusive Access in policies
-                ExclusiveAccess     = if ($PrivilegedAccessWorkflows.ExclusiveAccess) { $PrivilegedAccessWorkflows.ExclusiveAccess } else { $false }
-                OneTimePassword     = if ($PrivilegedAccessWorkflows.OTP) { $PrivilegedAccessWorkflows.OTP } else { $false }
-                DualControl         = if ($PrivilegedAccessWorkflows.DualControl) { $PrivilegedAccessWorkflows.DualControl } else { $false }
-                ReasonRequired      = if ($PrivilegedAccessWorkflows.QuickConnect) { $PrivilegedAccessWorkflows.QuickConnect } else { $false } # Mapping might vary
-                VerifyOnAdd         = if ($PasswordManagement.VerifyOnAdd) { $PasswordManagement.VerifyOnAdd } else { $false }
-                ChangeOnAdd         = if ($PasswordManagement.ChangeOnAdd) { $PasswordManagement.ChangeOnAdd } else { $false }
-            }
-
-            $Results += $Obj
+        $Obj = [PSCustomObject]@{
+            PlatformID          = $Plat.ID
+            PlatformName        = $Plat.Name
+            Active              = $Plat.Active
+            SystemType          = $Plat.SystemType
+            PlatformType        = $Plat.PlatformType
+            
+            # Privileged Access Workflows
+            ExclusiveAccess     = if ($PrivilegedAccessWorkflows.ExclusiveAccess) { $PrivilegedAccessWorkflows.ExclusiveAccess } else { $false }
+            OneTimePassword     = if ($PrivilegedAccessWorkflows.OTP) { $PrivilegedAccessWorkflows.OTP } else { $false }
+            DualControl         = if ($PrivilegedAccessWorkflows.DualControl) { $PrivilegedAccessWorkflows.DualControl } else { $false }
+            ReasonRequired      = if ($PrivilegedAccessWorkflows.QuickConnect) { $PrivilegedAccessWorkflows.QuickConnect } else { $false }
         }
-        catch {
-            Write-Warning "Failed to fetch details for platform '$($Plat.ID)': $_"
-            # Add basic info if detail fetch fails
-            $Results += [PSCustomObject]@{
-                PlatformID      = $Plat.ID
-                PlatformName    = $Plat.Name
-                Active          = $Plat.Active
-                SystemType      = $Plat.SystemType
-                ExclusiveAccess = "ERROR"
-                OneTimePassword = "ERROR"
-                DualControl     = "ERROR"
-                ReasonRequired  = "ERROR"
-                VerifyOnAdd     = "ERROR"
-                ChangeOnAdd     = "ERROR"
-            }
-        }
+
+        $Results += $Obj
     }
 
     # Generate Report File

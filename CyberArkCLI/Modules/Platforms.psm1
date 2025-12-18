@@ -102,26 +102,27 @@ function Get-CACPlatformReport {
         $Counter++
         $ProgressParams = @{
             Activity = "Processing Platforms"
-            Status   = "Mapping $($Plat.general.id) ($Counter / $Total)"
+            Status   = "Mapping $($Plat.PlatformID) ($Counter / $Total)"
             PercentComplete = ($Counter / $Total) * 100
         }
         Write-Progress @ProgressParams
 
-        # Mapping based on the provided JSON structure, using the list object directly
-        $Gen = $Plat.general
-        $Workflows = $Plat.privilegedAccessWorkflows
+        # Mapping based on the actual system response structure
+        $Gen = $Plat.Details
+        $Workflows = $Gen.PrivilegedAccessWorkflows
 
         $Obj = [PSCustomObject]@{
-            PlatformID          = $Gen.id
-            PlatformName        = $Gen.name
-            Active              = $Gen.active
-            SystemType          = $Gen.systemType
-            PlatformType        = $Gen.platformType
+            PlatformID          = $Plat.PlatformID
+            PlatformName        = $Gen.Name
+            Active              = $Plat.Active
+            SystemType          = $Gen.SystemType
+            PlatformType        = $Plat.PlatformType
             
-            # Privileged Access Workflows
-            CheckinCheckout     = if ($null -ne $Workflows.enforceCheckinCheckoutExclusiveAccess) { $Workflows.enforceCheckinCheckoutExclusiveAccess } else { "N/A" }
-            OTP                 = if ($null -ne $Workflows.enforceOnetimePasswordAccess) { $Workflows.enforceOnetimePasswordAccess } else { "N/A" }
-            DualControl         = if ($null -ne $Workflows.requireDualControlPasswordAccessApproval) { $Workflows.requireDualControlPasswordAccessApproval } else { "N/A" }
+            # Privileged Access Workflows - Accessing IsActive property for each setting
+            CheckinCheckout     = if ($null -ne $Workflows.EnforceCheckinCheckoutExclusiveAccess.IsActive) { $Workflows.EnforceCheckinCheckoutExclusiveAccess.IsActive } else { "N/A" }
+            OTP                 = if ($null -ne $Workflows.EnforceOnetimePasswordAccess.IsActive) { $Workflows.EnforceOnetimePasswordAccess.IsActive } else { "N/A" }
+            DualControl         = if ($null -ne $Workflows.RequireDualControlPasswordAccessApproval.IsActive) { $Workflows.RequireDualControlPasswordAccessApproval.IsActive } else { "N/A" }
+            ReasonRequired      = if ($null -ne $Workflows.RequireUsersToSpecifyReasonForAccess.IsActive) { $Workflows.RequireUsersToSpecifyReasonForAccess.IsActive } else { "N/A" }
         }
 
         $Results += $Obj

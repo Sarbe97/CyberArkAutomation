@@ -87,6 +87,17 @@ function Get-CACPlatformReport {
         return
     }
 
+    # 1. Verification: Print structure of the first platform
+    Write-Host "`n--- VERIFICATION: Sample Platform Structure (First Item) ---" -ForegroundColor Yellow
+    try {
+        $SampleDetail = Get-PASPlatform -ID $AllPlatforms[0].ID -ErrorAction Stop
+        $SampleDetail | ConvertTo-Json -Depth 10 | Write-Host
+    }
+    catch {
+        Write-Warning "Failed to fetch sample detail: $_"
+    }
+    Write-Host "--- END OF VERIFICATION ---`n" -ForegroundColor Yellow
+
     $Total = $AllPlatforms.Count
     Write-Host "Found $Total platforms. Starting detailed retrieval..." -ForegroundColor Cyan
 
@@ -102,34 +113,51 @@ function Get-CACPlatformReport {
         }
         Write-Progress @ProgressParams
 
-        # Optimization: User confirmed list object contains required details
-        # Relying on $Plat object directly without secondary lookup
-        
-        # Extract Policy Settings
-        $PrivilegedAccessWorkflows = $Plat.PrivilegedAccessWorkflows
-
-        $Obj = [PSCustomObject]@{
-            PlatformID          = $Plat.ID
-            PlatformName        = $Plat.Name
-            Active              = $Plat.Active
-            SystemType          = $Plat.SystemType
-            PlatformType        = $Plat.PlatformType
+        try {
+            # Since details were missing, we fetch by ID to get the full structure
+            $Details = Get-PASPlatform -ID $Plat.ID -ErrorAction Stop
             
-            # Privileged Access Workflows
-            ExclusiveAccess     = if ($PrivilegedAccessWorkflows.ExclusiveAccess) { $PrivilegedAccessWorkflows.ExclusiveAccess } else { $false }
-            OneTimePassword     = if ($PrivilegedAccessWorkflows.OTP) { $PrivilegedAccessWorkflows.OTP } else { $false }
-            DualControl         = if ($PrivilegedAccessWorkflows.DualControl) { $PrivilegedAccessWorkflows.DualControl } else { $false }
-            ReasonRequired      = if ($PrivilegedAccessWorkflows.QuickConnect) { $PrivilegedAccessWorkflows.QuickConnect } else { $false }
-        }
+            # Mapping based on the provided JSON structure
+            $Gen = $Details.general
+            $Workflows = $Details.privilegedAccessWorkflows
 
-        $Results += $Obj
+            $Obj = [PSCustomObject]@{
+                PlatformID          = $Gen.id
+                PlatformName        = $Gen.name
+                Active              = $Gen.active
+                SystemType          = $Gen.systemType
+                PlatformType        = $Gen.platformType
+                
+                # Privileged Access Workflows
+                CheckinCheckout     = if ($null -ne $Workflows.enforceCheckinCheckoutExclusiveAccess) { $Workflows.enforceCheckinCheckoutExclusiveAccess } else { "N/A" }
+                OTP                 = if ($null -ne $Workflows.enforceOnetimePasswordAccess) { $Workflows.enforceOnetimePasswordAccess } else { "N/A" }
+                DualControl         = if ($null -ne $Workflows.requireDualControlPasswordAccessApproval) { $Workflows.requireDualControlPasswordAccessApproval } else { "N/A" }
+            }
+
+            $Results += $Obj
+        }
+        catch {
+            Write-Warning "Failed to fetch details for platform '$($Plat.ID)': $_"
+            # Add basic info if detail fetch fails
+            $Results += [PSCustomObject]@{
+                PlatformID      = $Plat.ID
+                PlatformName    = $Plat.Name
+                Active          = $Plat.Active
+                SystemType      = "ERROR"
+                PlatformType    = "ERROR"
+                CheckinCheckout = "ERROR"
+                OTP             = "ERROR"
+                DualControl     = "ERROR"
+            }
+        }
     }
 
-    # Generate Report File
+    # Generate Report File in CyberArkCLI/output
     $Values = Get-Date -Format "yyyyMMdd-HHmmss"
-    $ReportDir = Join-Path $PSScriptRoot "..\Reports"
+    $ReportDir = Join-Path $PSScriptRoot "..\output"
     if (-not (Test-Path $ReportDir)) {
         New-Item -ItemType Directory -Path $ReportDir | Out-Null
+        Write-Host "Created output directory: $ReportDir" -ForegroundColor Gray
     }
 
     $CsvPath = Join-Path $ReportDir "PlatformReport_$Values.csv"

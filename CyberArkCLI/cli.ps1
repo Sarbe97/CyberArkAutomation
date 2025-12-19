@@ -36,7 +36,8 @@ function Reload-CACModules {
         "Onboarding.psm1",
         "Monitor.psm1",
         "Reports.psm1",
-        "Platforms.psm1"
+        "Platforms.psm1",
+        "BatchOnboarding.psm1"
     )
 
 
@@ -376,7 +377,9 @@ function Show-OnboardingMenu {
     while ($true) {
         Clear-Host
         Write-Host "==== Onboarding Menu ====" -ForegroundColor Cyan
-        Write-Host "1. Start Onboarding Workflow"
+        Write-Host "1. Start Manual Onboarding Workflow"
+        Write-Host "2. Create Batch Onboarding Template (CSV)"
+        Write-Host "3. Run Batch Onboarding from CSV"
         Write-Host "0. Back"
 
 
@@ -388,6 +391,15 @@ function Show-OnboardingMenu {
                 $safe = Read-Host "Safe Name"
                 $user = Read-Host "Account Name"
                 Start-CACOnboarding -SafeName $safe -AccountUser $user
+                Pause
+            }
+            '2' {
+                New-CACBatchOnboardingTemplate
+                Pause
+            }
+            '3' {
+                $path = Read-Host "Enter full path to onboarding CSV"
+                Invoke-CACBatchOnboarding -CsvPath $path
                 Pause
             }
             '0' { return }

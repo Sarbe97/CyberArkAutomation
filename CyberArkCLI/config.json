@@ -2,7 +2,6 @@
   "PVWAURL": "http://localhost:8080",
   "UserCacheTTL": 30,
   "LogLevel": "INFO",
-  
   "SafePermissionSets": {
     "SAFE_READ": [
       "UseAccounts",
@@ -28,6 +27,37 @@
       "ManageAccounts",
       "ManageSafeProperties",
       "BackupSafe"
+    ],
+    "CCP_PROVIDER": [
+      "RetrieveAccounts",
+      "ListAccounts"
+    ],
+    "CCP_APPID": [
+      "RetrieveAccounts",
+      "ListAccounts"
     ]
-  }
+  },
+  "_AvailablePermissions_Reference": [
+    "--- Account Usage ---",
+    "UseAccounts",
+    "RetrieveAccounts",
+    "ListAccounts",
+    "--- Account Management ---",
+    "AddAccounts",
+    "UpdateAccounts",
+    "DeleteAccounts",
+    "RenameAccounts",
+    "MoveAccounts",
+    "UnlockAccounts",
+    "InitiateCPMAccountManagementOperations",
+    "SpecifyNextAccountContent",
+    "--- Safe Administration ---",
+    "ManageSafe",
+    "ManageSafeMembers",
+    "ViewSafeMembers",
+    "ViewAudit",
+    "BackupSafe",
+    "ManageSafeProperties",
+    "DeleteFolders"
+  ]
 }

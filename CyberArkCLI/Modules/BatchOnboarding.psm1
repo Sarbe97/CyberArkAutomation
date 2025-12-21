@@ -62,6 +62,7 @@ function Invoke-CACBatchOnboarding {
                 MembersAdded   = 0
                 MembersSkipped = 0
                 Errors         = 0
+                Logs           = @()
             }
         }
     }
@@ -76,10 +77,18 @@ function Invoke-CACBatchOnboarding {
         $hasDays = -not [string]::IsNullOrWhiteSpace($safe.NumberOfDaysRetention)
 
         if ($hasVersions -and $hasDays) {
-            throw "Safe '$($safe.SafeName)' has BOTH retention values. Only one allowed."
+            $msg = "Safe '$($safe.SafeName)' has BOTH retention values. Only one allowed."
+            $summary[$safe.SafeName].Errors++
+            $summary[$safe.SafeName].Logs += $msg
+            Write-Log $msg "ERROR"
+            continue
         }
         if (-not ($hasVersions -or $hasDays)) {
-            throw "Safe '$($safe.SafeName)' must have one retention value."
+            $msg = "Safe '$($safe.SafeName)' must have one retention value."
+            $summary[$safe.SafeName].Errors++
+            $summary[$safe.SafeName].Logs += $msg
+            Write-Log $msg "ERROR"
+            continue
         }
 
         try {
@@ -94,15 +103,19 @@ function Invoke-CACBatchOnboarding {
                     -ErrorAction Stop
 
                 $summary[$safe.SafeName].SafeCreated = $true
+                $summary[$safe.SafeName].Logs += "Safe created successfully."
                 Write-Log "Safe created: $($safe.SafeName)" "SUCCESS"
             }
             else {
+                $summary[$safe.SafeName].Logs += "Safe already exists."
                 Write-Log "Safe exists: $($safe.SafeName)" "INFO"
             }
         }
         catch {
+            $msg = "Safe creation error [$($safe.SafeName)]: $_"
             $summary[$safe.SafeName].Errors++
-            Write-Log "Safe error [$($safe.SafeName)]: $_" "ERROR"
+            $summary[$safe.SafeName].Logs += $msg
+            Write-Log $msg "ERROR"
         }
     }
 
@@ -111,50 +124,94 @@ function Invoke-CACBatchOnboarding {
     # -------------------------------
     foreach ($row in $members) {
         Init-SafeSummary $row.SafeName
+        $logPrefix = "Safe [$($row.SafeName)] / Member [$($row.SafeMember)]"
 
         try {
             if ($row.MemberType -eq "Group") {
-
                 $group = Get-PASGroup -GroupName $row.SafeMember -ErrorAction Ignore
+
                 if (-not $group) {
                     New-PASGroup -GroupName $row.SafeMember -Description "Auto-created" -ErrorAction Stop
-                    Write-Log "Group created: $($row.SafeMember)" "INFO"
+                    Write-Log "$logPrefix - Group created." "INFO"
+                    $summary[$row.SafeName].Logs += "Group created: $($row.SafeMember)"
 
                     if ($row.Users) {
                         foreach ($u in ($row.Users -split ";")) {
-                            Add-PASGroupMember -GroupName $row.SafeMember -MemberName $u.Trim() -ErrorAction Ignore
+                            $uname = $u.Trim()
+                            if ([string]::IsNullOrWhiteSpace($uname)) { continue }
+                            try {
+                                Add-PASGroupMember -GroupName $row.SafeMember -MemberName $uname -ErrorAction Stop
+                                Write-Log "$logPrefix - Added user '$uname' to group." "SUCCESS"
+                                $summary[$row.SafeName].Logs += "Added user '$uname' to group '$($row.SafeMember)'"
+                            }
+                            catch {
+                                $summary[$row.SafeName].Logs += "Failed to add user '$uname': $_"
+                                Write-Log "$logPrefix - Failed to add user '$uname': $_" "ERROR"
+                            }
                         }
                     }
                 }
+                else {
+                    Write-Log "$logPrefix - Group exists, adding to safe." "INFO"
+                    $summary[$row.SafeName].Logs += "Group exists: $($row.SafeMember)"
+                }
 
-                Add-PASSafeMember `
-                    -SafeName $row.SafeName `
-                    -MemberName $row.SafeMember `
-                    -Permissions (Get-CACConfig).SafePermissionSets.$($row.PermissionKey) `
-                    -SearchInVault $true `
-                    -ErrorAction Stop
-
-                $summary[$row.SafeName].MembersAdded++
+                try {
+                    Add-PASSafeMember `
+                        -SafeName $row.SafeName `
+                        -MemberName $row.SafeMember `
+                        -Permissions (Get-CACConfig).SafePermissionSets.$($row.PermissionKey) `
+                        -SearchInVault $true `
+                        -ErrorAction Stop
+                    Write-Log "$logPrefix - Added to safe." "SUCCESS"
+                    $summary[$row.SafeName].MembersAdded++
+                }
+                catch {
+                    if ($_.Exception.Message -match "already exists|409") {
+                        Write-Log "$logPrefix - Member already in safe, skipped." "INFO"
+                        $summary[$row.SafeName].MembersSkipped++
+                        $summary[$row.SafeName].Logs += "Member already in safe."
+                    }
+                    else {
+                        $msg = "$logPrefix - Failed to add to safe: $_"
+                        $summary[$row.SafeName].Errors++
+                        $summary[$row.SafeName].Logs += $msg
+                        Write-Log $msg "ERROR"
+                    }
+                }
             }
             else {
-                Add-PASSafeMember `
-                    -SafeName $row.SafeName `
-                    -MemberName $row.SafeMember `
-                    -Permissions (Get-CACConfig).SafePermissionSets.$($row.PermissionKey) `
-                    -SearchInVault $true `
-                    -ErrorAction Stop
-
-                $summary[$row.SafeName].MembersAdded++
+                # User
+                try {
+                    Add-PASSafeMember `
+                        -SafeName $row.SafeName `
+                        -MemberName $row.SafeMember `
+                        -Permissions (Get-CACConfig).SafePermissionSets.$($row.PermissionKey) `
+                        -SearchInVault $true `
+                        -ErrorAction Stop
+                    Write-Log "$logPrefix - User added to safe." "SUCCESS"
+                    $summary[$row.SafeName].MembersAdded++
+                }
+                catch {
+                    if ($_.Exception.Message -match "already exists|409") {
+                        Write-Log "$logPrefix - User already in safe, skipped." "INFO"
+                        $summary[$row.SafeName].MembersSkipped++
+                        $summary[$row.SafeName].Logs += "User already in safe."
+                    }
+                    else {
+                        $msg = "$logPrefix - Failed to add user: $_"
+                        $summary[$row.SafeName].Errors++
+                        $summary[$row.SafeName].Logs += $msg
+                        Write-Log $msg "ERROR"
+                    }
+                }
             }
         }
         catch {
-            if ($_.Exception.Message -match "already exists|409") {
-                $summary[$row.SafeName].MembersSkipped++
-            }
-            else {
-                $summary[$row.SafeName].Errors++
-                Write-Log "Member error [$($row.SafeMember)]: $_" "ERROR"
-            }
+            $msg = "$logPrefix - Unexpected error: $_"
+            $summary[$row.SafeName].Errors++
+            $summary[$row.SafeName].Logs += $msg
+            Write-Log $msg "ERROR"
         }
     }
 
@@ -162,10 +219,20 @@ function Invoke-CACBatchOnboarding {
     # Write summary CSV
     # -------------------------------
     $summaryPath = Join-Path $baseDir "$baseName-summary.csv"
-    $summary.Values | Export-Csv $summaryPath -NoTypeInformation
+    $summary.Values | Select-Object SafeName, SafeCreated, MembersAdded, MembersSkipped, Errors |
+    Export-Csv $summaryPath -NoTypeInformation
 
     Write-Host "`nBatch onboarding completed." -ForegroundColor Cyan
     Write-Host "Summary written to: $summaryPath" -ForegroundColor Green
+
+    # -------------------------------
+    # Write detailed log file per safe
+    # -------------------------------
+    foreach ($safe in $summary.Values) {
+        $logFile = Join-Path $baseDir "$($safe.SafeName)-log.txt"
+        $safe.Logs | Out-File -FilePath $logFile -Encoding UTF8 -Force
+        Write-Host "Detailed log for $($safe.SafeName): $logFile" -ForegroundColor Yellow
+    }
 }
 
 Export-ModuleMember -Function Invoke-CACBatchOnboarding

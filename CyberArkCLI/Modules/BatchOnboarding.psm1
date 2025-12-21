@@ -165,10 +165,17 @@ function Invoke-CACBatchOnboarding {
         # ADD MEMBER TO SAFE
         # -----------------------------
         try {
+            $permParams = @{}
+            foreach ($p in $perms) {
+                if (-not [string]::IsNullOrWhiteSpace($p)) {
+                    $permParams[$p] = $true
+                }
+            }
+
             Add-PASSafeMember `
                 -SafeName $row.SafeName `
                 -MemberName $row.SafeMember `
-                -Permissions $perms `
+                @permParams `
                 -ErrorAction Stop
 
             $result.SafeMembershipStatus = "Added"

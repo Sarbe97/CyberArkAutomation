@@ -68,6 +68,11 @@ function Invoke-CACBatchOnboarding {
     }
 
     # -------------------------------
+    # Load config.json for permission mapping
+    # -------------------------------
+    $config = Get-CACConfig
+
+    # -------------------------------
     # Phase 1: Safes
     # -------------------------------
     foreach ($safe in $safes) {
@@ -102,33 +107,27 @@ function Invoke-CACBatchOnboarding {
                     -NumberOfDaysRetention $safe.NumberOfDaysRetention `
                     -ErrorAction Stop
 
-                $summary[$safe.SafeName].SafeCreated = $true
-                $summary[$safe.SafeName].Logs += "Safe created successfully."
+                # Confirm creation
+                Start-Sleep -Seconds 2
+                $existing = Get-PASSafe -SafeName $safe.SafeName -ErrorAction Stop
                 Write-Log "Safe created: $($safe.SafeName)" "SUCCESS"
+                $summary[$safe.SafeName].SafeCreated = $true
             }
             else {
-                $summary[$safe.SafeName].Logs += "Safe already exists."
                 Write-Log "Safe exists: $($safe.SafeName)" "INFO"
             }
         }
         catch {
-            if ($_.Exception.Message -match "404|Not Found") {
-                # Fallback if Get-PASSafe failed unexpectedly with 404 during check
-                # We simply allow the loop to continue or consider it non-fatal if logic flows
-                $summary[$safe.SafeName].Logs += "Reference check returned 404."
-            }
-            $msg = "Safe creation error [$($safe.SafeName)]: $_"
             $summary[$safe.SafeName].Errors++
-            $summary[$safe.SafeName].Logs += $msg
-            Write-Log $msg "ERROR"
+            $summary[$safe.SafeName].Logs += "Safe creation error [$($safe.SafeName)]: $_"
+            Write-Log "Safe creation error [$($safe.SafeName)]: $_" "ERROR"
+            continue
         }
     }
 
     # -------------------------------
     # Phase 2: Members
     # -------------------------------
-    $config = Get-CACConfig
-
     foreach ($row in $members) {
         Init-SafeSummary $row.SafeName
         $logPrefix = "Safe [$($row.SafeName)] / Member [$($row.SafeMember)]"
@@ -147,7 +146,7 @@ function Invoke-CACBatchOnboarding {
                             $uname = $u.Trim()
                             if ([string]::IsNullOrWhiteSpace($uname)) { continue }
                             try {
-                                Add-PASGroupMember -GroupName $row.SafeMember -MemberName $uname -ErrorAction Stop
+                                Add-PASGroupMember -GroupName $row.SafeMember -UserName $uname -ErrorAction Stop
                                 Write-Log "$logPrefix - Added user '$uname' to group." "SUCCESS"
                                 $summary[$row.SafeName].Logs += "Added user '$uname' to group '$($row.SafeMember)'"
                             }
@@ -164,28 +163,15 @@ function Invoke-CACBatchOnboarding {
                 }
 
                 # -------------------------------
-                # Add group to safe with dynamic permission mapping
+                # Add group to safe with dynamic permissions
                 # -------------------------------
                 try {
-                    # Handle PSCustomObject lookup for permissions
-                    $perms = $null
-                    if ($config.SafePermissionSets.PSObject.Properties.Match($row.PermissionKey)) {
-                        $perms = $config.SafePermissionSets.$($row.PermissionKey)
-                    }
-
-                    if (-not $perms) {
-                        Write-Log "$logPrefix - Permission Set '$($row.PermissionKey)' not found in config." "WARN"
-                        $summary[$row.SafeName].Logs += "Permission Set '$($row.PermissionKey)' not found."
-                        continue
-                    }
-
+                    $perms = $config.SafePermissionSets[$row.PermissionKey]
                     $permParams = @{}
-                    foreach ($p in $perms) {
-                        $permParams[$p] = $true
-                    }
+                    foreach ($p in $perms) { $permParams[$p] = $true }
 
-                    Add-PASSafeMember -SafeName $row.SafeName -MemberName $row.SafeMember @permParams -ErrorAction Stop
-                    Write-Log "$logPrefix - Added to safe." "SUCCESS"
+                    Add-PASSafeMember -SafeName $row.SafeName -MemberName $row.SafeMember @permParams -SearchInVault $true -ErrorAction Stop
+                    Write-Log "$logPrefix - Added group to safe." "SUCCESS"
                     $summary[$row.SafeName].MembersAdded++
                 }
                 catch {
@@ -195,32 +181,20 @@ function Invoke-CACBatchOnboarding {
                         $summary[$row.SafeName].Logs += "Member already in safe."
                     }
                     else {
-                        $msg = "$logPrefix - Failed to add to safe: $_"
                         $summary[$row.SafeName].Errors++
-                        $summary[$row.SafeName].Logs += $msg
-                        Write-Log $msg "ERROR"
+                        $summary[$row.SafeName].Logs += "$logPrefix - Failed to add to safe: $_"
+                        Write-Log "$logPrefix - Failed to add to safe: $_" "ERROR"
                     }
                 }
             }
             else {
                 # User
                 try {
-                    # Handle PSCustomObject lookup for permissions
-                    $perms = $null
-                    if ($config.SafePermissionSets.PSObject.Properties.Match($row.PermissionKey)) {
-                        $perms = $config.SafePermissionSets.$($row.PermissionKey)
-                    }
-                    
-                    if (-not $perms) {
-                        Write-Log "$logPrefix - Permission Set '$($row.PermissionKey)' not found in config." "WARN"
-                        $summary[$row.SafeName].Logs += "Permission Set '$($row.PermissionKey)' not found."
-                        continue
-                    }
-
+                    $perms = $config.SafePermissionSets[$row.PermissionKey]
                     $permParams = @{}
                     foreach ($p in $perms) { $permParams[$p] = $true }
 
-                    Add-PASSafeMember -SafeName $row.SafeName -MemberName $row.SafeMember @permParams -ErrorAction Stop
+                    Add-PASSafeMember -SafeName $row.SafeName -MemberName $row.SafeMember @permParams -SearchInVault $true -ErrorAction Stop
                     Write-Log "$logPrefix - User added to safe." "SUCCESS"
                     $summary[$row.SafeName].MembersAdded++
                 }
@@ -231,19 +205,17 @@ function Invoke-CACBatchOnboarding {
                         $summary[$row.SafeName].Logs += "User already in safe."
                     }
                     else {
-                        $msg = "$logPrefix - Failed to add user: $_"
                         $summary[$row.SafeName].Errors++
-                        $summary[$row.SafeName].Logs += $msg
-                        Write-Log $msg "ERROR"
+                        $summary[$row.SafeName].Logs += "$logPrefix - Failed to add user: $_"
+                        Write-Log "$logPrefix - Failed to add user: $_" "ERROR"
                     }
                 }
             }
         }
         catch {
-            $msg = "$logPrefix - Unexpected error: $_"
             $summary[$row.SafeName].Errors++
-            $summary[$row.SafeName].Logs += $msg
-            Write-Log $msg "ERROR"
+            $summary[$row.SafeName].Logs += "$logPrefix - Unexpected error: $_"
+            Write-Log "$logPrefix - Unexpected error: $_" "ERROR"
         }
     }
 
@@ -252,7 +224,7 @@ function Invoke-CACBatchOnboarding {
     # -------------------------------
     $summaryPath = Join-Path $baseDir "$baseName-summary.csv"
     $summary.Values | Select-Object SafeName, SafeCreated, MembersAdded, MembersSkipped, Errors |
-    Export-Csv $summaryPath -NoTypeInformation -Encoding UTF8
+    Export-Csv $summaryPath -NoTypeInformation
 
     Write-Host "`nBatch onboarding completed." -ForegroundColor Cyan
     Write-Host "Summary written to: $summaryPath" -ForegroundColor Green
@@ -265,9 +237,6 @@ function Invoke-CACBatchOnboarding {
         $safe.Logs | Out-File -FilePath $logFile -Encoding UTF8 -Force
         Write-Host "Detailed log for $($safe.SafeName): $logFile" -ForegroundColor Yellow
     }
-
-
-
 }
 
 Export-ModuleMember -Function Invoke-CACBatchOnboarding

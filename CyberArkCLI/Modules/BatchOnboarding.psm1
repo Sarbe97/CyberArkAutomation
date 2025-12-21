@@ -1,242 +1,207 @@
-function Invoke-CACBatchOnboarding {
+# ==========================
+# BatchOnboarding.psm1
+# ==========================
+
+function Invoke-CACBatchOnboarding222 {
     [CmdletBinding()]
     param(
-        # Provide FULL PATH to SAFE LIST CSV.
-        # Member list will be auto-resolved as <SafeFileName>-members.csv in the same directory.
         [Parameter(Mandatory)]
-        [string]$SafeCsvPath
+        [string]$CsvPath,
+
+        [string]$OutputCsvPath = (Join-Path $PSScriptRoot "BatchOnboarding_Result.csv")
     )
 
-    # -------------------------------
-    # Resolve member CSV automatically
-    # -------------------------------
-    if (-not (Test-Path $SafeCsvPath)) {
-        throw "Safe CSV not found: $SafeCsvPath"
+    if (-not (Test-Path $CsvPath)) {
+        Write-Error "CSV not found: $CsvPath"
+        return
     }
 
-    $baseDir = Split-Path $SafeCsvPath
-    $baseName = [System.IO.Path]::GetFileNameWithoutExtension($SafeCsvPath)
-    $memberCsvPath = Join-Path $baseDir "$baseName-members.csv"
-
-    if (-not (Test-Path $memberCsvPath)) {
-        throw "Member CSV not found: $memberCsvPath"
-    }
-
-    Write-Log "Safe CSV: $SafeCsvPath" "INFO"
-    Write-Log "Member CSV: $memberCsvPath" "INFO"
-
-    # -------------------------------
-    # Import CSVs
-    # -------------------------------
-    $safes = Import-Csv $SafeCsvPath
-    $members = Import-Csv $memberCsvPath
-
-    # -------------------------------
-    # Schema validation
-    # -------------------------------
-    $safeHeaders = "SafeName", "SafeDescription", "ManagingCPM", "NumberOfVersionsRetention", "NumberOfDaysRetention"
-    $memberHeaders = "SafeName", "SafeMember", "MemberType", "PermissionKey", "Users"
-
-    foreach ($h in $safeHeaders) {
-        if (-not ($safes[0].PSObject.Properties.Name -contains $h)) {
-            throw "Safes CSV missing column: $h"
-        }
-    }
-
-    foreach ($h in $memberHeaders) {
-        if (-not ($members[0].PSObject.Properties.Name -contains $h)) {
-            throw "Members CSV missing column: $h"
-        }
-    }
-
-    # -------------------------------
-    # Summary tracking
-    # -------------------------------
-    $summary = @{}
-
-    function Init-SafeSummary($safeName) {
-        if (-not $summary.ContainsKey($safeName)) {
-            $summary[$safeName] = [PSCustomObject]@{
-                SafeName       = $safeName
-                SafeCreated    = $false
-                MembersAdded   = 0
-                MembersSkipped = 0
-                Errors         = 0
-                Logs           = @()
-            }
-        }
-    }
-
-    # -------------------------------
-    # Load config.json for permission mapping
-    # -------------------------------
+    $data = Import-Csv $CsvPath
     $config = Get-CACConfig
+    $permissionSets = $config.SafePermissionSets
 
-    # -------------------------------
-    # Phase 1: Safes
-    # -------------------------------
-    foreach ($safe in $safes) {
-        Init-SafeSummary $safe.SafeName
+    $results = @()
 
-        $hasVersions = -not [string]::IsNullOrWhiteSpace($safe.NumberOfVersionsRetention)
-        $hasDays = -not [string]::IsNullOrWhiteSpace($safe.NumberOfDaysRetention)
+    foreach ($row in $data) {
 
-        if ($hasVersions -and $hasDays) {
-            $msg = "Safe '$($safe.SafeName)' has BOTH retention values. Only one allowed."
-            $summary[$safe.SafeName].Errors++
-            $summary[$safe.SafeName].Logs += $msg
-            Write-Log $msg "ERROR"
-            continue
+        Write-Host "`n--- Processing Safe [$($row.SafeName)] / Member [$($row.SafeMember)] ---" -ForegroundColor Cyan
+
+        # -----------------------------
+        # Result tracking object
+        # -----------------------------
+        $result = [ordered]@{
+            SafeName             = $row.SafeName
+            SafeStatus           = "Unknown"
+            SafeMember           = $row.SafeMember
+            MemberType           = "Unknown"
+            GroupStatus          = "NotApplicable"
+            GroupMembersAction   = "NotApplicable"
+            SafeMembershipStatus = "NotAttempted"
+            OverallStatus        = "FAILED"
+            Message              = ""
         }
-        if (-not ($hasVersions -or $hasDays)) {
-            $msg = "Safe '$($safe.SafeName)' must have one retention value."
-            $summary[$safe.SafeName].Errors++
-            $summary[$safe.SafeName].Logs += $msg
-            Write-Log $msg "ERROR"
-            continue
-        }
+
+        # -----------------------------
+        # SAFE CHECK / CREATE
+        # -----------------------------
+        $safeReady = $false
 
         try {
-            $existing = Get-PASSafe -SafeName $safe.SafeName -ErrorAction Ignore
-            if (-not $existing) {
-                Add-PASSafe `
-                    -SafeName $safe.SafeName `
-                    -Description $safe.SafeDescription `
-                    -ManagingCPM $safe.ManagingCPM `
-                    -NumberOfVersionsRetention $safe.NumberOfVersionsRetention `
-                    -NumberOfDaysRetention $safe.NumberOfDaysRetention `
-                    -ErrorAction Stop
-
-                # Confirm creation
-                Start-Sleep -Seconds 2
-                $existing = Get-PASSafe -SafeName $safe.SafeName -ErrorAction Stop
-                Write-Log "Safe created: $($safe.SafeName)" "SUCCESS"
-                $summary[$safe.SafeName].SafeCreated = $true
-            }
-            else {
-                Write-Log "Safe exists: $($safe.SafeName)" "INFO"
-            }
+            Get-PASSafe -SafeName $row.SafeName -ErrorAction Stop | Out-Null
+            $safeReady = $true
+            $result.SafeStatus = "Exists"
+            Write-Log "Safe exists: $($row.SafeName)" "INFO"
         }
         catch {
-            $summary[$safe.SafeName].Errors++
-            $summary[$safe.SafeName].Logs += "Safe creation error [$($safe.SafeName)]: $_"
-            Write-Log "Safe creation error [$($safe.SafeName)]: $_" "ERROR"
+            $versions = if ($row.NumberOfVersionsRetention) { [int]$row.NumberOfVersionsRetention } else { $null }
+            $days = if ($row.NumberOfDaysRetention) { [int]$row.NumberOfDaysRetention }     else { $null }
+
+            if (-not $versions -and -not $days) {
+                $result.SafeStatus = "Failed"
+                $result.Message = "Retention policy missing"
+                $results += [pscustomobject]$result
+                Write-Log "Safe '$($row.SafeName)' missing retention policy" "ERROR"
+                continue
+            }
+
+            $safeParams = @{
+                SafeName    = $row.SafeName
+                Description = $row.SafeDescription
+                ManagingCPM = $row.ManagingCPM
+                ErrorAction = 'Stop'
+            }
+            if ($versions) { $safeParams.NumberOfVersionsRetention = $versions }
+            if ($days) { $safeParams.NumberOfDaysRetention = $days }
+
+            try {
+                Add-PASSafe @safeParams
+                $safeReady = $true
+                $result.SafeStatus = "Created"
+                Write-Log "Safe created: $($row.SafeName)" "SUCCESS"
+            }
+            catch {
+                $result.SafeStatus = "Failed"
+                $result.Message = $_.Exception.Message
+                $results += [pscustomobject]$result
+                Write-Log "Safe creation failed: $($_.Exception.Message)" "ERROR"
+                continue
+            }
+        }
+
+        if (-not $safeReady) {
+            $results += [pscustomobject]$result
             continue
         }
-    }
 
-    # -------------------------------
-    # Phase 2: Members
-    # -------------------------------
-    foreach ($row in $members) {
-        Init-SafeSummary $row.SafeName
-        $logPrefix = "Safe [$($row.SafeName)] / Member [$($row.SafeMember)]"
+        # -----------------------------
+        # MEMBER HANDLING
+        # -----------------------------
+        $groupExists = $false
+        $userExists = $false
 
         try {
-            if ($row.MemberType -eq "Group") {
-                $group = Get-PASGroup -GroupName $row.SafeMember -ErrorAction Ignore
+            Get-PASGroup -GroupName $row.SafeMember -ErrorAction Stop | Out-Null
+            $groupExists = $true
+            $result.MemberType = "Group"
+        }
+        catch {
+            try {
+                Get-PASUser -UserName $row.SafeMember -ErrorAction Stop | Out-Null
+                $userExists = $true
+                $result.MemberType = "User"
+            }
+            catch {
+                $result.Message = "Member not found"
+            }
+        }
 
-                if (-not $group) {
-                    New-PASGroup -GroupName $row.SafeMember -Description "Auto-created" -ErrorAction Stop
-                    Write-Log "$logPrefix - Group created." "INFO"
-                    $summary[$row.SafeName].Logs += "Group created: $($row.SafeMember)"
+        # ---- GROUP LOGIC ----
+        if ($result.MemberType -eq "Group" -or $row.Users) {
+
+            if (-not $groupExists) {
+                try {
+                    New-PASGroup `
+                        -GroupName $row.SafeMember `
+                        -Description $row.MemberDescription `
+                        -ErrorAction Stop
+
+                    $result.GroupStatus = "Created"
+                    Write-Log "Group created: $($row.SafeMember)" "SUCCESS"
 
                     if ($row.Users) {
                         foreach ($u in ($row.Users -split ";")) {
-                            $uname = $u.Trim()
-                            if ([string]::IsNullOrWhiteSpace($uname)) { continue }
-                            try {
-                                Add-PASGroupMember -GroupName $row.SafeMember -UserName $uname -ErrorAction Stop
-                                Write-Log "$logPrefix - Added user '$uname' to group." "SUCCESS"
-                                $summary[$row.SafeName].Logs += "Added user '$uname' to group '$($row.SafeMember)'"
-                            }
-                            catch {
-                                $summary[$row.SafeName].Logs += "Failed to add user '$uname': $_"
-                                Write-Log "$logPrefix - Failed to add user '$uname': $_" "ERROR"
-                            }
+                            if (-not $u.Trim()) { continue }
+                            Add-PASGroupMember `
+                                -GroupName $row.SafeMember `
+                                -Member $u.Trim() `
+                                -ErrorAction Stop
                         }
+                        $result.GroupMembersAction = "Added"
                     }
-                }
-                else {
-                    Write-Log "$logPrefix - Group exists, adding to safe." "INFO"
-                    $summary[$row.SafeName].Logs += "Group exists: $($row.SafeMember)"
-                }
-
-                # -------------------------------
-                # Add group to safe with dynamic permissions
-                # -------------------------------
-                try {
-                    $perms = $config.SafePermissionSets[$row.PermissionKey]
-                    $permParams = @{}
-                    foreach ($p in $perms) { $permParams[$p] = $true }
-
-                    Add-PASSafeMember -SafeName $row.SafeName -MemberName $row.SafeMember @permParams -SearchInVault $true -ErrorAction Stop
-                    Write-Log "$logPrefix - Added group to safe." "SUCCESS"
-                    $summary[$row.SafeName].MembersAdded++
                 }
                 catch {
-                    if ($_.Exception.Message -match "already exists|409") {
-                        Write-Log "$logPrefix - Member already in safe, skipped." "INFO"
-                        $summary[$row.SafeName].MembersSkipped++
-                        $summary[$row.SafeName].Logs += "Member already in safe."
-                    }
-                    else {
-                        $summary[$row.SafeName].Errors++
-                        $summary[$row.SafeName].Logs += "$logPrefix - Failed to add to safe: $_"
-                        Write-Log "$logPrefix - Failed to add to safe: $_" "ERROR"
-                    }
+                    $result.GroupStatus = "Failed"
+                    $result.Message = $_.Exception.Message
                 }
             }
             else {
-                # User
-                try {
-                    $perms = $config.SafePermissionSets[$row.PermissionKey]
-                    $permParams = @{}
-                    foreach ($p in $perms) { $permParams[$p] = $true }
-
-                    Add-PASSafeMember -SafeName $row.SafeName -MemberName $row.SafeMember @permParams -SearchInVault $true -ErrorAction Stop
-                    Write-Log "$logPrefix - User added to safe." "SUCCESS"
-                    $summary[$row.SafeName].MembersAdded++
-                }
-                catch {
-                    if ($_.Exception.Message -match "already exists|409") {
-                        Write-Log "$logPrefix - User already in safe, skipped." "INFO"
-                        $summary[$row.SafeName].MembersSkipped++
-                        $summary[$row.SafeName].Logs += "User already in safe."
-                    }
-                    else {
-                        $summary[$row.SafeName].Errors++
-                        $summary[$row.SafeName].Logs += "$logPrefix - Failed to add user: $_"
-                        Write-Log "$logPrefix - Failed to add user: $_" "ERROR"
-                    }
-                }
+                $result.GroupStatus = "Exists"
+                $result.GroupMembersAction = "Skipped"
+                Write-Log "Group exists, membership unchanged: $($row.SafeMember)" "INFO"
             }
         }
-        catch {
-            $summary[$row.SafeName].Errors++
-            $summary[$row.SafeName].Logs += "$logPrefix - Unexpected error: $_"
-            Write-Log "$logPrefix - Unexpected error: $_" "ERROR"
+
+        # -----------------------------
+        # PERMISSIONS
+        # -----------------------------
+        if ($row.Permissions) {
+            $perms = $row.Permissions -split ";" | ForEach-Object { $_.Trim() }
         }
+        else {
+            $perms = $permissionSets.$($row.PermissionKey)
+        }
+
+        # -----------------------------
+        # ADD MEMBER TO SAFE
+        # -----------------------------
+        try {
+            Add-PASSafeMember `
+                -SafeName $row.SafeName `
+                -MemberName $row.SafeMember `
+                -Permissions $perms `
+                -SearchInVault $true `
+                -ErrorAction Stop
+
+            $result.SafeMembershipStatus = "Added"
+            $result.OverallStatus = "SUCCESS"
+            Write-Log "Member added to safe: $($row.SafeMember)" "SUCCESS"
+        }
+        catch {
+            if ($_.Exception.Message -match "409|already exists") {
+                $result.SafeMembershipStatus = "Exists"
+                $result.OverallStatus = "SUCCESS"
+                Write-Log "Member already in safe: $($row.SafeMember)" "INFO"
+            }
+            else {
+                $result.SafeMembershipStatus = "Failed"
+                $result.Message = $_.Exception.Message
+            }
+        }
+
+        if ($result.OverallStatus -ne "SUCCESS") {
+            $result.OverallStatus = "PARTIAL"
+        }
+
+        $results += [pscustomobject]$result
     }
 
-    # -------------------------------
-    # Write summary CSV
-    # -------------------------------
-    $summaryPath = Join-Path $baseDir "$baseName-summary.csv"
-    $summary.Values | Select-Object SafeName, SafeCreated, MembersAdded, MembersSkipped, Errors |
-    Export-Csv $summaryPath -NoTypeInformation
+    # -----------------------------
+    # EXPORT RESULT CSV
+    # -----------------------------
+    $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force
 
     Write-Host "`nBatch onboarding completed." -ForegroundColor Cyan
-    Write-Host "Summary written to: $summaryPath" -ForegroundColor Green
-
-    # -------------------------------
-    # Write detailed log file per safe
-    # -------------------------------
-    foreach ($safe in $summary.Values) {
-        $logFile = Join-Path $baseDir "$($safe.SafeName)-log.txt"
-        $safe.Logs | Out-File -FilePath $logFile -Encoding UTF8 -Force
-        Write-Host "Detailed log for $($safe.SafeName): $logFile" -ForegroundColor Yellow
-    }
+    Write-Host "Result CSV generated at: $OutputCsvPath" -ForegroundColor Green
 }
 
 Export-ModuleMember -Function Invoke-CACBatchOnboarding

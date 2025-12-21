@@ -378,8 +378,7 @@ function Show-OnboardingMenu {
         Clear-Host
         Write-Host "==== Onboarding Menu ====" -ForegroundColor Cyan
         Write-Host "1. Start Manual Onboarding Workflow"
-        Write-Host "2. Create Batch Onboarding Template (CSV)"
-        Write-Host "3. Run Batch Onboarding from CSV"
+        Write-Host "2. Run Batch Onboarding (Safes CSV)"
         Write-Host "0. Back"
 
 
@@ -394,12 +393,11 @@ function Show-OnboardingMenu {
                 Pause
             }
             '2' {
-                New-CACBatchOnboardingTemplate
-                Pause
-            }
-            '3' {
-                $path = Read-Host "Enter full path to onboarding CSV"
-                Invoke-CACBatchOnboarding -CsvPath $path
+                Write-Host "Note: A matching '-members.csv' file must exist in the same directory." -ForegroundColor Gray
+                $path = Read-Host "Enter full path to Safes CSV"
+                if (-not [string]::IsNullOrWhiteSpace($path)) {
+                    Invoke-CACBatchOnboarding -SafeCsvPath $path
+                }
                 Pause
             }
             '0' { return }

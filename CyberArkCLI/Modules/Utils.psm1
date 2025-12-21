@@ -77,6 +77,11 @@ function Convert-CACTimestamp {
                 return [DateTimeOffset]::FromUnixTimeSeconds($Value).DateTime
             }
 
+            # Milliseconds (13 digits) ← MOST COMMON IN CYBERARK
+            13 {
+                return [DateTimeOffset]::FromUnixTimeMilliseconds($Value).DateTime
+            }
+
             # Microseconds (16 digits)
             16 {
                 $seconds = [math]::Floor($Value / 1e6)
@@ -86,7 +91,7 @@ function Convert-CACTimestamp {
             }
 
             default {
-                Write-Log "Unknown timestamp format: $Value" "WARN"
+                Write-Log "Unknown timestamp format: $Value (digits=$digits)" "WARN"
                 return $null
             }
         }
@@ -96,4 +101,5 @@ function Convert-CACTimestamp {
         return $null
     }
 }
+
 Export-ModuleMember -Function * -Alias *

@@ -168,7 +168,7 @@ function Invoke-CACBatchOnboarding {
                         $permParams[$p] = $true
                     }
 
-                    Add-PASSafeMember -SafeName $row.SafeName -MemberName $row.SafeMember @permParams -SearchInVault $true -ErrorAction Stop
+                    Add-PASSafeMember -SafeName $row.SafeName -MemberName $row.SafeMember @permParams -ErrorAction Stop
                     Write-Log "$logPrefix - Added to safe." "SUCCESS"
                     $summary[$row.SafeName].MembersAdded++
                 }
@@ -193,7 +193,7 @@ function Invoke-CACBatchOnboarding {
                     $permParams = @{}
                     foreach ($p in $perms) { $permParams[$p] = $true }
 
-                    Add-PASSafeMember -SafeName $row.SafeName -MemberName $row.SafeMember @permParams -SearchInVault $true -ErrorAction Stop
+                    Add-PASSafeMember -SafeName $row.SafeName -MemberName $row.SafeMember @permParams -ErrorAction Stop
                     Write-Log "$logPrefix - User added to safe." "SUCCESS"
                     $summary[$row.SafeName].MembersAdded++
                 }
@@ -225,7 +225,7 @@ function Invoke-CACBatchOnboarding {
     # -------------------------------
     $summaryPath = Join-Path $baseDir "$baseName-summary.csv"
     $summary.Values | Select-Object SafeName, SafeCreated, MembersAdded, MembersSkipped, Errors |
-    Export-Csv $summaryPath -NoTypeInformation
+    Export-Csv $summaryPath -NoTypeInformation -Encoding UTF8
 
     Write-Host "`nBatch onboarding completed." -ForegroundColor Cyan
     Write-Host "Summary written to: $summaryPath" -ForegroundColor Green

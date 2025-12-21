@@ -90,32 +90,41 @@ function Get-CACAccounts {
             Write-Log "Processing query $queryIndex/$($searchQueries.Count)" "INFO"
 
             $offset = 0
-            while ($true) {
-                $params = @{
-                    Limit       = $LimitPerPage
-                    Offset      = $offset
+            # Execute Search request using Splatting
+            try {
+                $searchParams = @{
                     ErrorAction = 'Stop'
                 }
 
-                if ($query.Search) {
-                    $params['Keywords'] = $query.Search
-                }
-                elseif ($query.Safe) {
-                    $params['SafeName'] = $query.Safe
+                # Use 'search' parameter for keyword search
+                if (-not [string]::IsNullOrWhiteSpace($query.Search)) {
+                    $searchParams['search'] = $query.Search
                 }
 
-                $accounts = @(Get-PASAccount @params)
+                # Use 'safeName' parameter for Safe search
+                if (-not [string]::IsNullOrWhiteSpace($query.Safe)) {
+                    $searchParams['safeName'] = $query.Safe
+                }
 
-                if (-not $accounts) { break }
+                # Use 'limit' parameter if provided
+                if ($LimitPerPage) {
+                    $searchParams['limit'] = $LimitPerPage
+                }
 
-                foreach ($acc in $accounts) {
-                    if (-not $allAccounts.ContainsKey($acc.id)) {
-                        $allAccounts[$acc.id] = $acc
+                Write-Log "Searching with params: $($searchParams | ConvertTo-Json -Depth 1 -Compress)" "DEBUG"
+
+                $accounts = @(Get-PASAccount @searchParams)
+
+                if ($accounts) {
+                    foreach ($acc in $accounts) {
+                        if (-not $allAccounts.ContainsKey($acc.id)) {
+                            $allAccounts[$acc.id] = $acc
+                        }
                     }
                 }
-
-                if ($accounts.Count -lt $LimitPerPage) { break }
-                $offset += $LimitPerPage
+            }
+            catch {
+                Write-Log "Error processing query: $($_.Exception.Message)" "ERROR"
             }
         }
 

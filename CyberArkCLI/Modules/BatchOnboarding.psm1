@@ -122,6 +122,8 @@ function Invoke-CACBatchOnboarding {
     # -------------------------------
     # Phase 2: Members
     # -------------------------------
+    $config = Get-CACConfig
+
     foreach ($row in $members) {
         Init-SafeSummary $row.SafeName
         $logPrefix = "Safe [$($row.SafeName)] / Member [$($row.SafeMember)]"
@@ -140,7 +142,7 @@ function Invoke-CACBatchOnboarding {
                             $uname = $u.Trim()
                             if ([string]::IsNullOrWhiteSpace($uname)) { continue }
                             try {
-                                Add-PASGroupMember -GroupName $row.SafeMember -MemberName $uname -ErrorAction Stop
+                                Add-PASGroupMember -GroupName $row.SafeMember -UserName $uname -ErrorAction Stop
                                 Write-Log "$logPrefix - Added user '$uname' to group." "SUCCESS"
                                 $summary[$row.SafeName].Logs += "Added user '$uname' to group '$($row.SafeMember)'"
                             }
@@ -156,13 +158,17 @@ function Invoke-CACBatchOnboarding {
                     $summary[$row.SafeName].Logs += "Group exists: $($row.SafeMember)"
                 }
 
+                # -------------------------------
+                # Add group to safe with dynamic permission mapping
+                # -------------------------------
                 try {
-                    Add-PASSafeMember `
-                        -SafeName $row.SafeName `
-                        -MemberName $row.SafeMember `
-                        -Permissions (Get-CACConfig).SafePermissionSets.$($row.PermissionKey) `
-                        -SearchInVault $true `
-                        -ErrorAction Stop
+                    $perms = $config.SafePermissionSets[$row.PermissionKey]
+                    $permParams = @{}
+                    foreach ($p in $perms) {
+                        $permParams[$p] = $true
+                    }
+
+                    Add-PASSafeMember -SafeName $row.SafeName -MemberName $row.SafeMember @permParams -SearchInVault $true -ErrorAction Stop
                     Write-Log "$logPrefix - Added to safe." "SUCCESS"
                     $summary[$row.SafeName].MembersAdded++
                 }
@@ -183,12 +189,11 @@ function Invoke-CACBatchOnboarding {
             else {
                 # User
                 try {
-                    Add-PASSafeMember `
-                        -SafeName $row.SafeName `
-                        -MemberName $row.SafeMember `
-                        -Permissions (Get-CACConfig).SafePermissionSets.$($row.PermissionKey) `
-                        -SearchInVault $true `
-                        -ErrorAction Stop
+                    $perms = $config.SafePermissionSets[$row.PermissionKey]
+                    $permParams = @{}
+                    foreach ($p in $perms) { $permParams[$p] = $true }
+
+                    Add-PASSafeMember -SafeName $row.SafeName -MemberName $row.SafeMember @permParams -SearchInVault $true -ErrorAction Stop
                     Write-Log "$logPrefix - User added to safe." "SUCCESS"
                     $summary[$row.SafeName].MembersAdded++
                 }

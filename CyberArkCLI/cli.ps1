@@ -396,7 +396,7 @@ function Show-OnboardingMenu {
                 Write-Host "Note: A matching '-members.csv' file must exist in the same directory." -ForegroundColor Gray
                 $path = Read-Host "Enter full path to Safes CSV"
                 if (-not [string]::IsNullOrWhiteSpace($path)) {
-                    Invoke-CACBatchOnboarding -SafeCsvPath $path
+                    Invoke-CACBatchOnboarding -CsvPath $path
                 }
                 Pause
             }

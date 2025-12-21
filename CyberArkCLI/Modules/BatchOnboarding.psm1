@@ -2,7 +2,7 @@
 # BatchOnboarding.psm1
 # ==========================
 
-function Invoke-CACBatchOnboarding222 {
+function Invoke-CACBatchOnboarding {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -133,7 +133,7 @@ function Invoke-CACBatchOnboarding222 {
                             if (-not $u.Trim()) { continue }
                             Add-PASGroupMember `
                                 -GroupName $row.SafeMember `
-                                -Member $u.Trim() `
+                                -MemberName $u.Trim() `
                                 -ErrorAction Stop
                         }
                         $result.GroupMembersAction = "Added"
@@ -169,7 +169,6 @@ function Invoke-CACBatchOnboarding222 {
                 -SafeName $row.SafeName `
                 -MemberName $row.SafeMember `
                 -Permissions $perms `
-                -SearchInVault $true `
                 -ErrorAction Stop
 
             $result.SafeMembershipStatus = "Added"
@@ -198,7 +197,7 @@ function Invoke-CACBatchOnboarding222 {
     # -----------------------------
     # EXPORT RESULT CSV
     # -----------------------------
-    $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force
+    $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
 
     Write-Host "`nBatch onboarding completed." -ForegroundColor Cyan
     Write-Host "Result CSV generated at: $OutputCsvPath" -ForegroundColor Green

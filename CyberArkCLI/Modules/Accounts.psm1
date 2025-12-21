@@ -63,7 +63,7 @@ function Get-CACAccounts {
                         $qSafe = if ($row.Safe) { $row.Safe } else { $null }
                         
                         if ($qSearch -or $qSafe) {
-                             $searchQueries += [PSCustomObject]@{ Search = $qSearch; Safe = $qSafe }
+                            $searchQueries += [PSCustomObject]@{ Search = $qSearch; Safe = $qSafe }
                         }
                     }
                     Write-Log "Loaded $($searchQueries.Count) queries from CSV" "INFO"
@@ -78,6 +78,14 @@ function Get-CACAccounts {
         if ($searchQueries.Count -eq 0) {
             Write-Host "No search criteria provided." -ForegroundColor Yellow
             return
+        }
+
+        # Prompt for Password Retrieval
+        $retrievePassword = $false
+        $choice = Read-Host "Retrieve Passwords for these accounts? (Y/N) [Default: N]"
+        if ($choice -eq 'Y' -or $choice -eq 'y') {
+            $retrievePassword = $true
+            Write-Host "Passwords will be retrieved. This may take longer." -ForegroundColor Yellow
         }
 
         # Initialize output directory
@@ -105,14 +113,29 @@ function Get-CACAccounts {
             while ($true) {
                 $pageCount++
                 try {
-                    $params = @{
-                        Limit  = $LimitPerPage
-                        Offset = $offset
-                    }
-                    if (-not [string]::IsNullOrWhiteSpace($qSearch)) { $params['Keywords'] = $qSearch }
-                    if (-not [string]::IsNullOrWhiteSpace($qSafe)) { $params['Safe'] = $qSafe }
+                    # Execute Search request
+                    # Note: avoiding splatting (@params) to ensure parameter binding works correctly
+                    $accounts = $null
 
-                    $accounts = Get-PASAccount @params -ErrorAction Stop
+                    if (-not [string]::IsNullOrWhiteSpace($qSearch)) { 
+                        # Keyword search
+                        if (-not [string]::IsNullOrWhiteSpace($qSafe)) {
+                            # Keyword + Safe
+                            $accounts = Get-PASAccount -Keywords $qSearch -Safe $qSafe -Limit $LimitPerPage -Offset $offset -ErrorAction Stop
+                        }
+                        else {
+                            # Keyword only
+                            $accounts = Get-PASAccount -Keywords $qSearch -Limit $LimitPerPage -Offset $offset -ErrorAction Stop
+                        }
+                    }
+                    elseif (-not [string]::IsNullOrWhiteSpace($qSafe)) {
+                        # Safe only
+                        $accounts = Get-PASAccount -Safe $qSafe -Limit $LimitPerPage -Offset $offset -ErrorAction Stop
+                    }
+                    else {
+                        # No filters (dump all? usually guarded against above, but safety fallback)
+                        $accounts = Get-PASAccount -Limit $LimitPerPage -Offset $offset -ErrorAction Stop
+                    }
 
                     if (-not $accounts -or $accounts.Count -eq 0) { break }
 
@@ -145,9 +168,17 @@ function Get-CACAccounts {
         $successCount = 0
         $errorCount = 0
 
+        $totalProcess = $allAccounts.Count
+        $currentProcess = 0
+
         foreach ($account in $allAccounts.Values) {
+            $currentProcess++
             try {
-                $formattedAccount = [PSCustomObject]@{
+                if ($currentProcess % 10 -eq 0) {
+                    Write-Progress -Activity "Processing Accounts" -Status "$currentProcess / $totalProcess" -PercentComplete (($currentProcess / $totalProcess) * 100)
+                }
+
+                $formattedAccount = [Ordered]@{
                     AccountID                  = $account.id
                     AccountName                = $account.name
                     UserName                   = $account.userName
@@ -160,16 +191,31 @@ function Get-CACAccounts {
                     CreatedDate                = Convert-CACTimestamp $account.createdTime
                     LastModifiedDate           = Convert-CACTimestamp $account.lastModifiedTime
                 }
-                $formatted += $formattedAccount
+
+                # Retrieve Password if requested
+                if ($retrievePassword) {
+                    try {
+                        $accountPassword = Get-PASAccountPassword -AccountID $account.id -ErrorAction Stop
+                        $formattedAccount["Password"] = $accountPassword
+                    }
+                    catch {
+                        $formattedAccount["Password"] = "ERROR: $($_.Exception.Message)"
+                        Write-Log "Failed to retrieve password for account $($account.id): $($_.Exception.Message)" "WARN"
+                    }
+                }
+
+                $formatted += [PSCustomObject]$formattedAccount
                 $successCount++
             }
             catch { $errorCount++ }
         }
+        Write-Progress -Activity "Processing Accounts" -Completed
 
         $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
         if ($searchQueries.Count -gt 1) {
             $desc = "batch_search"
-        } else {
+        }
+        else {
             $desc = if ($searchQueries[0].Search) { "keyword_$($searchQueries[0].Search)" } else { "safe_$($searchQueries[0].Safe)" }
         }
         
@@ -185,189 +231,6 @@ function Get-CACAccounts {
         Write-Host "  Total Unique Accounts: $totalUnique"
         Write-Host "  Output File: $outputFile" -ForegroundColor Green
 
-    }
-    catch {
-        Write-Log "Fatal error in Get-CACAccounts(): $($_.Exception.Message)" "ERROR"
-        Write-Host "Fatal Error: $($_.Exception.Message)" -ForegroundColor Red
-        throw
-    }
-}
-    param(
-        [string]$Search,
-        [string]$SafeName,
-        [int]$LimitPerPage = 100
-    )
-
-    Write-Log "Started Get-CACAccounts()" "DEBUG"
-    Write-Log "Search: '$Search', Safe: '$SafeName', Limit: $LimitPerPage" "INFO"
-
-    try {
-        # Validate inputs
-        if ([string]::IsNullOrWhiteSpace($Search) -and [string]::IsNullOrWhiteSpace($SafeName)) {
-            Write-Log "Neither Search nor SafeName provided; asking user" "DEBUG"
-            Write-Host "Choose search method:" -ForegroundColor Cyan
-            Write-Host "1 = Search by keyword"
-            Write-Host "2 = Search by safe name"
-            $method = Read-Host "Enter choice (1 or 2)"
-
-            switch ($method) {
-                '1' {
-                    $Search = Read-Host "Enter search keywords"
-                    if ([string]::IsNullOrWhiteSpace($Search)) {
-                        Write-Log "Search keywords empty after prompt" "WARN"
-                        Write-Host "Search keywords cannot be empty." -ForegroundColor Yellow
-                        return
-                    }
-                }
-                '2' {
-                    $SafeName = Read-Host "Enter safe name"
-                    if ([string]::IsNullOrWhiteSpace($SafeName)) {
-                        Write-Log "Safe name empty after prompt" "WARN"
-                        Write-Host "Safe name cannot be empty." -ForegroundColor Yellow
-                        return
-                    }
-                }
-                default {
-                    Write-Log "Invalid search method selected" "WARN"
-                    Write-Host "Invalid choice." -ForegroundColor Yellow
-                    return
-                }
-            }
-        }
-
-        # Initialize output directory
-        $outputDir = "$PSScriptRoot/../Output"
-        if (-not (Test-Path $outputDir)) {
-            New-Item -ItemType Directory -Path $outputDir | Out-Null
-            Write-Log "Output directory created: $outputDir" "DEBUG"
-        }
-
-        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-        $allAccounts = @()
-        $offset = 0
-        $pageCount = 0
-        $totalRetrieved = 0
-
-        Write-Log "Starting account retrieval with pagination" "INFO"
-
-        # Pagination loop
-        while ($true) {
-            $pageCount++
-            Write-Log "Fetching page $pageCount (offset: $offset)" "DEBUG"
-
-            try {
-                # Build parameters
-                $params = @{
-                    Limit  = $LimitPerPage
-                    Offset = $offset
-                }
-
-                # Add search/safe filter if provided
-                if (-not [string]::IsNullOrWhiteSpace($Search)) {
-                    $params['Keywords'] = $Search
-                }
-                if (-not [string]::IsNullOrWhiteSpace($SafeName)) {
-                    $params['Safe'] = $SafeName
-                }
-
-                Write-Log "Calling Get-PASAccount with params: $(ConvertTo-Json $params)" "DEBUG"
-
-                # Call psPAS
-                $accounts = Get-PASAccount @params -ErrorAction Stop
-
-                if (-not $accounts -or $accounts.Count -eq 0) {
-                    Write-Log "Page $pageCount returned 0 accounts; ending pagination" "INFO"
-                    break
-                }
-
-                Write-Log "Page $pageCount returned $($accounts.Count) accounts" "DEBUG"
-                $allAccounts += $accounts
-                $totalRetrieved += $accounts.Count
-
-                # Check if we got fewer than requested; if so, this is the last page
-                if ($accounts.Count -lt $LimitPerPage) {
-                    Write-Log "Received $($accounts.Count) accounts (less than limit $LimitPerPage); ending pagination" "DEBUG"
-                    break
-                }
-
-                $offset += $LimitPerPage
-            }
-            catch {
-                Write-Log "Error fetching page $pageCount`: $($_.Exception.Message)" "ERROR"
-                Write-Host "Error during account retrieval: $($_.Exception.Message)" -ForegroundColor Red
-                if ($totalRetrieved -eq 0) {
-                    return
-                }
-                # Continue with what we have so far
-                break
-            }
-        }
-
-        if ($totalRetrieved -eq 0) {
-            Write-Log "No accounts found matching criteria" "WARN"
-            Write-Host "No accounts found." -ForegroundColor Yellow
-            return
-        }
-
-        Write-Log "Total accounts retrieved: $totalRetrieved across $pageCount pages" "INFO"
-
-        # Format accounts for output
-        Write-Log "Formatting $totalRetrieved accounts for export" "INFO"
-
-        $formatted = @()
-        $successCount = 0
-        $errorCount = 0
-
-        foreach ($account in $allAccounts) {
-            try {
-                $formattedAccount = [PSCustomObject]@{
-                    AccountID                  = $account.id
-                    AccountName                = $account.name
-                    UserName                   = $account.userName
-                    Address                    = $account.address
-                    PlatformID                 = $account.platformId
-                    SafeName                   = $account.safeName
-                    PolicyID                   = $account.policyId
-                    AutomaticManagementEnabled = $account.automaticManagementEnabled
-                    ManualManagementReason     = $account.manualManagementReason
-                    CreatedDate                = Convert-CACTimestamp $account.createdTime
-                    LastModifiedDate           = Convert-CACTimestamp $account.lastModifiedTime
-                }
-
-                $formatted += $formattedAccount
-                $successCount++
-            }
-            catch {
-                $errorCount++
-                Write-Log "Error formatting account $($account.id): $($_.Exception.Message)" "WARN"
-            }
-        }
-
-        Write-Log "Formatting complete. Success: $successCount, Errors: $errorCount" "INFO"
-
-        # Export to CSV
-        if ($formatted.Count -eq 0) {
-            Write-Log "No successfully formatted accounts to export" "WARN"
-            return
-        }
-
-        $searchDesc = if ($Search) { "keyword_$Search" } else { "safe_$SafeName" }
-        $outputFile = "$outputDir/accounts_${searchDesc}_$totalRetrieved`_$timestamp.csv"
-        
-        Write-Log "Exporting $($formatted.Count) accounts to CSV: $outputFile" "INFO"
-        $formatted | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
-
-        Write-Log "CSV export successful: $outputFile" "SUCCESS"
-
-        # Summary
-        Write-Host "Export Summary" -ForegroundColor Cyan
-        Write-Host "  Search/Safe: $(if ($Search) { "Keyword: $Search" } else { "Safe: $SafeName" })"
-        Write-Host "  Total Accounts: $totalRetrieved"
-        Write-Host "  Successfully Formatted: $successCount"
-        Write-Host "  Formatting Errors: $errorCount"
-        Write-Host "  Output File: $outputFile" -ForegroundColor Green
-
-        Write-Log "Completed Get-CACAccounts()" "DEBUG"
     }
     catch {
         Write-Log "Fatal error in Get-CACAccounts(): $($_.Exception.Message)" "ERROR"

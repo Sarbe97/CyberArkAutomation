@@ -130,7 +130,7 @@ function Invoke-CACBatchOnboarding {
                         
                         # METHOD 1: Standard Cmdlet
                         try {
-                            Add-PASGroupMember -GroupName $safeMember -UserName $officialName -ErrorAction Stop
+                            Add-PASGroupMember -groupId $groupId -memberId $officialName -ErrorAction Stop
                             Write-Host "    [SUCCESS] Added via Cmdlet." -ForegroundColor Green
                         } 
                         catch {

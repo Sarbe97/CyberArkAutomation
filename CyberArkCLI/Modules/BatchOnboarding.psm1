@@ -9,7 +9,7 @@ function Invoke-CACBatchOnboarding {
         [Parameter(Mandatory)]
         [string]$CsvPath,
 
-        [string]$OutputCsvPath = (Join-Path $PSScriptRoot "BatchOnboarding_Result.csv")
+        [string]$OutputCsvPath = (Join-Path $PWD "BatchOnboarding_Result.csv")
     )
 
     if (-not (Test-Path $CsvPath)) { Write-Error "CSV not found: $CsvPath"; return }

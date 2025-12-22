@@ -219,4 +219,33 @@ function Invoke-CACBatchOnboarding {
     $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
     Write-Host "Done." -ForegroundColor Green
 }
-Export-ModuleMember -Function Invoke-CACBatchOnboarding
+
+function New-CACOnboardingTemplate {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$Path = (Join-Path $PWD "Onboarding_Template.csv")
+    )
+
+    $headers = [ordered]@{
+        SafeName                  = "Example_Safe"
+        SafeDescription           = "Description of the safe"
+        ManagingCPM               = "PasswordManager"
+        NumberOfVersionsRetention = "5"
+        NumberOfDaysRetention     = "7"
+        SafeMember                = "Domain\GroupOrUser"
+        MemberType                = "Group" 
+        MemberDescription         = "Description of the group (if creating)"
+        Users                     = "user1;user2" 
+        PermissionKey             = "Full"
+        Permissions               = ""
+    }
+
+    $data = @([pscustomobject]$headers)
+    $data | Export-Csv -Path $Path -NoTypeInformation -Encoding UTF8
+
+    Write-Host "Template created at: $Path" -ForegroundColor Green
+    return $Path
+}
+
+Export-ModuleMember -Function Invoke-CACBatchOnboarding, New-CACOnboardingTemplate

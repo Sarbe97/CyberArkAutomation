@@ -1,0 +1,5 @@
+SafeName,SafeDescription,ManagingCPM,NumberOfVersionsRetention,NumberOfDaysRetention,SafeMember,MemberType,MemberDescription,Users,PermissionKey,Permissions
+"Finance_Prod","Safe for Finance Team","PasswordManager",,7,"John.Doe","User",,,"SAFE_READ",
+"HR_Dev","Safe for HR Development","PasswordManager",5,,"HR_Developers_Group","Group","HR Devs","Alice;Bob;Charlie","SAFE_READ_WRITE",
+"IT_Ops_Root","IT Ops High Level","PasswordManager",,30,"Dave.Admin","User",,,"VAULT_ADMIN",
+"Audit_Team","Audit Read Only","PasswordManager",,90,"External_Auditors","Group","External Auditors Group",,"SAFE_READ","RetrieveAccounts;ListAccounts"

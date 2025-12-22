@@ -7,26 +7,30 @@
       "UseAccounts",
       "ListAccounts",
       "RetrieveAccounts",
-      "ViewAudit",
+      "ViewAuditLog",
       "ViewSafeMembers"
     ],
     "SAFE_READ_WRITE": [
       "UseAccounts",
       "ListAccounts",
       "RetrieveAccounts",
-      "ViewAudit",
+      "ViewAuditLog",
       "ViewSafeMembers",
       "AddAccounts",
-      "UpdateAccounts",
+      "UpdateAccountContent",
+      "UpdateAccountProperties",
       "DeleteAccounts",
       "ManageSafe"
     ],
     "VAULT_ADMIN": [
       "ManageSafe",
       "ManageSafeMembers",
-      "ManageAccounts",
-      "ManageSafeProperties",
-      "BackupSafe"
+      "BackupSafe",
+      "ViewAuditLog",
+      "ViewSafeMembers",
+      "AccessWithoutConfirmation",
+      "UnlockAccounts",
+      "MoveAccountsAndFolders"
     ],
     "CCP_PROVIDER": [
       "RetrieveAccounts",
@@ -44,10 +48,11 @@
     "ListAccounts",
     "--- Account Management ---",
     "AddAccounts",
-    "UpdateAccounts",
+    "UpdateAccountContent",
+    "UpdateAccountProperties",
     "DeleteAccounts",
     "RenameAccounts",
-    "MoveAccounts",
+    "MoveAccountsAndFolders",
     "UnlockAccounts",
     "InitiateCPMAccountManagementOperations",
     "SpecifyNextAccountContent",
@@ -55,9 +60,10 @@
     "ManageSafe",
     "ManageSafeMembers",
     "ViewSafeMembers",
-    "ViewAudit",
+    "ViewAuditLog",
     "BackupSafe",
-    "ManageSafeProperties",
-    "DeleteFolders"
+    "DeleteFolders",
+    "CreateFolders",
+    "AccessWithoutConfirmation"
   ]
 }

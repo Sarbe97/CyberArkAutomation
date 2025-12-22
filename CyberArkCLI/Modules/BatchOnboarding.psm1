@@ -1,9 +1,5 @@
 # =============================================================================
 # BatchOnboarding.psm1
-# Required CSV Columns:
-#   SafeName, SafeDescription, ManagingCPM, NumberOfVersionsRetention, NumberOfDaysRetention, 
-#   SafeMember, MemberType (User|Group), MemberDescription, Users (semicolon separated), 
-#   PermissionKey (e.g. SAFE_READ), Permissions (optional override)
 # =============================================================================
 
 function Invoke-CACBatchOnboarding {
@@ -20,9 +16,8 @@ function Invoke-CACBatchOnboarding {
         return
     }
 
-    # Ensure Config is loaded
     if (-not (Get-Command Get-CACConfig -ErrorAction SilentlyContinue)) {
-        Write-Error "Get-CACConfig function is missing. Please ensure your Config module is loaded."
+        Write-Error "Get-CACConfig missing. Load your Config module."
         return
     }
     
@@ -32,13 +27,18 @@ function Invoke-CACBatchOnboarding {
     $data = Import-Csv $CsvPath
 
     foreach ($row in $data) {
-        Write-Host "`n--- Processing Safe [$($row.SafeName)] / Member [$($row.SafeMember)] ---" -ForegroundColor Cyan
+        # ### FIX 1: Trim all inputs immediately to prevent " GroupName " mismatches
+        $safeName = $row.SafeName.Trim()
+        $safeMember = $row.SafeMember.Trim()
+        $memberType = $row.MemberType.Trim()
+
+        Write-Host "`n--- Processing Safe [$safeName] / Member [$safeMember] ---" -ForegroundColor Cyan
 
         $result = [ordered]@{
-            SafeName             = $row.SafeName
+            SafeName             = $safeName
             SafeStatus           = "Unknown"
-            SafeMember           = $row.SafeMember
-            MemberType           = $row.MemberType
+            SafeMember           = $safeMember
+            MemberType           = $memberType
             GroupStatus          = "NotApplicable"
             SafeMembershipStatus = "NotAttempted"
             OverallStatus        = "FAILED"
@@ -50,10 +50,10 @@ function Invoke-CACBatchOnboarding {
         # -----------------------------
         $safeReady = $false
         try {
-            Get-PASSafe -SafeName $row.SafeName -ErrorAction Stop | Out-Null
+            Get-PASSafe -SafeName $safeName -ErrorAction Stop | Out-Null
             $safeReady = $true
             $result.SafeStatus = "Exists"
-            Write-Log "Safe exists: $($row.SafeName)" "INFO"
+            Write-Log "Safe exists: $safeName" "INFO"
         }
         catch {
             # Retention Logic
@@ -64,12 +64,12 @@ function Invoke-CACBatchOnboarding {
                 $result.SafeStatus = "Failed"
                 $result.Message = "Retention policy missing"
                 $results += [pscustomobject]$result
-                Write-Log "Safe '$($row.SafeName)' missing retention policy" "ERROR"
+                Write-Log "Safe '$safeName' missing retention policy" "ERROR"
                 continue
             }
 
             $safeParams = @{
-                SafeName    = $row.SafeName
+                SafeName    = $safeName
                 Description = $row.SafeDescription
                 ManagingCPM = $row.ManagingCPM
                 ErrorAction = 'Stop'
@@ -81,7 +81,7 @@ function Invoke-CACBatchOnboarding {
                 Add-PASSafe @safeParams
                 $safeReady = $true
                 $result.SafeStatus = "Created"
-                Write-Log "Safe created: $($row.SafeName)" "SUCCESS"
+                Write-Log "Safe created: $safeName" "SUCCESS"
             }
             catch {
                 $result.SafeStatus = "Failed"
@@ -95,20 +95,20 @@ function Invoke-CACBatchOnboarding {
         if (-not $safeReady) { $results += [pscustomobject]$result; continue }
 
         # -----------------------------
-        # 2. MEMBER HANDLING (Explicit vs Inferred)
+        # 2. MEMBER HANDLING
         # -----------------------------
         $memberIsGroup = $false
         
-        # LOGIC: Check explicit type first, otherwise infer
-        if ($row.MemberType -eq "Group") {
+        # Determine Type
+        if ($memberType -eq "Group") {
             $memberIsGroup = $true
         }
-        elseif ($row.MemberType -eq "User") {
+        elseif ($memberType -eq "User") {
             $memberIsGroup = $false
         }
         else {
-            # Fallback Inference (Legacy Logic)
-            if ($row.Users -or (Get-PASGroup -GroupName $row.SafeMember -ErrorAction SilentlyContinue)) {
+            # Inferred Fallback
+            if ($row.Users -or (Get-PASGroup -GroupName $safeMember -ErrorAction SilentlyContinue)) {
                 $memberIsGroup = $true
                 $result.MemberType = "Group (Inferred)"
             }
@@ -122,7 +122,7 @@ function Invoke-CACBatchOnboarding {
         if ($memberIsGroup) {
             $groupExists = $false
             try {
-                Get-PASGroup -GroupName $row.SafeMember -ErrorAction Stop | Out-Null
+                Get-PASGroup -GroupName $safeMember -ErrorAction Stop | Out-Null
                 $groupExists = $true
                 $result.GroupStatus = "Exists"
             }
@@ -130,9 +130,22 @@ function Invoke-CACBatchOnboarding {
 
             if (-not $groupExists) {
                 try {
-                    New-PASGroup -GroupName $row.SafeMember -Description $row.MemberDescription -ErrorAction Stop
-                    $result.GroupStatus = "Created"
-                    Write-Log "Group created: $($row.SafeMember)" "SUCCESS"
+                    Write-Log "Creating Group: $safeMember ..." "INFO"
+                    New-PASGroup -GroupName $safeMember -Description $row.MemberDescription -ErrorAction Stop
+                    
+                    # ### FIX 2: Add Delay and Verification
+                    # The Vault needs a moment to commit the new Group ID before it can be added to a Safe.
+                    Start-Sleep -Seconds 2 
+                    
+                    # Verify it actually exists now
+                    try {
+                        Get-PASGroup -GroupName $safeMember -ErrorAction Stop | Out-Null
+                        $result.GroupStatus = "Created"
+                        Write-Log "Group verified: $safeMember" "SUCCESS"
+                    }
+                    catch {
+                        throw "Group created but lookup failed (Latency issue). Retrying Safe Add might fail."
+                    }
                 }
                 catch {
                     $result.GroupStatus = "Failed"
@@ -142,15 +155,15 @@ function Invoke-CACBatchOnboarding {
                 }
             }
 
-            # Add users to group (only if column has data)
+            # Add users to group
             if ($row.Users) {
                 foreach ($u in ($row.Users -split ";")) {
                     if (-not [string]::IsNullOrWhiteSpace($u)) {
                         try {
-                            Add-PASGroupMember -GroupName $row.SafeMember -MemberName $u.Trim() -ErrorAction Stop
+                            Add-PASGroupMember -GroupName $safeMember -MemberName $u.Trim() -ErrorAction Stop
                         }
                         catch { 
-                            Write-Log "Warning: Failed to add $u to group ($($_.Exception.Message))" "WARN" 
+                            Write-Log "Warning: Failed to add user '$u' to group ($($_.Exception.Message))" "WARN" 
                         }
                     }
                 }
@@ -158,15 +171,14 @@ function Invoke-CACBatchOnboarding {
         }
         # ---- USER LOGIC ----
         else {
-            # Just verify user exists before adding to safe
             try {
-                Get-PASUser -UserName $row.SafeMember -ErrorAction Stop | Out-Null
+                Get-PASUser -UserName $safeMember -ErrorAction Stop | Out-Null
             }
             catch {
-                $result.Message = "User '$($row.SafeMember)' not found in Vault/Directory"
+                $result.Message = "User '$safeMember' not found"
                 $result.OverallStatus = "FAILED"
                 $results += [pscustomobject]$result
-                Write-Log "User not found: $($row.SafeMember)" "ERROR"
+                Write-Log "User not found: $safeMember" "ERROR"
                 continue
             }
         }
@@ -176,6 +188,7 @@ function Invoke-CACBatchOnboarding {
         # -----------------------------
         $rawPerms = if ($row.Permissions) { $row.Permissions -split ";" | ForEach-Object { $_.Trim() } } else { $permissionSets.$($row.PermissionKey) }
 
+        # Valid psPaS parameters
         $validPASPermissions = @("UseAccounts", "RetrieveAccounts", "ListAccounts", "AddAccounts", "UpdateAccountContent", "UpdateAccountProperties", "InitiateCPMAccountManagementOperations", "SpecifyNextAccountContent", "RenameAccounts", "DeleteAccounts", "UnlockAccounts", "ManageSafe", "ManageSafeMembers", "BackupSafe", "ViewAuditLog", "ViewSafeMembers", "AccessWithoutConfirmation", "CreateFolders", "DeleteFolders", "MoveAccountsAndFolders")
 
         $permParams = @{}
@@ -190,25 +203,35 @@ function Invoke-CACBatchOnboarding {
         # 4. ADD MEMBER TO SAFE
         # -----------------------------
         try {
-            Add-PASSafeMember -SafeName $row.SafeName -MemberName $row.SafeMember @permParams -ErrorAction Stop
+            Write-Log "Adding member '$safeMember' to safe '$safeName'..." "INFO"
+            
+            Add-PASSafeMember -SafeName $safeName -MemberName $safeMember @permParams -ErrorAction Stop
+            
             $result.SafeMembershipStatus = "Added"
             $result.OverallStatus = "SUCCESS"
-            Write-Log "Member added to safe: $($row.SafeMember)" "SUCCESS"
+            Write-Log "Member added to safe successfully." "SUCCESS"
         }
         catch {
-            if ($_.Exception.Message -match "409|already exists") {
+            # 404 = Not Found (The issue you were seeing)
+            if ($_.Exception.Message -match "404|Not Found") {
+                $result.SafeMembershipStatus = "Failed"
+                $result.Message = "Vault could not find member '$safeMember'. Verify it exists."
+                Write-Log "Error: Vault returned 404 for member '$safeMember'. It may not be indexed yet." "ERROR"
+            }
+            # 409 = Already Exists
+            elseif ($_.Exception.Message -match "409|already exists") {
                 try {
-                    Set-PASSafeMember -SafeName $row.SafeName -MemberName $row.SafeMember @permParams -ErrorAction Stop
+                    Set-PASSafeMember -SafeName $safeName -MemberName $safeMember @permParams -ErrorAction Stop
                     $result.SafeMembershipStatus = "Updated"
                     $result.OverallStatus = "SUCCESS"
-                    Write-Log "Permissions updated for: $($row.SafeMember)" "INFO"
+                    Write-Log "Member exists. Permissions updated." "INFO"
                 }
                 catch {
                     $result.SafeMembershipStatus = "UpdateFailed"
                     $result.Message = "Update failed: " + $_.Exception.Message
                     Write-Log "Update failed: $($_.Exception.Message)" "ERROR"
                 }
-            }
+            } 
             else {
                 $result.SafeMembershipStatus = "Failed"
                 $result.Message = $_.Exception.Message

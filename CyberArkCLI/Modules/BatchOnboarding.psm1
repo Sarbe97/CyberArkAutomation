@@ -1,5 +1,6 @@
 # =============================================================================
 # BatchOnboarding.psm1
+# Description: Onboards Safes, Groups, Users, and Permissions via psPaS
 # =============================================================================
 
 function Invoke-CACBatchOnboarding {
@@ -12,7 +13,7 @@ function Invoke-CACBatchOnboarding {
     )
 
     if (-not (Test-Path $CsvPath)) { Write-Error "CSV not found: $CsvPath"; return }
-    if (-not (Get-Command Get-CACConfig -ErrorAction SilentlyContinue)) { Write-Error "Config missing."; return }
+    if (-not (Get-Command Get-CACConfig -ErrorAction SilentlyContinue)) { Write-Error "Config missing. Please load your module."; return }
     
     $config = Get-CACConfig
     $permissionSets = $config.SafePermissionSets
@@ -40,7 +41,7 @@ function Invoke-CACBatchOnboarding {
         }
 
         # -----------------------------
-        # 1. SAFE CHECK
+        # 1. SAFE CHECK / CREATE
         # -----------------------------
         $safeReady = $false
         try {
@@ -68,30 +69,34 @@ function Invoke-CACBatchOnboarding {
         if (-not $safeReady) { $results += [pscustomobject]$result; continue }
 
         # -----------------------------
-        # 2. MEMBER TYPE & GROUP LOGIC
+        # 2. MEMBER TYPE LOGIC
         # -----------------------------
-        $memberIsGroup = ($memberType -eq "Group") -or ($row.Users -ne $null)
-
-        if ($memberIsGroup) {
-            # --- Check Group Exists ---
-            $groupId = $null # We need the ID for the fallback method
+        
+        # --- CASE A: GROUP MEMBER ---
+        if ($memberType -eq "Group") {
+            
+            $groupId = $null 
             $existingGroup = $null
             
+            # Check if Group Exists
             try { $existingGroup = Get-PASGroup -GroupName $safeMember -ErrorAction SilentlyContinue } catch { $existingGroup = $null }
 
             if ($existingGroup) {
                 $result.GroupStatus = "Exists"
-                $groupId = $existingGroup.id # Capture ID for API calls
+                $groupId = $existingGroup.id
+                Write-Host " -> Group '$safeMember' exists." -ForegroundColor Green
             } 
             else {
-                # --- Create Group ---
+                # Create Group
                 try {
                     Write-Host " -> Creating Group '$safeMember'..." -ForegroundColor DarkGray
                     $newGroup = New-PASGroup -GroupName $safeMember -Description $row.MemberDescription -ErrorAction Stop
                     $groupId = $newGroup.id
                     
+                    # Latency Wait
                     Start-Sleep -Seconds 2
                     $result.GroupStatus = "Created"
+                    Write-Host " -> Group Created." -ForegroundColor Green
                 }
                 catch {
                     $result.GroupStatus = "Failed"
@@ -101,86 +106,71 @@ function Invoke-CACBatchOnboarding {
                 }
             }
 
-            # --- ADD USERS TO GROUP (DEBUGGING ADDED) ---
+            # Add Users to Group
             if (-not [string]::IsNullOrWhiteSpace($row.Users)) {
                 $userList = $row.Users -split ";"
-                Write-Host " -> Processing Members..." -ForegroundColor Cyan
+                Write-Host " -> Processing Group Members..." -ForegroundColor Cyan
                 
                 foreach ($u in $userList) {
                     $inputName = $u.Trim()
                     if (-not [string]::IsNullOrWhiteSpace($inputName)) {
                         
-                        # A. Resolve User
+                        # Resolve User Name
                         $vaultUser = $null
                         try { $vaultUser = Get-PASUser -UserName $inputName -ErrorAction Stop } catch { try { $res = Get-PASUser -Search $inputName; if ($res.Count -eq 1) { $vaultUser = $res[0] } } catch {} }
 
                         if ($null -eq $vaultUser) {
-                            Write-Host "    ! User '$inputName' not found." -ForegroundColor Red
+                            Write-Host "    ! User '$inputName' not found in Vault." -ForegroundColor Red
                             continue
                         }
                         $officialName = $vaultUser.UserName
-                        $officialId = $vaultUser.id
-                        $domain = $vaultUser.Domain # Useful context for debugging
-
-                        # --- DEBUG LOGS ---
-                        Write-Host "    ------------------------------------------------" -ForegroundColor Magenta
-                        Write-Host "    [DEBUG] Group Name: $safeMember (ID: $groupId)" -ForegroundColor Magenta
-                        Write-Host "    [DEBUG] User Name:  $officialName (ID: $officialId)" -ForegroundColor Magenta
-                        Write-Host "    [DEBUG] User Domain:$domain" -ForegroundColor Magenta
                         
-                        # METHOD 1: Standard Cmdlet
+                        # Add User to Group
                         try {
-                            Add-PASGroupMember -groupId $groupId -memberId $officialName -ErrorAction Stop
-                            Write-Host "    [SUCCESS] Added via Cmdlet." -ForegroundColor Green
+                            # Using -GroupId and -MemberId (passing Name) as confirmed
+                            Add-PASGroupMember -GroupId $groupId -MemberId $officialName -ErrorAction Stop
+                            Write-Host "    [SUCCESS] Added $officialName to group." -ForegroundColor Green
                         } 
                         catch {
-                            # CAPTURE 500 ERROR DETAILS
-                            $ex = $_.Exception
-                            $errMsg = $ex.Message
-                            $responseBody = ""
-                            
-                            # Try to read the hidden JSON error from the server
-                            if ($ex.Response) {
-                                $reader = New-Object System.IO.StreamReader($ex.Response.GetResponseStream())
-                                $responseBody = $reader.ReadToEnd()
+                            if ($_.Exception.Message -match "409|already exists|already a member") {
+                                Write-Host "    [SKIPPED] User already in group." -ForegroundColor Yellow
                             }
-
-                            Write-Host "    [FAIL] Cmdlet failed. Message: $errMsg" -ForegroundColor Red
-                            if ($responseBody) { Write-Host "    [SERVER RESPONSE] $responseBody" -ForegroundColor Yellow }
-
-                            # METHOD 2: FALLBACK (Direct API Call)
-                            if ($errMsg -match "500|Internal Server") {
-                                Write-Host "    [RETRY] Attempting Direct API Fallback..." -ForegroundColor Yellow
-                                try {
-                                    # Fallback: POST /UserGroups/{GroupID}/Members
-                                    # We try passing MemberName. If that fails, some versions need MemberId.
-                                    $uri = "PasswordVault/API/UserGroups/$groupId/Members"
-                                    
-                                    # Try standard Payload
-                                    $body = @{ "MemberName" = $officialName } | ConvertTo-Json
-                                    
-                                    Invoke-PASRestMethod -Uri $uri -Method POST -Body $body -ErrorAction Stop | Out-Null
-                                    Write-Host "    [SUCCESS] Added via Direct API." -ForegroundColor Green
-                                }
-                                catch {
-                                    Write-Host "    [FAIL] Fallback also failed: $($_.Exception.Message)" -ForegroundColor Red
-                                    # Try reading response body again for the fallback
-                                    if ($_.Exception.Response) {
-                                        $r = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
-                                        Write-Host "    [FALLBACK RESPONSE] $($r.ReadToEnd())" -ForegroundColor Red
-                                    }
-                                }
+                            else {
+                                Write-Host "    [FAIL] $($_.Exception.Message)" -ForegroundColor Red
                             }
                         }
                     }
                 }
             }
         }
+        # --- CASE B: USER MEMBER ---
+        elseif ($memberType -eq "User") {
+            Write-Host " -> Verifying User '$safeMember'..." -NoNewline
+            try {
+                # Check existence
+                $u = Get-PASUser -UserName $safeMember -ErrorAction Stop
+                
+                # Use official name
+                $safeMember = $u.UserName 
+                Write-Host " [FOUND] ($safeMember)" -ForegroundColor Green
+            }
+            catch {
+                $result.Message = "User '$safeMember' not found in Vault"
+                $result.OverallStatus = "FAILED"
+                $results += [pscustomobject]$result
+                Write-Host " [NOT FOUND]" -ForegroundColor Red
+                continue 
+            }
+        }
+        else {
+            Write-Host " -> [WARN] Invalid MemberType '$memberType'. Skipping." -ForegroundColor Yellow
+            continue
+        }
 
         # -----------------------------
-        # 3. PERMISSIONS & SAFE ATTACHMENT
+        # 3. PERMISSIONS MAPPING
         # -----------------------------
-        Write-Host " -> Step 3: Mapping Permissions..." -NoNewline
+        Write-Host " -> Mapping Permissions..." -NoNewline
         $rawPerms = if ($row.Permissions) { $row.Permissions -split ";" | ForEach-Object { $_.Trim() } } else { $permissionSets.$($row.PermissionKey) }
 
         $validPASPermissions = @("UseAccounts", "RetrieveAccounts", "ListAccounts", "AddAccounts", "UpdateAccountContent", "UpdateAccountProperties", "InitiateCPMAccountManagementOperations", "SpecifyNextAccountContent", "RenameAccounts", "DeleteAccounts", "UnlockAccounts", "ManageSafe", "ManageSafeMembers", "BackupSafe", "ViewAuditLog", "ViewSafeMembers", "AccessWithoutConfirmation", "CreateFolders", "DeleteFolders", "MoveAccountsAndFolders")
@@ -194,7 +184,10 @@ function Invoke-CACBatchOnboarding {
         }
         Write-Host " [DONE]" -ForegroundColor Green
 
-        Write-Host " -> Step 4: Attaching Member to Safe..." -NoNewline
+        # -----------------------------
+        # 4. ATTACH TO SAFE
+        # -----------------------------
+        Write-Host " -> Attaching to Safe..." -NoNewline
         try {
             Add-PASSafeMember -SafeName $safeName -MemberName $safeMember @permParams -ErrorAction Stop
             $result.SafeMembershipStatus = "Added"
@@ -211,7 +204,7 @@ function Invoke-CACBatchOnboarding {
                 $result.SafeMembershipStatus = "Skipped"
                 $result.OverallStatus = "SUCCESS"
                 $result.Message = "Member already exists in Safe"
-                Write-Host " [SKIPPED (Member exists)]" -ForegroundColor Yellow
+                Write-Host " [SKIPPED (Exists)]" -ForegroundColor Yellow
             } 
             else {
                 $result.SafeMembershipStatus = "Failed"

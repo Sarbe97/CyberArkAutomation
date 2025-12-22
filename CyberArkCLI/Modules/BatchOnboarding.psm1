@@ -1,10 +1,5 @@
 # =============================================================================
 # BatchOnboarding.psm1
-# Description: Onboards Safes, Groups, and Permissions via psPaS
-# 
-# REQUIRED CSV COLUMNS:
-# SafeName, SafeDescription, ManagingCPM, NumberOfVersionsRetention, NumberOfDaysRetention,
-# SafeMember, MemberType, MemberDescription, Users, PermissionKey, Permissions
 # =============================================================================
 
 function Invoke-CACBatchOnboarding {
@@ -35,7 +30,7 @@ function Invoke-CACBatchOnboarding {
     $data = Import-Csv $CsvPath
 
     foreach ($row in $data) {
-        # TRIM WHITESPACE (Critical for avoiding mismatches)
+        # TRIM INPUTS
         $safeName = $row.SafeName.Trim()
         $safeMember = $row.SafeMember.Trim()
         $memberType = $row.MemberType.Trim()
@@ -69,9 +64,8 @@ function Invoke-CACBatchOnboarding {
         }
         catch {
             Write-Host " [MISSING]" -ForegroundColor Yellow
-            Write-Host "    -> Attempting to create safe..." -ForegroundColor DarkGray
+            Write-Host "    -> Creating safe..." -ForegroundColor DarkGray
 
-            # Retention Logic
             $versions = if ($row.NumberOfVersionsRetention) { [int]$row.NumberOfVersionsRetention } else { $null }
             $days = if ($row.NumberOfDaysRetention) { [int]$row.NumberOfDaysRetention } else { $null }
 
@@ -113,16 +107,9 @@ function Invoke-CACBatchOnboarding {
         # 2. MEMBER TYPE IDENTIFICATION
         # -----------------------------
         $memberIsGroup = $false
-        
-        if ($memberType -eq "Group") {
-            $memberIsGroup = $true
-        }
-        elseif ($memberType -eq "User") {
-            $memberIsGroup = $false
-        }
+        if ($memberType -eq "Group") { $memberIsGroup = $true }
+        elseif ($memberType -eq "User") { $memberIsGroup = $false }
         else {
-            # Fallback Inference
-            Write-Host " -> [WARN] MemberType column empty. Inferring type..." -ForegroundColor Yellow
             if ($row.Users -or (Get-PASGroup -GroupName $safeMember -ErrorAction SilentlyContinue)) {
                 $memberIsGroup = $true
                 $result.MemberType = "Group (Inferred)"
@@ -134,72 +121,96 @@ function Invoke-CACBatchOnboarding {
         }
 
         # -----------------------------
-        # 3. GROUP LOGIC (Strict Creation)
+        # 3. GROUP LOGIC (Create & Populate)
         # -----------------------------
         if ($memberIsGroup) {
             Write-Host " -> Step 2: Verifying Group '$safeMember'..." -NoNewline
             
-            # STRICT CHECK: Don't rely on try/catch. Explicitly check for null.
+            # Strict Exists Check
             $existingGroup = $null
-            try {
-                $existingGroup = Get-PASGroup -GroupName $safeMember -ErrorAction SilentlyContinue
-            }
-            catch { $existingGroup = $null }
+            try { $existingGroup = Get-PASGroup -GroupName $safeMember -ErrorAction SilentlyContinue } catch { $existingGroup = $null }
 
             if ($existingGroup) {
                 Write-Host " [EXISTS]" -ForegroundColor Green
                 $result.GroupStatus = "Exists"
             } 
             else {
-                # Group does not exist. Create it.
                 Write-Host " [MISSING]" -ForegroundColor Yellow
                 Write-Host "    -> Creating Group '$safeMember'..." -ForegroundColor DarkGray
-                
                 try {
                     New-PASGroup -GroupName $safeMember -Description $row.MemberDescription -ErrorAction Stop | Out-Null
+                    Write-Host "    -> Waiting 3s for Vault indexing..." -ForegroundColor DarkGray
+                    Start-Sleep -Seconds 3 # Critical Latency Pause
                     
-                    # LATENCY WAIT: Crucial step
-                    Write-Host "    -> Waiting 2s for Vault indexing..." -ForegroundColor DarkGray
-                    Start-Sleep -Seconds 2
-                    
-                    # VERIFY CREATION
                     if (Get-PASGroup -GroupName $safeMember -ErrorAction SilentlyContinue) {
                         $result.GroupStatus = "Created"
-                        Write-Host "    [SUCCESS] Group created and verified." -ForegroundColor Green
+                        Write-Host "    [SUCCESS] Group created." -ForegroundColor Green
                     }
                     else {
-                        throw "Group created but lookup failed (Vault Latency or Permission)."
+                        throw "Group created but lookup failed (Latency)."
                     }
                 }
                 catch {
                     $result.GroupStatus = "Failed"
                     $result.Message = "Group creation failed: " + $_.Exception.Message
                     $results += [pscustomobject]$result
-                    
-                    Write-Host "    [CRITICAL ERROR] Failed to create group: $($_.Exception.Message)" -ForegroundColor Red
-                    continue # STOP HERE for this row. Do not try to add missing group to Safe.
+                    Write-Host "    [CRITICAL] Failed to create group: $($_.Exception.Message)" -ForegroundColor Red
+                    continue 
                 }
             }
 
-            # Add users to group (Runs for both New and Existing groups)
-            if ($row.Users) {
-                Write-Host "    -> Processing Group Membership..." -ForegroundColor DarkGray
-                foreach ($u in ($row.Users -split ";")) {
-                    $uName = $u.Trim()
-                    if (-not [string]::IsNullOrWhiteSpace($uName)) {
+            # --- KEY FIX: RESOLVE USER BEFORE ADDING ---
+            if (-not [string]::IsNullOrWhiteSpace($row.Users)) {
+                $userList = $row.Users -split ";"
+                Write-Host "    -> Processing $($userList.Count) user(s) for group membership..." -ForegroundColor Cyan
+                
+                foreach ($u in $userList) {
+                    $inputName = $u.Trim()
+                    if (-not [string]::IsNullOrWhiteSpace($inputName)) {
+                        Write-Host "       User [$inputName]: " -NoNewline -ForegroundColor DarkGray
+                        
+                        # A. Resolve User Identity
+                        $vaultUser = $null
                         try {
-                            Add-PASGroupMember -GroupName $safeMember -MemberName $uName -ErrorAction Stop
-                            Write-Host "       + Added user: $uName" -ForegroundColor Gray
+                            $vaultUser = Get-PASUser -UserName $inputName -ErrorAction Stop
                         }
-                        catch { 
-                            Write-Host "       ! Warning: Could not add '$uName' (User missing or already in group)" -ForegroundColor Yellow
+                        catch {
+                            # If direct lookup fails, try searching (handles some domain mismatches)
+                            try { 
+                                $searchResults = Get-PASUser -Search $inputName -ErrorAction Stop
+                                if ($searchResults.Count -eq 1) { $vaultUser = $searchResults[0] }
+                            }
+                            catch {}
+                        }
+
+                        if ($null -eq $vaultUser) {
+                            Write-Host "NOT FOUND" -ForegroundColor Red
+                            Write-Host "         ! Error: User '$inputName' does not exist in the Vault." -ForegroundColor Yellow
+                            continue
+                        }
+
+                        # B. Add using the Official Vault Name
+                        $officialName = $vaultUser.UserName
+                        Write-Host "RESOLVED as [$officialName] -> " -NoNewline -ForegroundColor DarkGray
+                        
+                        try {
+                            Add-PASGroupMember -GroupName $safeMember -MemberName $officialName -ErrorAction Stop
+                            Write-Host "ADDED" -ForegroundColor Green
+                        } 
+                        catch {
+                            if ($_.Exception.Message -match "409|already exists|already a member") {
+                                Write-Host "SKIPPED (Already in group)" -ForegroundColor Yellow
+                            }
+                            else {
+                                Write-Host "FAILED ($($_.Exception.Message))" -ForegroundColor Red
+                            }
                         }
                     }
                 }
             }
         }
         # -----------------------------
-        # 4. USER LOGIC (Verify Existence Only)
+        # 4. USER LOGIC (Verify Existence)
         # -----------------------------
         else {
             Write-Host " -> Step 2: Verifying User '$safeMember'..." -NoNewline
@@ -208,88 +219,62 @@ function Invoke-CACBatchOnboarding {
                 Write-Host " [FOUND]" -ForegroundColor Green
             }
             catch {
-                $result.Message = "User '$safeMember' not found in Vault"
+                $result.Message = "User '$safeMember' not found"
                 $result.OverallStatus = "FAILED"
                 $results += [pscustomobject]$result
                 Write-Host " [NOT FOUND]" -ForegroundColor Red
-                Write-Host "    [ERROR] Cannot onboard a user that does not exist in the Vault." -ForegroundColor Red
                 continue
             }
         }
 
         # -----------------------------
-        # 5. PERMISSIONS MAPPING
+        # 5. PERMISSIONS & SAFE ATTACHMENT
         # -----------------------------
         Write-Host " -> Step 3: Mapping Permissions..." -NoNewline
         $rawPerms = if ($row.Permissions) { $row.Permissions -split ";" | ForEach-Object { $_.Trim() } } else { $permissionSets.$($row.PermissionKey) }
 
-        # Valid psPaS parameters
-        $validPASPermissions = @(
-            "UseAccounts", "RetrieveAccounts", "ListAccounts", "AddAccounts",
-            "UpdateAccountContent", "UpdateAccountProperties", 
-            "InitiateCPMAccountManagementOperations", "SpecifyNextAccountContent", 
-            "RenameAccounts", "DeleteAccounts", "UnlockAccounts",
-            "ManageSafe", "ManageSafeMembers", "BackupSafe", 
-            "ViewAuditLog", "ViewSafeMembers", "AccessWithoutConfirmation", 
-            "CreateFolders", "DeleteFolders", "MoveAccountsAndFolders"
-        )
+        $validPASPermissions = @("UseAccounts", "RetrieveAccounts", "ListAccounts", "AddAccounts", "UpdateAccountContent", "UpdateAccountProperties", "InitiateCPMAccountManagementOperations", "SpecifyNextAccountContent", "RenameAccounts", "DeleteAccounts", "UnlockAccounts", "ManageSafe", "ManageSafeMembers", "BackupSafe", "ViewAuditLog", "ViewSafeMembers", "AccessWithoutConfirmation", "CreateFolders", "DeleteFolders", "MoveAccountsAndFolders")
 
         $permParams = @{}
         foreach ($p in $rawPerms) {
             if ($validPASPermissions -contains $p) { $permParams[$p] = $true }
-            # Auto-Correction Logic
             elseif ($p -eq "UpdateAccounts") { $permParams["UpdateAccountProperties"] = $true; $permParams["UpdateAccountContent"] = $true }
             elseif ($p -eq "ViewAudit") { $permParams["ViewAuditLog"] = $true }
             elseif ($p -eq "MoveAccounts") { $permParams["MoveAccountsAndFolders"] = $true }
         }
         Write-Host " [DONE]" -ForegroundColor Green
 
-        # -----------------------------
-        # 6. ATTACH TO SAFE
-        # -----------------------------
         Write-Host " -> Step 4: Attaching Member to Safe..." -NoNewline
         try {
             Add-PASSafeMember -SafeName $safeName -MemberName $safeMember @permParams -ErrorAction Stop
-            
             $result.SafeMembershipStatus = "Added"
             $result.OverallStatus = "SUCCESS"
             Write-Host " [SUCCESS]" -ForegroundColor Green
         }
         catch {
-            # 404 = Not Found
             if ($_.Exception.Message -match "404|Not Found") {
                 $result.SafeMembershipStatus = "Failed"
-                $result.Message = "Vault returned 404. Member not found."
+                $result.Message = "Vault returned 404 (Member/Safe not found)."
                 Write-Host " [FAILED 404]" -ForegroundColor Red
-                Write-Host "    [ERROR] The Vault says '$safeMember' does not exist." -ForegroundColor Red
             }
-            # 409 = Conflict (Already Exists) -> SKIP
             elseif ($_.Exception.Message -match "409|already exists") {
                 $result.SafeMembershipStatus = "Skipped"
                 $result.OverallStatus = "SUCCESS"
                 $result.Message = "Member already exists in Safe"
-                Write-Host " [SKIPPED]" -ForegroundColor Yellow
-                Write-Host "    (Member is already attached to this Safe)" -ForegroundColor DarkGray
+                Write-Host " [SKIPPED (Member exists)]" -ForegroundColor Yellow
             } 
             else {
                 $result.SafeMembershipStatus = "Failed"
                 $result.Message = $_.Exception.Message
-                Write-Host " [ERROR]" -ForegroundColor Red
-                Write-Host "    $($_.Exception.Message)" -ForegroundColor Red
+                Write-Host " [ERROR] $($_.Exception.Message)" -ForegroundColor Red
             }
         }
         
-        # Check Partial Status
-        if ($result.OverallStatus -ne "SUCCESS" -and $result.SafeMembershipStatus -ne "Failed") {
-            $result.OverallStatus = "PARTIAL"
-        }
+        if ($result.OverallStatus -ne "SUCCESS" -and $result.SafeMembershipStatus -ne "Failed") { $result.OverallStatus = "PARTIAL" }
 
         $results += [pscustomobject]$result
     }
 
-    # -----------------------------
-    # EXPORT RESULT CSV
-    # -----------------------------
     $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
     Write-Host "`nBatch onboarding completed." -ForegroundColor Cyan
     Write-Host "Result CSV generated at: $OutputCsvPath" -ForegroundColor Green

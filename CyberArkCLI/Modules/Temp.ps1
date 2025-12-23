@@ -1,19 +1,14 @@
-
-# ============================================================================
-# MODULE: Safes.psm1
-# DESCRIPTION: CyberArk Safe Management (Progress Bars + Fixed Permissions)
-# ============================================================================
-
-# ----------------------------------------------------------------------------
-# HELPER: Flatten Safe Member Permissions (FIXED)
-# ----------------------------------------------------------------------------
+# =====================================================================
+# HELPER: Flatten Safe Member Permissions (CORRECTED KEYS)
+# =====================================================================
 function New-CACSafeMemberDetailedRow {
     param (
         [string]$SafeName,
         [object]$MemberObj
     )
 
-    # 1. Locate the permissions data
+    # 1. Locate the permissions container
+    # Checks if permissions are nested (Gen2 API) or on root (Gen1 API)
     $perms = $null
     if ($MemberObj.PSObject.Properties.Match('Permissions') -and $MemberObj.Permissions) {
         $perms = $MemberObj.Permissions
@@ -21,44 +16,58 @@ function New-CACSafeMemberDetailedRow {
         $perms = $MemberObj
     }
 
-    # 2. Local Helper to extract bool safely from Object OR Hashtable
+    # 2. INTERNAL FUNCTION: Safe value extraction
+    # Tries to find the key in both Object properties and Hashtables
     function Get-Perm ($obj, $name) {
         if ($obj.PSObject.Properties.Match($name)) { return [bool]$obj.$name }
         if ($obj -is [System.Collections.IDictionary] -and $obj.Contains($name)) { return [bool]$obj[$name] }
         return $false
     }
 
-    # 3. Return Flat Object
+    # 3. Build Row with EXACT Key Names requested
     return [PSCustomObject]@{
-        SafeName                       = $SafeName
-        MemberName                     = $MemberObj.MemberName
-        MemberType                     = $MemberObj.MemberType
-        ExpirationDate                 = $MemberObj.MembershipExpirationDate
+        SafeName                               = $SafeName
+        MemberName                             = $MemberObj.MemberName
+        MemberType                             = $MemberObj.MemberType
+        MembershipExpirationDate               = $MemberObj.MembershipExpirationDate
 
-        # Permissions
-        UseAccounts                    = Get-Perm $perms "UseAccounts"
-        RetrieveAccounts               = Get-Perm $perms "RetrieveAccounts"
-        ListAccounts                   = Get-Perm $perms "ListAccounts"
-        AddAccounts                    = Get-Perm $perms "AddAccounts"
-        UpdateAccountContent           = Get-Perm $perms "UpdateAccountContent"
-        UpdateAccountProperties        = Get-Perm $perms "UpdateAccountProperties"
-        InitiateCPMOps                 = Get-Perm $perms "InitiateCPMAccountManagementOperations"
-        SpecifyNextAccountContent      = Get-Perm $perms "SpecifyNextAccountContent"
-        RenameAccounts                 = Get-Perm $perms "RenameAccounts"
-        DeleteAccounts                 = Get-Perm $perms "DeleteAccounts"
-        MoveAccounts                   = Get-Perm $perms "MoveAccounts"
-        ManageSafe                     = Get-Perm $perms "ManageSafe"
-        ManageSafeMembers              = Get-Perm $perms "ManageSafeMembers"
-        BackupSafe                     = Get-Perm $perms "BackupSafe"
-        ViewAuditLog                   = Get-Perm $perms "ViewAuditLog"
-        ViewSafeMembers                = Get-Perm $perms "ViewSafeMembers"
-        AccessSafeWithoutConfirmation  = Get-Perm $perms "AccessSafeWithoutConfirmation"
-        CreateFolders                  = Get-Perm $perms "CreateFolders"
-        DeleteFolders                  = Get-Perm $perms "DeleteFolders"
-        MoveFolders                    = Get-Perm $perms "MoveFolders"
-        UnlockAccounts                 = Get-Perm $perms "UnlockAccounts"
+        # --- Standard User Permissions ---
+        UseAccounts                            = Get-Perm $perms "UseAccounts"
+        RetrieveAccounts                       = Get-Perm $perms "RetrieveAccounts"
+        ListAccounts                           = Get-Perm $perms "ListAccounts"
+        AddAccounts                            = Get-Perm $perms "AddAccounts"
+        UpdateAccountContent                   = Get-Perm $perms "UpdateAccountContent"
+        UpdateAccountProperties                = Get-Perm $perms "UpdateAccountProperties"
+        InitiateCPMAccountManagementOperations = Get-Perm $perms "InitiateCPMAccountManagementOperations"
+        SpecifyNextAccountContent              = Get-Perm $perms "SpecifyNextAccountContent"
+        RenameAccounts                         = Get-Perm $perms "RenameAccounts"
+        DeleteAccounts                         = Get-Perm $perms "DeleteAccounts"
+        UnlockAccounts                         = Get-Perm $perms "UnlockAccounts"
+        
+        # --- Combined / Specific Corrections ---
+        MoveAccountsAndFolders                 = Get-Perm $perms "MoveAccountsAndFolders"
+        
+        # --- Admin Permissions ---
+        ManageSafe                             = Get-Perm $perms "ManageSafe"
+        ManageSafeMembers                      = Get-Perm $perms "ManageSafeMembers"
+        BackupSafe                             = Get-Perm $perms "BackupSafe"
+        ViewAuditLog                           = Get-Perm $perms "ViewAuditLog"
+        ViewSafeMembers                        = Get-Perm $perms "ViewSafeMembers"
+        
+        # --- Corrected Access Name ---
+        AccessWithoutConfirmation              = Get-Perm $perms "AccessWithoutConfirmation"
+        
+        # --- Folder Permissions ---
+        CreateFolders                          = Get-Perm $perms "CreateFolders"
+        DeleteFolders                          = Get-Perm $perms "DeleteFolders"
+        
+        # --- Authorization Workflow (Added) ---
+        RequestsAuthorizationLevel1            = Get-Perm $perms "RequestsAuthorizationLevel1"
+        RequestsAuthorizationLevel2            = Get-Perm $perms "RequestsAuthorizationLevel2"
     }
 }
+
+
 
 # =========================================================
 # 1. Export ALL Safes

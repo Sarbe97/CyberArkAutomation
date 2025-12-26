@@ -1,3 +1,4 @@
+
 # =============================================================================
 # BatchOnboarding.psm1
 # Description: Onboards Safes, Groups, Users, and Permissions via psPaS
@@ -69,16 +70,11 @@ function Invoke-CACBatchOnboarding {
         if (-not $safeReady) { $results += [pscustomobject]$result; continue }
 
         # -----------------------------
-        # 2. MEMBER TYPE LOGIC
+        # 2. MEMBER CHECK / CREATE
         # -----------------------------
-        
-        # --- CASE A: GROUP MEMBER ---
         if ($memberType -eq "Group") {
-            
             $groupId = $null 
             $existingGroup = $null
-            
-            # Check if Group Exists
             try { $existingGroup = Get-PASGroup -GroupName $safeMember -ErrorAction SilentlyContinue } catch { $existingGroup = $null }
 
             if ($existingGroup) {
@@ -87,13 +83,10 @@ function Invoke-CACBatchOnboarding {
                 Write-Host " -> Group '$safeMember' exists." -ForegroundColor Green
             } 
             else {
-                # Create Group
                 try {
                     Write-Host " -> Creating Group '$safeMember'..." -ForegroundColor DarkGray
                     $newGroup = New-PASGroup -GroupName $safeMember -Description $row.MemberDescription -ErrorAction Stop
                     $groupId = $newGroup.id
-                    
-                    # Latency Wait
                     Start-Sleep -Seconds 2
                     $result.GroupStatus = "Created"
                     Write-Host " -> Group Created." -ForegroundColor Green
@@ -106,79 +99,66 @@ function Invoke-CACBatchOnboarding {
                 }
             }
 
-            # Add Users to Group
             if (-not [string]::IsNullOrWhiteSpace($row.Users)) {
                 $userList = $row.Users -split ";"
-                Write-Host " -> Processing Group Members..." -ForegroundColor Cyan
-                
                 foreach ($u in $userList) {
                     $inputName = $u.Trim()
                     if (-not [string]::IsNullOrWhiteSpace($inputName)) {
-                        
-                        # Resolve User Name
-                        $vaultUser = $null
-                        try { $vaultUser = Get-PASUser -UserName $inputName -ErrorAction Stop } catch { try { $res = Get-PASUser -Search $inputName; if ($res.Count -eq 1) { $vaultUser = $res[0] } } catch {} }
-
-                        if ($null -eq $vaultUser) {
-                            Write-Host "    ! User '$inputName' not found in Vault." -ForegroundColor Red
-                            continue
-                        }
-                        $officialName = $vaultUser.UserName
-                        
-                        # Add User to Group
                         try {
-                            # Using -GroupId and -MemberId (passing Name) as confirmed
-                            Add-PASGroupMember -GroupId $groupId -MemberId $officialName -ErrorAction Stop
-                            Write-Host "    [SUCCESS] Added $officialName to group." -ForegroundColor Green
-                        } 
-                        catch {
-                            if ($_.Exception.Message -match "409|already exists|already a member") {
-                                Write-Host "    [SKIPPED] User already in group." -ForegroundColor Yellow
-                            }
-                            else {
-                                Write-Host "    [FAIL] $($_.Exception.Message)" -ForegroundColor Red
-                            }
-                        }
+                            Add-PASGroupMember -GroupId $groupId -MemberId $inputName -ErrorAction Stop
+                        } catch {}
                     }
                 }
             }
         }
-        # --- CASE B: USER MEMBER ---
         elseif ($memberType -eq "User") {
-            Write-Host " -> Verifying User '$safeMember'..." -NoNewline
             try {
-                # Check existence
                 $u = Get-PASUser -UserName $safeMember -ErrorAction Stop
-                
-                # Use official name
                 $safeMember = $u.UserName 
-                Write-Host " [FOUND] ($safeMember)" -ForegroundColor Green
+                Write-Host " -> User Verified." -ForegroundColor Green
             }
             catch {
                 $result.Message = "User '$safeMember' not found in Vault"
                 $result.OverallStatus = "FAILED"
                 $results += [pscustomobject]$result
-                Write-Host " [NOT FOUND]" -ForegroundColor Red
+                Write-Host " -> User Not Found." -ForegroundColor Red
                 continue 
             }
         }
-        else {
-            Write-Host " -> [WARN] Invalid MemberType '$memberType'. Skipping." -ForegroundColor Yellow
-            continue
-        }
 
         # -----------------------------
-        # 3. PERMISSIONS MAPPING
+        # 3. PERMISSIONS MAPPING (UPDATED)
         # -----------------------------
         Write-Host " -> Mapping Permissions..." -NoNewline
-        $rawPerms = if ($row.Permissions) { $row.Permissions -split ";" | ForEach-Object { $_.Trim() } } else { $permissionSets.$($row.PermissionKey) }
+        
+        # Determine permission source (CSV override OR JSON Config key)
+        $rawPerms = if ($row.Permissions) { 
+            $row.Permissions -split ";" | ForEach-Object { $_.Trim() } 
+        } else { 
+            $permissionSets.$($row.PermissionKey) 
+        }
 
-        $validPASPermissions = @("UseAccounts", "RetrieveAccounts", "ListAccounts", "AddAccounts", "UpdateAccountContent", "UpdateAccountProperties", "InitiateCPMAccountManagementOperations", "SpecifyNextAccountContent", "RenameAccounts", "DeleteAccounts", "UnlockAccounts", "ManageSafe", "ManageSafeMembers", "BackupSafe", "ViewAuditLog", "ViewSafeMembers", "AccessWithoutConfirmation", "CreateFolders", "DeleteFolders", "MoveAccountsAndFolders")
+        # We allow standard permissions AND the two Authorization Level switches
+        $validPASPermissions = @(
+            "UseAccounts", "RetrieveAccounts", "ListAccounts", "AddAccounts", 
+            "UpdateAccountContent", "UpdateAccountProperties", "InitiateCPMAccountManagementOperations", 
+            "SpecifyNextAccountContent", "RenameAccounts", "DeleteAccounts", "UnlockAccounts", 
+            "ManageSafe", "ManageSafeMembers", "BackupSafe", "ViewAuditLog", "ViewSafeMembers", 
+            "AccessWithoutConfirmation", "CreateFolders", "DeleteFolders", "MoveAccountsAndFolders",
+            "RequestsAuthorizationLevel1", "RequestsAuthorizationLevel2"
+        )
 
         $permParams = @{}
         foreach ($p in $rawPerms) {
-            if ($validPASPermissions -contains $p) { $permParams[$p] = $true }
-            elseif ($p -eq "UpdateAccounts") { $permParams["UpdateAccountProperties"] = $true; $permParams["UpdateAccountContent"] = $true }
+            # Direct match (covers standard perms AND AuthLevels)
+            if ($validPASPermissions -contains $p) { 
+                $permParams[$p] = $true 
+            }
+            # Handle Aliases (Legacy support)
+            elseif ($p -eq "UpdateAccounts") { 
+                $permParams["UpdateAccountProperties"] = $true
+                $permParams["UpdateAccountContent"] = $true 
+            }
             elseif ($p -eq "ViewAudit") { $permParams["ViewAuditLog"] = $true }
             elseif ($p -eq "MoveAccounts") { $permParams["MoveAccountsAndFolders"] = $true }
         }
@@ -189,6 +169,7 @@ function Invoke-CACBatchOnboarding {
         # -----------------------------
         Write-Host " -> Attaching to Safe..." -NoNewline
         try {
+            # Splatting automatically handles -RequestsAuthorizationLevel1:$true if present in $permParams
             Add-PASSafeMember -SafeName $safeName -MemberName $safeMember @permParams -ErrorAction Stop
             $result.SafeMembershipStatus = "Added"
             $result.OverallStatus = "SUCCESS"
@@ -223,27 +204,22 @@ function Invoke-CACBatchOnboarding {
 function New-CACOnboardingTemplate {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $false)]
         [string]$Path = (Join-Path $PWD "Onboarding_Template.csv")
     )
-
     $headers = [ordered]@{
         SafeName                  = "Example_Safe"
-        SafeDescription           = "Description of the safe"
+        SafeDescription           = "Description"
         ManagingCPM               = "PasswordManager"
         NumberOfVersionsRetention = "5"
         NumberOfDaysRetention     = "7"
-        SafeMember                = "Domain\GroupOrUser"
+        SafeMember                = "Domain\Group"
         MemberType                = "Group" 
-        MemberDescription         = "Description of the group (if creating)"
+        MemberDescription         = "Group Desc"
         Users                     = "user1;user2" 
-        PermissionKey             = "Full"
-        Permissions               = ""
+        PermissionKey             = "SAFE_READ" # Matches config JSON key
+        Permissions               = "" # Optional override
     }
-
-    $data = @([pscustomobject]$headers)
-    $data | Export-Csv -Path $Path -NoTypeInformation -Encoding UTF8
-
+    @([pscustomobject]$headers) | Export-Csv -Path $Path -NoTypeInformation -Encoding UTF8
     Write-Host "Template created at: $Path" -ForegroundColor Green
     return $Path
 }

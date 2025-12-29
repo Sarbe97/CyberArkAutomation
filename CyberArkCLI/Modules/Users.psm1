@@ -1,15 +1,16 @@
+
 # ==========================
-# Users.psm1 (Optimized - Return Only Core Fields)
+# Users.psm1
 # ==========================
 
 $Script:UserCachePath = "$PSScriptRoot/../Data/users.csv"
-$Script:UserCache = $null              # In-memory cache (loaded once)
-$Script:UserCacheLoadTime = $null      # Track when cache was loaded
-#$Script:CacheExpireMinutes = 30        # Refresh cache every 30 minutes
+$Script:UserCache = $null              # In-memory cache
+$Script:UserCacheLoadTime = $null      # Track load time
 
-
+# Load TTL from config or default to 30 mins
 $cfg = Get-CACConfig
 $Script:CacheExpireMinutes = if ($cfg.UserCacheTTL) { [int]$cfg.UserCacheTTL } else { 30 }
+
 # ============================================================
 # Load user cache into memory (with TTL)
 # ============================================================
@@ -24,14 +25,14 @@ function Initialize-CACUserCache {
     if (-not $Force -and $Script:UserCache -and $Script:UserCacheLoadTime) {
         $elapsed = (Get-Date) - $Script:UserCacheLoadTime
         if ($elapsed.TotalMinutes -lt $Script:CacheExpireMinutes) {
-            Write-Log "User cache still valid (loaded $([Math]::Round($elapsed.TotalMinutes, 2)) minutes ago)" "DEBUG"
+            Write-Log "User cache valid (Loaded $([Math]::Round($elapsed.TotalMinutes, 2)) mins ago)" "DEBUG"
             return
         }
     }
 
     # Load from CSV file
     if (-not (Test-Path $Script:UserCachePath)) {
-        Write-Log "Cache file missing at: $Script:UserCachePath" "WARN"
+        Write-Log "Cache file missing: $Script:UserCachePath" "WARN"
         $Script:UserCache = $null
         return
     }
@@ -39,10 +40,10 @@ function Initialize-CACUserCache {
     try {
         $Script:UserCache = Import-Csv $Script:UserCachePath
         $Script:UserCacheLoadTime = Get-Date
-        Write-Log "User cache loaded into memory. Records: $($Script:UserCache.Count)" "INFO"
+        Write-Log "User cache loaded. Total Records: $($Script:UserCache.Count)" "INFO"
     }
     catch {
-        Write-Log "Failed to load cache: $($_.Exception.Message)" "ERROR"
+        Write-Log "Failed to load user cache: $($_.Exception.Message)" "ERROR"
         $Script:UserCache = $null
     }
 }
@@ -51,66 +52,112 @@ function Initialize-CACUserCache {
 # Refresh full user cache from CyberArk (write to disk)
 # ============================================================
 function New-CACUserStore {
-    Write-Log "Refreshing CyberArk user cache from API" "INFO"
+    Write-Log "Starting User Cache Refresh (Querying Vault...)" "INFO"
 
+    # 1. Fetch All Users (High level list)
     try {
+        Write-Progress -Activity "User Cache Refresh" -Status "Fetching user list..." -PercentComplete 0
         $users = Get-PASUser
+        
         if (-not $users) {
-            Write-Log "No PAS users returned" "ERROR"
+            Write-Log "No users returned from Vault" "WARN"
+            Write-Progress -Activity "User Cache Refresh" -Completed
             return
         }
     }
     catch {
         Write-Log "Failed fetching PAS users: $($_.Exception.Message)" "ERROR"
+        Write-Progress -Activity "User Cache Refresh" -Completed
         return
     }
 
     $finalUsers = @()
-    $counter = 1
+    $counter = 0
     $total = $users.Count
 
+    Write-Log "Found $total users. Fetching details..." "INFO"
+
+    # 2. Iterate and Fetch Details
     foreach ($u in $users) {
-        Write-Log "Fetching full details ($counter/$total): $($u.id)" "DEBUG"
-
-        try { $detail = Get-PASUser -id $u.id } 
-        catch { $detail = $u }
-
-        $first = $detail.personalDetails.firstName
-        $middle = $detail.personalDetails.middleName
-        $last = $detail.personalDetails.lastName
-        $fullName = "$first $middle $last".Trim()
-
-        # Extended user data - Store ALL fields
-        $finalUsers += New-CACUserObject `
-            -Id $detail.id `
-            -UserName $detail.UserName `
-            -FullName $fullName `
-            -Email $detail.personalDetails.mail `
-            -Department $detail.personalDetails.department `
-            -Title $detail.personalDetails.title `
-            -Organization $detail.personalDetails.organization `
-            -Source $detail.source `
-            -UserType $detail.userType `
-            -Phone $detail.personalDetails.phone `
-            -Mobile $detail.personalDetails.mobile `
-            -Status $detail.userStatus
-
         $counter++
+        $percent = ($counter / $total) * 100
+        
+        # --- PROGRESS BAR ---
+        Write-Progress -Activity "User Cache Refresh" `
+            -Status "Processing $counter of $total : $($u.UserName)" `
+            -PercentComplete $percent
+        # --------------------
+
+        try { 
+            # Fetch full details for specific user
+            $userDetail = Get-PASUser -id $u.id -ErrorAction Stop
+        } 
+        catch { 
+            Write-Log "Could not fetch details for user $($u.UserName). Using basic info." "WARN"
+            $userDetail = $u 
+        }
+
+        # --- Name Construction ---
+        $first    = $userDetail.personalDetails.firstName
+        $middle   = $userDetail.personalDetails.middleName
+        $last     = $userDetail.personalDetails.lastName
+        $fullName = "$first $middle $last".Trim()
+        if (-not $fullName) { $fullName = $userDetail.UserName }
+
+        # --- Status Logic (Suspended vs Active) ---
+        $statusStr = "Active"
+        if ($userDetail.suspended -eq $true) {
+            $statusStr = "Suspended"
+        }
+
+        # --- Create Flattened Object ---
+        # We use [PSCustomObject] directly to ensure exact column names for the CSV
+        $userObj = [PSCustomObject]@{
+            Id           = $userDetail.id
+            UserName     = $userDetail.UserName
+            FullName     = $fullName
+            UserType     = $userDetail.userType
+            Source       = $userDetail.source
+            
+            # Contact Info (Internet & Phones Sections)
+            Email        = $userDetail.internet.businessEmail
+            Phone        = $userDetail.phones.cellularNumber
+            
+            # Organization Info
+            Department   = $userDetail.personalDetails.department
+            Title        = $userDetail.personalDetails.title
+            Organization = $userDetail.personalDetails.organization
+            
+            # Status & Login
+            Status       = $statusStr
+            LastLogon    = $userDetail.lastSuccessfulLoginDate
+        }
+
+        $finalUsers += $userObj
     }
 
+    # Close Progress Bar
+    Write-Progress -Activity "User Cache Refresh" -Completed
+
+    # 3. Save to Disk
     $folder = Split-Path $Script:UserCachePath
     if (-not (Test-Path $folder)) { New-Item -ItemType Directory -Path $folder | Out-Null }
 
-    $finalUsers | Export-Csv -Path $Script:UserCachePath -NoTypeInformation -Encoding UTF8
-    Write-Log "User cache saved to disk at: $Script:UserCachePath" "SUCCESS"
-    Write-Log "Cache contains: Id, UserName, FullName, Email, Department, Title, Organization, Source, UserType, Phone, Mobile, Status, Created, LastLogin" "INFO"
+    try {
+        $finalUsers | Export-Csv -Path $Script:UserCachePath -NoTypeInformation -Encoding UTF8
+        Write-Log "User cache saved to disk: $Script:UserCachePath" "SUCCESS"
+        Write-Log "Cache refreshed with $($finalUsers.Count) users." "INFO"
+    }
+    catch {
+        Write-Log "Failed to write cache to CSV: $($_.Exception.Message)" "ERROR"
+    }
 
-    # Reload into memory
+    # 4. Reload into memory immediately
     Initialize-CACUserCache -Force $true
 }
 
 # ============================================================
-# Get user details from in-memory cache (CORE FIELDS ONLY)
+# Get user details from in-memory cache
 # ============================================================
 function Get-CACUserDetailsFromStore {
     param(
@@ -118,18 +165,19 @@ function Get-CACUserDetailsFromStore {
         [string]$InputValue
     )
 
-    Write-Log "Looking up user: $InputValue" "DEBUG"
+    Write-Log "Looking up user in cache: $InputValue" "DEBUG"
 
     # Ensure cache is loaded
     Initialize-CACUserCache
 
     if (-not $Script:UserCache) {
-        Write-Log "User cache empty, cannot lookup" "ERROR"
-        return New-CACUserObject -UserName $InputValue
+        Write-Log "User cache empty/missing. Returning basic object." "WARN"
+        return [PSCustomObject]@{ Id = $null; UserName = $InputValue; FullName = "Unknown" }
     }
 
-    # Check if searching by ID (numeric)
+    # Search Logic (ID vs Name)
     $searchById = $InputValue -match '^\d+$'
+    $match = $null
 
     if ($searchById) {
         $match = $Script:UserCache | Where-Object { $_.Id -eq $InputValue }
@@ -137,26 +185,36 @@ function Get-CACUserDetailsFromStore {
     else {
         $match = $Script:UserCache | Where-Object { 
             $_.UserName -eq $InputValue -or $_.FullName -like "*$InputValue*" 
-        }
+        } | Select-Object -First 1
     }
 
     if (-not $match) {
-        Write-Log "No user found: $InputValue" "WARN"
-        return New-CACUserObject -UserName $InputValue
+        Write-Log "User not found in cache: $InputValue" "WARN"
+        # Return a shell object so scripts don't break on $null
+        return [PSCustomObject]@{ 
+            Id = "N/A"
+            UserName = $InputValue
+            FullName = "Not Found" 
+        }
     }
 
-    # Return ONLY CORE FIELDS (Id, UserName, FullName, Department, Title, Organization)
-    # Extended fields (Email, Phone, etc.) stored in CSV but NOT returned here
-    return New-CACUserObject `
-        -Id $match.Id `
-        -UserName $match.UserName `
-        -FullName $match.FullName `
-        -Title $match.Title `
-        -Department $match.Department
+    # Return the mapped object
+    # Note: CSV Import creates strings, so we return them as-is
+    return [PSCustomObject]@{
+        Id           = $match.Id
+        UserName     = $match.UserName
+        FullName     = $match.FullName
+        Email        = $match.Email
+        Phone        = $match.Phone
+        Department   = $match.Department
+        Title        = $match.Title
+        Status       = $match.Status
+        LastLogon    = $match.LastLogon
+    }
 }
 
 # ============================================================
-# Get group members (ONLY Id and UserName, no enrichment)
+# Get group members (Only Id and UserName)
 # ============================================================
 function Get-CACGroupUsers {
     param(
@@ -164,23 +222,22 @@ function Get-CACGroupUsers {
         [string]$GroupName
     )
 
-    Write-Log "Fetching group: $GroupName" "INFO"
+    Write-Log "Fetching members for group: $GroupName" "INFO"
 
     try {
         $group = Get-PASGroup -GroupName $GroupName -IncludeMembers $true
     }
     catch {
         Write-Log "Group fetch failed: $($_.Exception.Message)" "ERROR"
-        return
+        return $null
     }
 
     if (-not $group.Members) {
-        Write-Log "Group has no members" "WARN"
-        return
+        Write-Log "Group '$GroupName' has no members" "WARN"
+        return $null
     }
 
-    # Return ONLY member objects with Id and UserName
-    # Do NOT call Get-CACUserDetailsFromStore here
+    # Return lightweight objects
     $output = @()
     foreach ($m in $group.Members) {
         $output += [PSCustomObject]@{
@@ -189,12 +246,12 @@ function Get-CACGroupUsers {
         }
     }
 
-    Write-Log "Retrieved $($output.Count) members from group: $GroupName" "INFO"
+    Write-Log "Retrieved $($output.Count) members from $GroupName" "DEBUG"
     return $output
 }
 
 # ============================================================
-# EXPORT ALL PUBLIC FUNCTIONS
+# EXPORT
 # ============================================================
 Export-ModuleMember -Function `
     Initialize-CACUserCache, `

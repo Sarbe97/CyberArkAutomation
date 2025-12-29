@@ -139,7 +139,10 @@ function New-CACUserStore {
     # Close Progress Bar
     Write-Progress -Activity "User Cache Refresh" -Completed
 
-    # 3. Save to Disk
+        # 3. Save to Disk (With Timestamp)
+    # Update the cache path variable dynamically with the current time
+    $Script:UserCachePath = "$PSScriptRoot/../Data/users_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+
     $folder = Split-Path $Script:UserCachePath
     if (-not (Test-Path $folder)) { New-Item -ItemType Directory -Path $folder | Out-Null }
 

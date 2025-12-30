@@ -1,3 +1,0 @@
-SafeName,Description,ManagingCPM,NumberOfDaysRetention,Location
-APP_TEST_SAFE_01,Safe for test application,PasswordManager,30,/
-APP_TEST_SAFE_02,Safe for prod accounts,PasswordManager,60,/

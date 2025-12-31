@@ -261,6 +261,7 @@ function Show-SafeMenu {
         Write-Host "4. Search A Safe By Name"
         Write-Host "5. Create Safe(s)"
         Write-Host "6. Add Safe Member(s)"
+        Write-Host "7. Scan Safes for Account Counts"
         Write-Host "0. Back"
         Write-Host "================================="
 
@@ -275,6 +276,7 @@ function Show-SafeMenu {
             4 { Search-CACSafeByName; Pause }
             5 { New-CACSafe; Pause }
             6 { Add-CACSafeMember; Pause }
+            7 { Export-CACSafeAccountCounts; Pause }
             0 { return }
 
 

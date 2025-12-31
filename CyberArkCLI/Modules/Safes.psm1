@@ -5,7 +5,8 @@
 # ============================================================================
 
 # ----------------------------------------------------------------------------
-# HELPER: Flatten Safe Member Permissions (CORRECTED KEYS)
+# Helper function for mapping safe Permissions 
+#Safe Member Permissions without safe meber-user details
 # ----------------------------------------------------------------------------
 function New-CACSafeMemberDetailedRow {
     param (
@@ -17,7 +18,8 @@ function New-CACSafeMemberDetailedRow {
     $perms = $null
     if ($MemberObj.PSObject.Properties.Match('Permissions') -and $MemberObj.Permissions) {
         $perms = $MemberObj.Permissions
-    } else {
+    }
+    else {
         $perms = $MemberObj
     }
 
@@ -74,7 +76,120 @@ function New-CACSafeMemberDetailedRow {
 # =========================================================
 # 1. Export ALL Safes
 # =========================================================
+
+# =========================================================
+# 1. Export ALL Safes (Manual Pagination via Invoke-RestMethod)
+# =========================================================
 function Export-CACAllSafes {
+    Write-Log "Started Export-CACAllSafes()" "DEBUG"
+    
+    # 1. Get Session Details from psPAS
+    # We need the Token and BaseURI to make manual API calls
+    try {
+        $session = Get-PASSession
+        if (-not $session) { throw "No active psPAS session found. Run New-PASSession first." }
+        
+        $baseURI = $session.BaseURI
+        $token = $session.Token
+        # Construct the Header manually
+        $headers = @{ "Authorization" = $token }
+    }
+    catch {
+        Write-Log "Failed to retrieve psPAS session: $($_.Exception.Message)" "ERROR"
+        return
+    }
+
+    # Configuration
+    $chunkSize = 100
+    $offset = 0
+    $totalFetched = 0
+    $allFormatted = [System.Collections.Generic.List[PSObject]]::new()
+    
+    # Output Setup
+    $outputDir = "$PSScriptRoot/../Output"
+    if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
+    $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+
+    Write-Host "Starting Safe Export (Chunk Size: $chunkSize)..." -ForegroundColor Cyan
+    Write-Log "Starting manual pagination loop via Invoke-RestMethod" "INFO"
+
+    do {
+        # 2. Update Progress
+        Write-Progress -Activity "Exporting Safes" `
+            -Status "Fetched: $totalFetched | Current Batch: $offset - $($offset + $chunkSize)" `
+            -CurrentOperation "Querying Vault API..." 
+
+        try {
+            # 3. Build URL and Call API
+            # Note: We must construct the full URL manually
+            $url = "$baseURI/API/Safes?limit=$chunkSize&offset=$offset"
+            
+            # Use standard PowerShell cmdlet
+            $response = Invoke-RestMethod -Uri $url -Method Get -Headers $headers -ErrorAction Stop
+            
+            # The API returns an object { "Safes": [...], "Total": 123 }
+            # We extract the list
+            $safesChunk = $response.Safes
+        }
+        catch {
+            Write-Log "API Error at offset $offset : $($_.Exception.Message)" "ERROR"
+            break 
+        }
+
+        # Break if no results
+        if (-not $safesChunk -or $safesChunk.Count -eq 0) {
+            break
+        }
+
+        $chunkCount = $safesChunk.Count
+        $totalFetched += $chunkCount
+
+        # 4. Process this chunk
+        Write-Progress -Activity "Exporting Safes" `
+            -Status "Total Safes: $totalFetched" `
+            -CurrentOperation "Formatting chunk..."
+
+        foreach ($safe in $safesChunk) {
+            try {
+                # The raw API object is slightly different from Get-PASSafe object
+                # but Format-CACSafe should handle it if it uses standard property names.
+                $formatted = Format-CACSafe -Safe $safe
+                if ($formatted) {
+                    $allFormatted.Add($formatted)
+                }
+            }
+            catch {
+                Write-Log "Error formatting safe $($safe.SafeName): $($_.Exception.Message)" "WARN"
+            }
+        }
+
+        # 5. Prepare next batch
+        $offset += $chunkSize
+        
+        Write-Log "Processed batch ending at offset $offset. Total: $totalFetched" "DEBUG"
+
+    } while ($chunkCount -ge $chunkSize)
+
+    # Close Progress
+    Write-Progress -Activity "Exporting Safes" -Completed
+
+    # 6. Export
+    if ($allFormatted.Count -gt 0) {
+        $outputFile = "$outputDir/all_safes_$timestamp.csv"
+        Write-Log "Exporting $($allFormatted.Count) safes to CSV: $outputFile" "INFO"
+        
+        $allFormatted | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
+        
+        Write-Host "`nExport Complete!" -ForegroundColor Green
+        Write-Host "  Total Safes: $($allFormatted.Count)"
+        Write-Host "  File: $outputFile" -ForegroundColor Cyan
+    }
+    else {
+        Write-Host "No safes found." -ForegroundColor Yellow
+    }
+}
+
+function Export-CACAllSafes1 {
     Write-Log "Started Export-CACAllSafes()" "DEBUG"
     
     Write-Progress -Activity "Fetching Safes" -Status "Querying Vault..." -PercentComplete 0
@@ -112,13 +227,14 @@ function Export-CACAllSafes {
             Write-Progress -Activity "Exporting Safes" -Status "Processing $i of $total : $($safe.safeName)" -PercentComplete $pct
 
             try {
-                Write-Log "Processing safe $i/$total: $($safe.safeName)" "DEBUG"
+                Write-Log "Processing safe $i/$total : $($safe.safeName)" "DEBUG"
                 $formattedSafe = Format-CACSafe -Safe $safe
 
                 if ($formattedSafe) {
                     $formatted += $formattedSafe
                     $successCount++
-                } else {
+                }
+                else {
                     Write-Log "Format-CACSafe returned null for: $($safe.safeName)" "WARN"
                     $errorCount++
                 }
@@ -175,11 +291,13 @@ function Search-CACSafeByName {
             
             Write-Log "Export completed: $out" "SUCCESS"
             Write-Host "Found & Exported: $out" -ForegroundColor Green
-        } else { 
+        }
+        else { 
             Write-Log "Safe '$SafeName' not found" "WARN"
             Write-Host "Not Found" -ForegroundColor Yellow 
         }
-    } catch { 
+    }
+    catch { 
         Write-Log "Error searching safe '$SafeName': $($_.Exception.Message)" "ERROR"
         Write-Host "Error: $_" -ForegroundColor Red 
     }
@@ -199,13 +317,13 @@ function Export-CACSafeMembers {
     
     if ($mode -eq '1') { 
         $safes = (Read-Host "Safe Names (comma)") -split "," | ForEach { $_.Trim() }
-        $toCsv=$false 
+        $toCsv = $false 
     }
     elseif ($mode -eq '2') { 
         $p = Read-Host "CSV Path"
         if (!(Test-Path $p)) { Write-Log "CSV not found: $p" "ERROR"; return }
         $safes = (Import-Csv $p).SafeName | ForEach { $_.Trim() }
-        $toCsv=$true
+        $toCsv = $true
         $parent = Split-Path $p -Parent 
     }
     else { return }
@@ -216,7 +334,7 @@ function Export-CACSafeMembers {
 
     foreach ($s in $safes) {
         $i++
-        Write-Progress -Activity "Safe Members" -Status "Safe $i/$total : $s" -PercentComplete (($i/$total)*100)
+        Write-Progress -Activity "Safe Members" -Status "Safe $i/$total : $s" -PercentComplete (($i / $total) * 100)
         Write-Log "Fetching members for safe: $s" "INFO"
 
         try {
@@ -226,11 +344,13 @@ function Export-CACSafeMembers {
                 foreach ($m in $mems) {
                     $rows += New-CACSafeMemberDetailedRow -SafeName $s -MemberObj $m
                 }
-            } else {
+            }
+            else {
                 Write-Log "No members found in safe $s" "WARN"
             }
-        } catch {
-            Write-Log "Failed to fetch members for $s: $($_.Exception.Message)" "ERROR"
+        }
+        catch {
+            Write-Log "Failed to fetch members for $s : $($_.Exception.Message)" "ERROR"
         }
     }
     Write-Progress -Activity "Safe Members" -Completed
@@ -249,7 +369,8 @@ function Export-CACSafeMembers {
         
         Write-Host "Exported: $out" -ForegroundColor Green
         Write-Log "Export successful" "SUCCESS"
-    } else {
+    }
+    else {
         $rows | Out-GridView -Title "Safe Permissions"
     }
 }
@@ -262,12 +383,12 @@ function Export-CACSafeUsers {
 
     Write-Host "1. Manual | 2. CSV" -ForegroundColor Cyan
     $mode = Read-Host "Choice"
-    if ($mode -eq '1') { $safes = (Read-Host "Safe Names") -split ","; $toCsv=$false }
+    if ($mode -eq '1') { $safes = (Read-Host "Safe Names") -split ","; $toCsv = $false }
     elseif ($mode -eq '2') { 
         $p = Read-Host "CSV Path"
         if (!(Test-Path $p)) { Write-Log "CSV missing: $p" "ERROR"; return }
         $safes = (Import-Csv $p).SafeName
-        $toCsv=$true 
+        $toCsv = $true 
         $outCsv = Read-Host "Output CSV Path" 
     }
     
@@ -276,22 +397,23 @@ function Export-CACSafeUsers {
 
     foreach ($s in $safes) {
         $i++
-        Write-Progress -Id 1 -Activity "Processing Safes" -Status "$s" -PercentComplete (($i/$total)*100)
+        Write-Progress -Id 1 -Activity "Processing Safes" -Status "$s" -PercentComplete (($i / $total) * 100)
         Write-Log "Processing safe: $s" "INFO"
 
         try {
             $mems = Get-PASSafeMember -SafeName $s -ErrorAction Stop
-            $j=0; $mTotal = $mems.Count
+            $j = 0; $mTotal = $mems.Count
             
             foreach ($m in $mems) {
                 $j++
-                Write-Progress -Id 2 -ParentId 1 -Activity "Resolving Users" -Status "$($m.MemberName)" -PercentComplete (($j/$mTotal)*100)
+                Write-Progress -Id 2 -ParentId 1 -Activity "Resolving Users" -Status "$($m.MemberName)" -PercentComplete (($j / $mTotal) * 100)
                 
                 if ($m.MemberType -eq "User") {
                     Write-Log "Resolving User: $($m.MemberName)" "DEBUG"
                     $u = Get-CACUserDetailsFromStore -InputValue $m.MemberName
                     $rows += New-CACSafeUserRow -SafeName $s -SafeMember $m.MemberName -UserObj $u
-                } elseif ($m.MemberType -eq "Group") {
+                }
+                elseif ($m.MemberType -eq "Group") {
                     Write-Log "Resolving Group: $($m.MemberName)" "DEBUG"
                     $gUsers = Get-CACGroupUsers -GroupName $m.MemberName
                     foreach ($gu in $gUsers) {
@@ -300,8 +422,9 @@ function Export-CACSafeUsers {
                     }
                 }
             }
-        } catch {
-            Write-Log "Error processing safe $s: $($_.Exception.Message)" "ERROR"
+        }
+        catch {
+            Write-Log "Error processing safe $s : $($_.Exception.Message)" "ERROR"
         }
     }
     Write-Progress -Id 2 -Completed; Write-Progress -Id 1 -Completed
@@ -326,15 +449,16 @@ function New-CACSafe {
         if (!(Test-Path $path)) { Write-Log "CSV not found: $path" "ERROR"; return }
         
         $data = Import-Csv $path
-        $i=0; $t=$data.Count
+        $i = 0; $t = $data.Count
         
         foreach ($s in $data) {
             $i++
-            Write-Progress -Activity "Creating Safes" -Status "$($s.SafeName)" -PercentComplete (($i/$t)*100)
+            Write-Progress -Activity "Creating Safes" -Status "$($s.SafeName)" -PercentComplete (($i / $t) * 100)
             try { 
                 Add-PASSafe -SafeName $s.SafeName -Description $s.Description -ManagingCPM $s.ManagingCPM -ErrorAction Stop 
                 Write-Log "Created Safe: $($s.SafeName)" "SUCCESS"
-            } catch {
+            }
+            catch {
                 Write-Log "Failed to create safe $($s.SafeName): $($_.Exception.Message)" "ERROR"
             }
         }
@@ -355,20 +479,22 @@ function Add-CACSafeMember {
         if (!(Test-Path $path)) { Write-Log "CSV not found: $path" "ERROR"; return }
 
         $data = Import-Csv $path
-        $i=0; $t=$data.Count
+        $i = 0; $t = $data.Count
         
         foreach ($e in $data) {
             $i++
-            Write-Progress -Activity "Adding Members" -Status "$($e.Member) -> $($e.SafeName)" -PercentComplete (($i/$t)*100)
+            Write-Progress -Activity "Adding Members" -Status "$($e.Member) -> $($e.SafeName)" -PercentComplete (($i / $t) * 100)
             
             if ($conf.SafePermissionSets[$e.PermissionKey]) {
                 try { 
                     Add-PASSafeMember -SafeName $e.SafeName -MemberName $e.Member -SearchInVault $true -Permissions $conf.SafePermissionSets[$e.PermissionKey] -ErrorAction Stop 
                     Write-Log "Added $($e.Member) to $($e.SafeName)" "SUCCESS"
-                } catch {
+                }
+                catch {
                     Write-Log "Failed to add $($e.Member) to $($e.SafeName): $($_.Exception.Message)" "ERROR"
                 }
-            } else {
+            }
+            else {
                 Write-Log "Invalid Permission Key: $($e.PermissionKey)" "WARN"
             }
         }
@@ -388,7 +514,8 @@ function Export-CACSafeAccountCounts {
     try { 
         $safes = Get-PASSafe -ErrorAction Stop 
         Write-Log "Retrieved $($safes.Count) safes." "INFO"
-    } catch { 
+    }
+    catch { 
         Write-Log "Error fetching safes: $($_.Exception.Message)" "ERROR"
         Write-Host "Error fetching safes" -ForegroundColor Red
         return 
@@ -400,30 +527,31 @@ function Export-CACSafeAccountCounts {
     
     foreach ($s in $safes) {
         $i++
-        Write-Progress -Activity "Account Scan" -Status "Safe $i/$t : $($s.SafeName)" -PercentComplete (($i/$t)*100)
+        Write-Progress -Activity "Account Scan" -Status "Safe $i/$t : $($s.SafeName)" -PercentComplete (($i / $t) * 100)
         
         $count = 0
         try { 
             # SilentlyContinue used because empty safes can throw 404 in some versions
             $a = Get-PASAccount -SafeName $s.SafeName -ErrorAction SilentlyContinue
-            if($a){ $count = $a.Count }
+            if ($a) { $count = $a.Count }
             
             # LOG SUCCESS / INFO per safe
             Write-Log "Scanned Safe: $($s.SafeName) | Accounts: $count" "DEBUG"
-        } catch {
+        }
+        catch {
             Write-Log "Error scanning content of safe $($s.SafeName): $($_.Exception.Message)" "WARN"
         }
         
         $res += [PSCustomObject]@{
-            SafeName = $s.SafeName
+            SafeName     = $s.SafeName
             AccountCount = $count
-            Description = $s.Description
-            ManagingCPM = $s.ManagingCPM
+            Description  = $s.Description
+            ManagingCPM  = $s.ManagingCPM
         }
     }
     Write-Progress -Activity "Account Scan" -Completed
 
-    if($res.Count -gt 0) {
+    if ($res.Count -gt 0) {
         $outputDir = "$PSScriptRoot/../Output"
         if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
         $out = "$outputDir/safe_counts_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
@@ -433,7 +561,8 @@ function Export-CACSafeAccountCounts {
         
         Write-Host "Scan Complete: $out" -ForegroundColor Green
         Write-Log "Account inventory scan completed successfully" "SUCCESS"
-    } else {
+    }
+    else {
         Write-Log "No results generated from scan." "WARN"
     }
 }

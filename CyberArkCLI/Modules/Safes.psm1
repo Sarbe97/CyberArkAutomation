@@ -77,56 +77,125 @@ function New-CACSafeMemberDetailedRow {
 # =========================================================
 # 1. Export ALL Safes (DEBUG MODE)
 # =========================================================
+# =========================================================
+# 1. Export ALL Safes (Optimized: Handles 'value' or 'Safes')
+# =========================================================
 function Export-CACAllSafes {
-    Write-Host "--- DEEP INSPECTION MODE ---" -ForegroundColor Magenta
+    Write-Log "Started Export-CACAllSafes()" "DEBUG"
     
+    # 1. Get Active Session
     try {
         $session = Get-PASSession
-        if (-not $session) { throw "No session." }
+        if (-not $session) { throw "No active psPAS session found. Run New-PASSession first." }
+        
         $webSession = $session.WebSession
+        # Clean the BaseURI to ensure no double slashes
         $baseURI = $session.BaseURI.TrimEnd('/')
-    }
-    catch { Write-Host "Session Error: $_" -ForegroundColor Red; return }
-
-    # Setup the URL
-    $url = "$baseURI/API/Safes?limit=10&offset=0"  # Small limit for testing
-    Write-Host "Calling URL: $url" -ForegroundColor Cyan
-
-    try {
-        # Call API
-        $response = Invoke-RestMethod -Uri $url -Method GET -WebSession $webSession -ContentType "application/json" -ErrorAction Stop
         
-        # ---------------------------------------------------------
-        # THE INSPECTOR: Show exactly what we got back
-        # ---------------------------------------------------------
-        Write-Host "API Response Received." -ForegroundColor Green
-        
-        # 1. Check top-level properties
-        $props = $response | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name
-        Write-Host "Top-Level Properties found: $($props -join ', ')" -ForegroundColor Yellow
-
-        # 2. Dump the actual data (first few lines)
-        Write-Host "Raw JSON Content (First 500 chars):" -ForegroundColor White
-        $json = $response | ConvertTo-Json -Depth 2 -Compress
-        if ($json.Length -gt 500) { Write-Host "$($json.Substring(0,500))..." } else { Write-Host $json }
-
-        # 3. Check specific possibilities
-        if ($response.Safes) {
-            Write-Host "Found 'Safes' property. Count: $($response.Safes.Count)" -ForegroundColor Green
-        }
-        elseif ($response.value) {
-            Write-Host "Found 'value' property (Old API format?). Count: $($response.value.Count)" -ForegroundColor Green
-        }
-        else {
-            Write-Host "CRITICAL: Neither 'Safes' nor 'value' property found!" -ForegroundColor Red
-        }
-
+        Write-Log "Session found. BaseURI: $baseURI" "DEBUG"
     }
     catch {
-        Write-Host "API Call Failed: $($_.Exception.Message)" -ForegroundColor Red
-        if ($_.Exception.Response) {
-            Write-Host "HTTP Status: $($_.Exception.Response.StatusCode)" -ForegroundColor Red
+        Write-Log "Failed to retrieve psPAS session: $($_.Exception.Message)" "ERROR"
+        return
+    }
+
+    # Configuration
+    $chunkSize = 100
+    $offset = 0
+    $totalFetched = 0
+    $allFormatted = [System.Collections.Generic.List[PSObject]]::new()
+    
+    # Output Setup
+    $outputDir = "$PSScriptRoot/../Output"
+    if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
+    $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+
+    Write-Host "Starting Safe Export (Chunk Size: $chunkSize)..." -ForegroundColor Cyan
+    Write-Log "Starting pagination loop via Invoke-RestMethod" "INFO"
+
+    do {
+        # 2. Update Progress
+        Write-Progress -Activity "Exporting Safes" `
+            -Status "Fetched: $totalFetched | Current Batch: $offset - $($offset + $chunkSize)" `
+            -CurrentOperation "Querying Vault API..." 
+
+        try {
+            # 3. Construct URL
+            $url = "$baseURI/API/Safes?limit=$chunkSize&offset=$offset"
+            
+            # 4. Call API
+            $response = Invoke-RestMethod -Uri $url -Method GET -WebSession $webSession -ContentType "application/json" -ErrorAction Stop
+            
+            # 5. Extract Data (Universal Logic)
+            # Try 'Safes' (Gen2 standard), then 'value' (OData/Older standard)
+            if ($response.PSObject.Properties.Match("Safes")) {
+                $safesChunk = $response.Safes
+            }
+            elseif ($response.PSObject.Properties.Match("value")) {
+                $safesChunk = $response.value
+            }
+            else {
+                $safesChunk = $null
+            }
+
+            # Debug log to confirm which one worked
+            if ($safesChunk) {
+                Write-Log "Received $($safesChunk.Count) safes in this chunk." "DEBUG"
+            }
         }
+        catch {
+            Write-Log "API Error at offset $offset : $($_.Exception.Message)" "ERROR"
+            Write-Log "Failed URL: $url" "DEBUG"
+            break 
+        }
+
+        # Break if no results
+        if (-not $safesChunk -or $safesChunk.Count -eq 0) {
+            break
+        }
+
+        $chunkCount = $safesChunk.Count
+        $totalFetched += $chunkCount
+
+        # 6. Process this chunk
+        Write-Progress -Activity "Exporting Safes" `
+            -Status "Total Safes: $totalFetched" `
+            -CurrentOperation "Formatting chunk..."
+
+        foreach ($safe in $safesChunk) {
+            try {
+                $formatted = Format-CACSafe -Safe $safe
+                if ($formatted) {
+                    $allFormatted.Add($formatted)
+                }
+            }
+            catch {
+                Write-Log "Error formatting safe $($safe.SafeName): $($_.Exception.Message)" "WARN"
+            }
+        }
+
+        # 7. Prepare next batch
+        $offset += $chunkSize
+
+    } while ($chunkCount -ge $chunkSize)
+
+    # Close Progress
+    Write-Progress -Activity "Exporting Safes" -Completed
+
+    # 8. Export
+    if ($allFormatted.Count -gt 0) {
+        $outputFile = "$outputDir/all_safes_$timestamp.csv"
+        Write-Log "Exporting $($allFormatted.Count) safes to CSV: $outputFile" "INFO"
+        
+        $allFormatted | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
+        
+        Write-Host "`nExport Complete!" -ForegroundColor Green
+        Write-Host "  Total Safes: $($allFormatted.Count)"
+        Write-Host "  File: $outputFile" -ForegroundColor Cyan
+    }
+    else {
+        Write-Host "No safes found." -ForegroundColor Yellow
+        Write-Log "Final count was 0." "WARN"
     }
 }
 function Export-CACAllSafes1 {

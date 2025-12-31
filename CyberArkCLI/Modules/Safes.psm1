@@ -80,26 +80,24 @@ function New-CACSafeMemberDetailedRow {
 # =========================================================
 # 1. Export ALL Safes (Optimized: Handles 'value' or 'Safes')
 # =========================================================
+# =========================================================
+# 1. Export ALL Safes (Corrected for 'value' Property)
+# =========================================================
 function Export-CACAllSafes {
     Write-Log "Started Export-CACAllSafes()" "DEBUG"
     
-    # 1. Get Active Session
+    # 1. Get Session
     try {
         $session = Get-PASSession
-        if (-not $session) { throw "No active psPAS session found. Run New-PASSession first." }
-        
+        if (-not $session) { throw "No active psPAS session. Run New-PASSession first." }
         $webSession = $session.WebSession
-        # Clean the BaseURI to ensure no double slashes
         $baseURI = $session.BaseURI.TrimEnd('/')
-        
-        Write-Log "Session found. BaseURI: $baseURI" "DEBUG"
     }
     catch {
-        Write-Log "Failed to retrieve psPAS session: $($_.Exception.Message)" "ERROR"
+        Write-Log "Session Error: $($_.Exception.Message)" "ERROR"
         return
     }
 
-    # Configuration
     $chunkSize = 100
     $offset = 0
     $totalFetched = 0
@@ -111,45 +109,45 @@ function Export-CACAllSafes {
     $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 
     Write-Host "Starting Safe Export (Chunk Size: $chunkSize)..." -ForegroundColor Cyan
-    Write-Log "Starting pagination loop via Invoke-RestMethod" "INFO"
+    Write-Log "Starting pagination loop." "INFO"
 
     do {
-        # 2. Update Progress
         Write-Progress -Activity "Exporting Safes" `
-            -Status "Fetched: $totalFetched | Current Batch: $offset - $($offset + $chunkSize)" `
-            -CurrentOperation "Querying Vault API..." 
+            -Status "Fetched: $totalFetched | Batch: $offset" `
+            -CurrentOperation "Querying API..." 
 
         try {
-            # 3. Construct URL
             $url = "$baseURI/API/Safes?limit=$chunkSize&offset=$offset"
             
-            # 4. Call API
+            # Call API
             $response = Invoke-RestMethod -Uri $url -Method GET -WebSession $webSession -ContentType "application/json" -ErrorAction Stop
             
-            # 5. Extract Data (Universal Logic)
-            # Try 'Safes' (Gen2 standard), then 'value' (OData/Older standard)
-            if ($response.PSObject.Properties.Match("Safes")) {
-                $safesChunk = $response.Safes
-            }
-            elseif ($response.PSObject.Properties.Match("value")) {
+            # -------------------------------------------------------
+            # FIXED DETECTION LOGIC based on your log output
+            # -------------------------------------------------------
+            $safesChunk = $null
+
+            # Priority 1: Check 'value' (This matches your log output)
+            if ($null -ne $response.value) {
                 $safesChunk = $response.value
+                Write-Log "Using 'value' property. Count: $($safesChunk.Count)" "DEBUG"
             }
-            else {
-                $safesChunk = $null
+            # Priority 2: Check 'Safes' (Fallback for other API versions)
+            elseif ($null -ne $response.Safes) {
+                $safesChunk = $response.Safes
+                Write-Log "Using 'Safes' property. Count: $($safesChunk.Count)" "DEBUG"
             }
 
-            # Debug log to confirm which one worked
-            if ($safesChunk) {
-                Write-Log "Received $($safesChunk.Count) safes in this chunk." "DEBUG"
+            if (-not $safesChunk) {
+                Write-Log "Chunk is empty or null at offset $offset." "WARN"
             }
         }
         catch {
             Write-Log "API Error at offset $offset : $($_.Exception.Message)" "ERROR"
-            Write-Log "Failed URL: $url" "DEBUG"
             break 
         }
 
-        # Break if no results
+        # Stop if no data returned
         if (-not $safesChunk -or $safesChunk.Count -eq 0) {
             break
         }
@@ -157,45 +155,32 @@ function Export-CACAllSafes {
         $chunkCount = $safesChunk.Count
         $totalFetched += $chunkCount
 
-        # 6. Process this chunk
-        Write-Progress -Activity "Exporting Safes" `
-            -Status "Total Safes: $totalFetched" `
-            -CurrentOperation "Formatting chunk..."
+        # Process Chunk
+        Write-Progress -Activity "Exporting Safes" -Status "Total: $totalFetched" -CurrentOperation "Formatting..."
 
         foreach ($safe in $safesChunk) {
             try {
                 $formatted = Format-CACSafe -Safe $safe
-                if ($formatted) {
-                    $allFormatted.Add($formatted)
-                }
+                if ($formatted) { $allFormatted.Add($formatted) }
             }
-            catch {
-                Write-Log "Error formatting safe $($safe.SafeName): $($_.Exception.Message)" "WARN"
-            }
+            catch {}
         }
 
-        # 7. Prepare next batch
         $offset += $chunkSize
 
     } while ($chunkCount -ge $chunkSize)
 
-    # Close Progress
     Write-Progress -Activity "Exporting Safes" -Completed
 
-    # 8. Export
+    # Export
     if ($allFormatted.Count -gt 0) {
         $outputFile = "$outputDir/all_safes_$timestamp.csv"
-        Write-Log "Exporting $($allFormatted.Count) safes to CSV: $outputFile" "INFO"
-        
         $allFormatted | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
-        
-        Write-Host "`nExport Complete!" -ForegroundColor Green
-        Write-Host "  Total Safes: $($allFormatted.Count)"
-        Write-Host "  File: $outputFile" -ForegroundColor Cyan
+        Write-Host "Export Complete: $outputFile" -ForegroundColor Green
+        Write-Log "Total Safes Exported: $($allFormatted.Count)" "SUCCESS"
     }
     else {
         Write-Host "No safes found." -ForegroundColor Yellow
-        Write-Log "Final count was 0." "WARN"
     }
 }
 function Export-CACAllSafes1 {

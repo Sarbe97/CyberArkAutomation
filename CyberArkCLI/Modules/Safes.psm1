@@ -80,19 +80,21 @@ function New-CACSafeMemberDetailedRow {
 # =========================================================
 # 1. Export ALL Safes (Manual Pagination via Invoke-RestMethod)
 # =========================================================
+# =========================================================
+# 1. Export ALL Safes (Manual Pagination via WebSession)
+# =========================================================
 function Export-CACAllSafes {
     Write-Log "Started Export-CACAllSafes()" "DEBUG"
     
-    # 1. Get Session Details from psPAS
-    # We need the Token and BaseURI to make manual API calls
+    # 1. Get Active Session (WebSession method)
     try {
         $session = Get-PASSession
         if (-not $session) { throw "No active psPAS session found. Run New-PASSession first." }
         
         $baseURI = $session.BaseURI
-        $token = $session.Token
-        # Construct the Header manually
-        $headers = @{ "Authorization" = $token }
+        $webSession = $session.WebSession
+        
+        Write-Log "Session found. BaseURI: $baseURI" "DEBUG"
     }
     catch {
         Write-Log "Failed to retrieve psPAS session: $($_.Exception.Message)" "ERROR"
@@ -111,7 +113,7 @@ function Export-CACAllSafes {
     $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 
     Write-Host "Starting Safe Export (Chunk Size: $chunkSize)..." -ForegroundColor Cyan
-    Write-Log "Starting manual pagination loop via Invoke-RestMethod" "INFO"
+    Write-Log "Starting pagination loop via Invoke-WebRequest" "INFO"
 
     do {
         # 2. Update Progress
@@ -120,19 +122,21 @@ function Export-CACAllSafes {
             -CurrentOperation "Querying Vault API..." 
 
         try {
-            # 3. Build URL and Call API
-            # Note: We must construct the full URL manually
+            # 3. Construct URL
+            # Note: psPAS BaseURI usually includes '/PasswordVault', so we append '/API/Safes'
             $url = "$baseURI/API/Safes?limit=$chunkSize&offset=$offset"
             
-            # Use standard PowerShell cmdlet
-            $response = Invoke-RestMethod -Uri $url -Method Get -Headers $headers -ErrorAction Stop
+            # 4. Call API (Using WebSession like your working sample)
+            $response = Invoke-WebRequest -Uri $url -Method GET -WebSession $webSession -ContentType "application/json" -ErrorAction Stop
             
-            # The API returns an object { "Safes": [...], "Total": 123 }
-            # We extract the list
-            $safesChunk = $response.Safes
+            # 5. Convert JSON content
+            $content = $response.Content | ConvertFrom-Json
+            
+            # Extract the list (Gen2 API response is { "Safes": [...] })
+            $safesChunk = $content.Safes
         }
         catch {
-            Write-Log "API Error at offset $offset : $($_.Exception.Message)" "ERROR"
+            Write-Log "API Error at offset $offset: $($_.Exception.Message)" "ERROR"
             break 
         }
 
@@ -144,15 +148,13 @@ function Export-CACAllSafes {
         $chunkCount = $safesChunk.Count
         $totalFetched += $chunkCount
 
-        # 4. Process this chunk
+        # 6. Process this chunk
         Write-Progress -Activity "Exporting Safes" `
             -Status "Total Safes: $totalFetched" `
             -CurrentOperation "Formatting chunk..."
 
         foreach ($safe in $safesChunk) {
             try {
-                # The raw API object is slightly different from Get-PASSafe object
-                # but Format-CACSafe should handle it if it uses standard property names.
                 $formatted = Format-CACSafe -Safe $safe
                 if ($formatted) {
                     $allFormatted.Add($formatted)
@@ -163,9 +165,8 @@ function Export-CACAllSafes {
             }
         }
 
-        # 5. Prepare next batch
+        # 7. Prepare next batch
         $offset += $chunkSize
-        
         Write-Log "Processed batch ending at offset $offset. Total: $totalFetched" "DEBUG"
 
     } while ($chunkCount -ge $chunkSize)
@@ -173,7 +174,7 @@ function Export-CACAllSafes {
     # Close Progress
     Write-Progress -Activity "Exporting Safes" -Completed
 
-    # 6. Export
+    # 8. Export
     if ($allFormatted.Count -gt 0) {
         $outputFile = "$outputDir/all_safes_$timestamp.csv"
         Write-Log "Exporting $($allFormatted.Count) safes to CSV: $outputFile" "INFO"

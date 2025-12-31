@@ -23,8 +23,14 @@ function Invoke-CACAPIRequest {
 
         Write-Log "PAS session found. BaseURI: $($session.BaseURI)" "DEBUG"
 
-        $baseURL = $session.BaseURI
-        $fullURL = "$baseURL$Endpoint"
+        $baseURI = $session.BaseURI.TrimEnd('/')
+        
+        # Ensure Endpoint has a leading slash if not present
+        if (-not $Endpoint.StartsWith("/")) {
+            $Endpoint = "/$Endpoint"
+        }
+
+        $fullURL = "$baseURI$Endpoint"
 
         Write-Log "Calling API: $fullURL" "DEBUG"
 
@@ -33,6 +39,7 @@ function Invoke-CACAPIRequest {
             Method      = $Method
             WebSession  = $session.WebSession
             ContentType = "application/json"
+            ErrorAction = "Stop"
         }
 
         if ($Body) {
@@ -40,13 +47,11 @@ function Invoke-CACAPIRequest {
             Write-Log "Request body size: $($requestParams['Body'].Length) bytes" "DEBUG"
         }
 
-        $response = Invoke-WebRequest @requestParams -ErrorAction Stop
+        $response = Invoke-RestMethod @requestParams
 
-        Write-Log "API request successful. Status: $($response.StatusCode)" "DEBUG"
+        Write-Log "API request successful." "DEBUG"
 
-        $content = $response.Content | ConvertFrom-Json
-
-        return $content
+        return $response
     }
     catch {
         Write-Log "Error in Invoke-CACAPIRequest(): $($_.Exception.Message)" "ERROR"

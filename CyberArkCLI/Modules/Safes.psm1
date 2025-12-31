@@ -75,28 +75,12 @@ function New-CACSafeMemberDetailedRow {
 
 
 # =========================================================
-# 1. Export ALL Safes (DEBUG MODE)
-# =========================================================
-# =========================================================
-# 1. Export ALL Safes (Optimized: Handles 'value' or 'Safes')
-# =========================================================
-# =========================================================
 # 1. Export ALL Safes (Corrected for 'value' Property)
 # =========================================================
 function Export-CACAllSafes {
     Write-Log "Started Export-CACAllSafes()" "DEBUG"
     
-    # 1. Get Session
-    try {
-        $session = Get-PASSession
-        if (-not $session) { throw "No active psPAS session. Run New-PASSession first." }
-        $webSession = $session.WebSession
-        $baseURI = $session.BaseURI.TrimEnd('/')
-    }
-    catch {
-        Write-Log "Session Error: $($_.Exception.Message)" "ERROR"
-        return
-    }
+    # Session handled by Invoke-CACAPIRequest
 
     $chunkSize = 100
     $offset = 0
@@ -117,10 +101,8 @@ function Export-CACAllSafes {
             -CurrentOperation "Querying API..." 
 
         try {
-            $url = "$baseURI/API/Safes?limit=$chunkSize&offset=$offset"
-            
-            # Call API
-            $response = Invoke-RestMethod -Uri $url -Method GET -WebSession $webSession -ContentType "application/json" -ErrorAction Stop
+            $endpoint = "/API/Safes?limit=$chunkSize&offset=$offset"
+            $response = Invoke-CACAPIRequest -Method "GET" -Endpoint $endpoint
             
             # -------------------------------------------------------
             # FIXED DETECTION LOGIC based on your log output
@@ -181,84 +163,6 @@ function Export-CACAllSafes {
     }
     else {
         Write-Host "No safes found." -ForegroundColor Yellow
-    }
-}
-function Export-CACAllSafes1 {
-    Write-Log "Started Export-CACAllSafes()" "DEBUG"
-    
-    Write-Progress -Activity "Fetching Safes" -Status "Querying Vault..." -PercentComplete 0
-    Write-Log "Fetching all safes using Get-PASSafe" "INFO"
-
-    try {
-        $safes = Get-PASSafe
-        Write-Progress -Activity "Fetching Safes" -Completed
-
-        if (-not $safes -or $safes.Count -eq 0) {
-            Write-Log "No safes returned from Vault" "WARN"
-            Write-Host "No safes found." -ForegroundColor Yellow
-            return
-        }
-
-        $total = $safes.Count
-        Write-Log "Total safes retrieved: $total" "INFO"
-        Write-Host "Processing $total safes..." -ForegroundColor Cyan
-
-        # Output Setup
-        $outputDir = "$PSScriptRoot/../Output"
-        if (-not (Test-Path $outputDir)) { 
-            New-Item -ItemType Directory -Path $outputDir | Out-Null 
-            Write-Log "Created output directory: $outputDir" "DEBUG"
-        }
-        
-        $formatted = @()
-        $successCount = 0
-        $errorCount = 0
-        $i = 0
-
-        foreach ($safe in $safes) {
-            $i++
-            $pct = ($i / $total) * 100
-            Write-Progress -Activity "Exporting Safes" -Status "Processing $i of $total : $($safe.safeName)" -PercentComplete $pct
-
-            try {
-                Write-Log "Processing safe $i/$total : $($safe.safeName)" "DEBUG"
-                $formattedSafe = Format-CACSafe -Safe $safe
-
-                if ($formattedSafe) {
-                    $formatted += $formattedSafe
-                    $successCount++
-                }
-                else {
-                    Write-Log "Format-CACSafe returned null for: $($safe.safeName)" "WARN"
-                    $errorCount++
-                }
-            }
-            catch {
-                $errorCount++
-                Write-Log "Error processing safe $($safe.safeName): $($_.Exception.Message)" "ERROR"
-            }
-        }
-        Write-Progress -Activity "Exporting Safes" -Completed
-
-        # Export
-        if ($formatted.Count -gt 0) {
-            $file = "$outputDir/all_safes_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
-            Write-Log "Exporting $successCount safes to CSV: $file" "INFO"
-            
-            $formatted | Export-Csv -Path $file -NoTypeInformation -Encoding UTF8
-            
-            Write-Host "Export Successful: $file" -ForegroundColor Green
-            Write-Log "CSV export completed successfully" "SUCCESS"
-        }
-        else {
-            Write-Log "No successfully formatted safes to export" "WARN"
-        }
-
-        Write-Log "Completed Export-CACAllSafes. Success: $successCount, Errors: $errorCount" "INFO"
-    }
-    catch {
-        Write-Log "Fatal Error in Export-CACAllSafes: $($_.Exception.Message)" "ERROR"
-        throw
     }
 }
 

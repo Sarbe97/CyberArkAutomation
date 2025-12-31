@@ -78,111 +78,57 @@ function New-CACSafeMemberDetailedRow {
 # 1. Export ALL Safes (DEBUG MODE)
 # =========================================================
 function Export-CACAllSafes {
-    Write-Host "--- DEBUG MODE STARTED ---" -ForegroundColor Magenta
+    Write-Host "--- DEEP INSPECTION MODE ---" -ForegroundColor Magenta
     
-    # 1. Get Session
     try {
         $session = Get-PASSession
-        if (-not $session) { throw "No active psPAS session. Run New-PASSession first." }
-        
+        if (-not $session) { throw "No session." }
         $webSession = $session.WebSession
-        # Clean the BaseURI to ensure we don't have double slashes later
-        $baseURI = $session.BaseURI.TrimEnd('/') 
+        $baseURI = $session.BaseURI.TrimEnd('/')
+    }
+    catch { Write-Host "Session Error: $_" -ForegroundColor Red; return }
+
+    # Setup the URL
+    $url = "$baseURI/API/Safes?limit=10&offset=0"  # Small limit for testing
+    Write-Host "Calling URL: $url" -ForegroundColor Cyan
+
+    try {
+        # Call API
+        $response = Invoke-RestMethod -Uri $url -Method GET -WebSession $webSession -ContentType "application/json" -ErrorAction Stop
         
-        Write-Host "DEBUG: BaseURI detected as: '$baseURI'" -ForegroundColor Magenta
+        # ---------------------------------------------------------
+        # THE INSPECTOR: Show exactly what we got back
+        # ---------------------------------------------------------
+        Write-Host "API Response Received." -ForegroundColor Green
+        
+        # 1. Check top-level properties
+        $props = $response | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name
+        Write-Host "Top-Level Properties found: $($props -join ', ')" -ForegroundColor Yellow
+
+        # 2. Dump the actual data (first few lines)
+        Write-Host "Raw JSON Content (First 500 chars):" -ForegroundColor White
+        $json = $response | ConvertTo-Json -Depth 2 -Compress
+        if ($json.Length -gt 500) { Write-Host "$($json.Substring(0,500))..." } else { Write-Host $json }
+
+        # 3. Check specific possibilities
+        if ($response.Safes) {
+            Write-Host "Found 'Safes' property. Count: $($response.Safes.Count)" -ForegroundColor Green
+        }
+        elseif ($response.value) {
+            Write-Host "Found 'value' property (Old API format?). Count: $($response.value.Count)" -ForegroundColor Green
+        }
+        else {
+            Write-Host "CRITICAL: Neither 'Safes' nor 'value' property found!" -ForegroundColor Red
+        }
+
     }
     catch {
-        Write-Host "DEBUG: Failed to get session: $($_.Exception.Message)" -ForegroundColor Red
-        return
-    }
-
-    $chunkSize = 100
-    $offset = 0
-    $totalFetched = 0
-    $allFormatted = [System.Collections.Generic.List[PSObject]]::new()
-    
-    # Output Setup
-    $outputDir = "$PSScriptRoot/../Output"
-    if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
-    $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-
-    do {
-        try {
-            # 2. Construct URL
-            # We assume BaseURI is like https://pvwa/PasswordVault
-            # So we append /API/Safes
-            $url = "$baseURI/API/Safes?limit=$chunkSize&offset=$offset"
-            
-            Write-Host "DEBUG: Calling URL -> $url" -ForegroundColor Magenta
-
-            # 3. Call API
-            $response = Invoke-RestMethod -Uri $url -Method GET -WebSession $webSession -ContentType "application/json" -ErrorAction Stop
-            
-            # 4. Inspect Response
-            if (-not $response) {
-                Write-Host "DEBUG: API returned NULL response." -ForegroundColor Red
-                break
-            }
-
-            # Check if 'Safes' property exists (Gen2 API standard)
-            if (-not $response.PSObject.Properties.Match("Safes")) {
-                Write-Host "DEBUG: Response received, but no 'Safes' property found!" -ForegroundColor Red
-                Write-Host "DEBUG: Raw Response Properties: $($response | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name)" -ForegroundColor Yellow
-                break
-            }
-
-            $safesChunk = $response.Safes
-            $count = $safesChunk.Count
-
-            Write-Host "DEBUG: Success! Received chunk of $count safes." -ForegroundColor Green
+        Write-Host "API Call Failed: $($_.Exception.Message)" -ForegroundColor Red
+        if ($_.Exception.Response) {
+            Write-Host "HTTP Status: $($_.Exception.Response.StatusCode)" -ForegroundColor Red
         }
-        catch {
-            # 5. Full Error Dump
-            Write-Host "DEBUG: API Call Failed!" -ForegroundColor Red
-            Write-Host "  Message: $($_.Exception.Message)" -ForegroundColor Red
-            
-            # Check if there is a deeper response code (e.g., 404, 500)
-            if ($_.Exception.Response) {
-                $status = $_.Exception.Response.StatusCode
-                $desc = $_.Exception.Response.StatusDescription
-                Write-Host "  HTTP Status: $status ($desc)" -ForegroundColor Red
-            }
-            
-            Write-Log "API Error at offset $offset: $($_.Exception.Message)" "ERROR"
-            break 
-        }
-
-        # Break if no results
-        if (-not $safesChunk -or $safesChunk.Count -eq 0) {
-            Write-Host "DEBUG: Chunk is empty. Stopping loop." -ForegroundColor Magenta
-            break
-        }
-
-        $totalFetched += $safesChunk.Count
-
-        # Process chunk
-        foreach ($safe in $safesChunk) {
-            try {
-                $formatted = Format-CACSafe -Safe $safe
-                if ($formatted) { $allFormatted.Add($formatted) }
-            }
-            catch {}
-        }
-
-        $offset += $chunkSize
-
-    } while ($safesChunk.Count -ge $chunkSize)
-
-    Write-Host "--- DEBUG MODE FINISHED ---" -ForegroundColor Magenta
-
-    # Export
-    if ($allFormatted.Count -gt 0) {
-        $outputFile = "$outputDir/all_safes_$timestamp.csv"
-        $allFormatted | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
-        Write-Host "Exported $totalFetched safes to: $outputFile" -ForegroundColor Green
     }
 }
-
 function Export-CACAllSafes1 {
     Write-Log "Started Export-CACAllSafes()" "DEBUG"
     

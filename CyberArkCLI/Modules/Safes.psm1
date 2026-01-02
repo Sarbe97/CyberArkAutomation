@@ -243,17 +243,9 @@ function Export-CACConsolidatedReport {
             }
 
             # --- BRANCH 3: Detailed User Info (Rows) ---
-            # --- BRANCH 3: Detailed User Info (Rows) ---
             if ($reqDetailUsers -eq 'y') {
                 foreach ($m in $members) {
-                    # Prepare Base Row with Safe Info + Member Context
-                    $baseRow = [ordered]@{ SafeName = $safeName }
-                    foreach ($k in $safePropsHash.Keys) { $baseRow[$k] = $safePropsHash[$k] }
-                    
-                    $baseRow["SafeMemberName"] = $m.MemberName
-                    $baseRow["SafeMemberType"] = $m.MemberType
-
-                    # Resolve Users for this member
+                    # 1. Resolve Users for this member
                     $usersToProcess = @()
                     if ($m.MemberType -eq "User") {
                         $usersToProcess += $m.MemberName
@@ -263,20 +255,31 @@ function Export-CACConsolidatedReport {
                         if ($gUsers) { $usersToProcess += $gUsers.UserName }
                     }
 
-                    # If no users found (empty group), maybe skip or log? 
-                    # Providing at least one row if empty to show the group exists on safe?
+                    # 2. Handle Empty Groups
                     if ($usersToProcess.Count -eq 0) {
-                        $row = $baseRow.Clone()
+                        $row = [ordered]@{ SafeName = $safeName }
+                        foreach ($k in $safePropsHash.Keys) { $row[$k] = $safePropsHash[$k] }
+                         
+                        $row["SafeMemberName"] = $m.MemberName
+                        $row["SafeMemberType"] = $m.MemberType
                         $row["UserName"] = "EMPTY/NO MEMBERS"
+                         
                         $results += [PSCustomObject]$row
                         continue
                     }
 
+                    # 3. Process Users
                     foreach ($uName in $usersToProcess) {
                         # Fetch User Details
                         $uDetails = Get-CACUserDetailsFromStore -InputValue $uName
                         
-                        $row = $baseRow.Clone()
+                        # Build Row from Scratch
+                        $row = [ordered]@{ SafeName = $safeName }
+                        foreach ($k in $safePropsHash.Keys) { $row[$k] = $safePropsHash[$k] }
+                        
+                        $row["SafeMemberName"] = $m.MemberName
+                        $row["SafeMemberType"] = $m.MemberType
+                        
                         $row["UserName"] = $uDetails.UserName
                         $row["FullName"] = $uDetails.FullName
                         $row["Email"] = $uDetails.Email

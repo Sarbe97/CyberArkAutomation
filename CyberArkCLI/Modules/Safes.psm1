@@ -339,9 +339,4 @@ function Export-CACSafeAccountCounts {
     }
 }
 
-Export-ModuleMember -Function `
-    Export-CACAllSafes, `
-   `
-    Export-CACConsolidatedReport, `
-    
-Export-CACSafeAccountCounts
+Export-ModuleMember -Function  Export-CACAllSafes, Export-CACConsolidatedReport, Export-CACSafeAccountCounts

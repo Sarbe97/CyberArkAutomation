@@ -243,36 +243,47 @@ function Export-CACConsolidatedReport {
             }
 
             # --- BRANCH 3: Detailed User Info (Rows) ---
+            # --- BRANCH 3: Detailed User Info (Rows) ---
             if ($reqDetailUsers -eq 'y') {
-                # Resolve all unique users for detailed report
-                $resolvedUsers = @()
                 foreach ($m in $members) {
+                    # Prepare Base Row with Safe Info + Member Context
+                    $baseRow = [ordered]@{ SafeName = $safeName }
+                    foreach ($k in $safePropsHash.Keys) { $baseRow[$k] = $safePropsHash[$k] }
+                    
+                    $baseRow["SafeMemberName"] = $m.MemberName
+                    $baseRow["SafeMemberType"] = $m.MemberType
+
+                    # Resolve Users for this member
+                    $usersToProcess = @()
                     if ($m.MemberType -eq "User") {
-                        $resolvedUsers += $m.MemberName
+                        $usersToProcess += $m.MemberName
                     }
                     elseif ($m.MemberType -eq "Group") {
                         $gUsers = Get-CACGroupUsers -GroupName $m.MemberName
-                        if ($gUsers) { $resolvedUsers += $gUsers.UserName }
+                        if ($gUsers) { $usersToProcess += $gUsers.UserName }
                     }
-                }
-                $resolvedUsers = $resolvedUsers | Select-Object -Unique
 
-                foreach ($uName in $resolvedUsers) {
-                    # Fetch User Details (from Users.psm1 cache function)
-                    $uDetails = Get-CACUserDetailsFromStore -InputValue $uName
-                    
-                    # Create Row
-                    $row = [ordered]@{ SafeName = $safeName }
-                    foreach ($k in $safePropsHash.Keys) { $row[$k] = $safePropsHash[$k] }
-                    
-                    # Merge User Details
-                    $row["UserName"] = $uDetails.UserName
-                    $row["FullName"] = $uDetails.FullName
-                    $row["Email"] = $uDetails.Email
-                    $row["Department"] = $uDetails.Department
-                    # $row["Status"] = $uDetails.Status
-                    
-                    $results += [PSCustomObject]$row
+                    # If no users found (empty group), maybe skip or log? 
+                    # Providing at least one row if empty to show the group exists on safe?
+                    if ($usersToProcess.Count -eq 0) {
+                        $row = $baseRow.Clone()
+                        $row["UserName"] = "EMPTY/NO MEMBERS"
+                        $results += [PSCustomObject]$row
+                        continue
+                    }
+
+                    foreach ($uName in $usersToProcess) {
+                        # Fetch User Details
+                        $uDetails = Get-CACUserDetailsFromStore -InputValue $uName
+                        
+                        $row = $baseRow.Clone()
+                        $row["UserName"] = $uDetails.UserName
+                        $row["FullName"] = $uDetails.FullName
+                        $row["Email"] = $uDetails.Email
+                        $row["Department"] = $uDetails.Department
+                        
+                        $results += [PSCustomObject]$row
+                    }
                 }
             }
             # --- BRANCH 4: Group-wise User List (Row per Member/Group) ---

@@ -205,13 +205,11 @@ function Export-CACConsolidatedReport {
             # Prepare Safe Attributes Hashtable if requested
             $safePropsHash = @{}
             if ($reqSafeAttrs -eq 'y') {
-                $safePropsHash = [ordered]@{
-                    Description   = $safeObj.Description
-                    Location      = $safeObj.Location
-                    RetentionDays = $safeObj.NumberOfDaysRetention
-                    ManagingCPM   = $safeObj.ManagingCPM
-                    # Add URL ID if available (Gen2)
-                    UrlId         = if ($safeObj.UrlId) { $safeObj.UrlId } else { "N/A" }
+                $safePropsHash = [ordered]@{}
+                foreach ($prop in $safeObj.PSObject.Properties) {
+                    if ($prop.Name -ne 'SafeName') {
+                        $safePropsHash[$prop.Name] = $prop.Value
+                    }
                 }
             }
 
@@ -244,27 +242,21 @@ function Export-CACConsolidatedReport {
                 continue
             }
 
-            # --- BRANCH 3 & 4: Users (Detailed or Simple) ---
-            # We need to resolve members (Users/Groups) first
-            $resolvedUsers = @()
-
-            foreach ($m in $members) {
-                if ($m.MemberType -eq "User") {
-                    $resolvedUsers += $m.MemberName
-                }
-                elseif ($m.MemberType -eq "Group") {
-                    # Expand Group
-                    $gUsers = Get-CACGroupUsers -GroupName $m.MemberName
-                    if ($gUsers) { $resolvedUsers += $gUsers.UserName }
-                }
-            }
-            # Remove duplicates from group expansion
-            $resolvedUsers = $resolvedUsers | Select-Object -Unique
-
-            if ($resolvedUsers.Count -eq 0) { continue }
-
             # --- BRANCH 3: Detailed User Info (Rows) ---
             if ($reqDetailUsers -eq 'y') {
+                # Resolve all unique users for detailed report
+                $resolvedUsers = @()
+                foreach ($m in $members) {
+                    if ($m.MemberType -eq "User") {
+                        $resolvedUsers += $m.MemberName
+                    }
+                    elseif ($m.MemberType -eq "Group") {
+                        $gUsers = Get-CACGroupUsers -GroupName $m.MemberName
+                        if ($gUsers) { $resolvedUsers += $gUsers.UserName }
+                    }
+                }
+                $resolvedUsers = $resolvedUsers | Select-Object -Unique
+
                 foreach ($uName in $resolvedUsers) {
                     # Fetch User Details (from Users.psm1 cache function)
                     $uDetails = Get-CACUserDetailsFromStore -InputValue $uName
@@ -278,20 +270,36 @@ function Export-CACConsolidatedReport {
                     $row["FullName"] = $uDetails.FullName
                     $row["Email"] = $uDetails.Email
                     $row["Department"] = $uDetails.Department
-                    $row["Status"] = $uDetails.Status
+                    # $row["Status"] = $uDetails.Status
                     
                     $results += [PSCustomObject]$row
                 }
             }
-            # --- BRANCH 4: Simple User List (One Row) ---
+            # --- BRANCH 4: Group-wise User List (Row per Member/Group) ---
             else {
-                $userString = $resolvedUsers -join ";"
-                
-                $row = [ordered]@{ SafeName = $safeName }
-                foreach ($k in $safePropsHash.Keys) { $row[$k] = $safePropsHash[$k] }
-                $row["SafeUsers"] = $userString
-                
-                $results += [PSCustomObject]$row
+                foreach ($m in $members) {
+                    $row = [ordered]@{ SafeName = $safeName }
+                    foreach ($k in $safePropsHash.Keys) { $row[$k] = $safePropsHash[$k] }
+                    
+                    $row["MemberName"] = $m.MemberName
+                    $row["MemberType"] = $m.MemberType
+
+                    if ($m.MemberType -eq "Group") {
+                        $gUsers = Get-CACGroupUsers -GroupName $m.MemberName
+                        if ($gUsers) {
+                            $row["SafeUsers"] = ($gUsers.UserName -join ";")
+                        }
+                        else {
+                            $row["SafeUsers"] = "EMPTY_GROUP"
+                        }
+                    }
+                    else {
+                        # Singular User
+                        $row["SafeUsers"] = $m.MemberName
+                    }
+                    
+                    $results += [PSCustomObject]$row
+                }
             }
         }
         catch {
@@ -339,4 +347,4 @@ function Export-CACSafeAccountCounts {
     }
 }
 
-Export-ModuleMember -Function  Export-CACAllSafes, Export-CACConsolidatedReport, Export-CACSafeAccountCounts
+Export-ModuleMember -Function Export-CACAllSafes, Export-CACConsolidatedReport, Export-CACSafeAccountCounts

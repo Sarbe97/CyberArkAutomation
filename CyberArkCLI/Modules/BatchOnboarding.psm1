@@ -52,7 +52,8 @@ function Invoke-CACBatchOnboarding {
         }
         catch {
             try {
-                $safeParams = @{ SafeName = $safeName; Description = $row.SafeDescription; ManagingCPM = $row.ManagingCPM; ErrorAction = 'Stop' }
+                $safeParams = @{ SafeName = $safeName; Description = $row.SafeDescription; ErrorAction = 'Stop' }
+                if (-not [string]::IsNullOrWhiteSpace($row.ManagingCPM)) { $safeParams.ManagingCPM = $row.ManagingCPM }
                 if ($row.NumberOfDaysRetention) { $safeParams.NumberOfDaysRetention = [int]$row.NumberOfDaysRetention }
                 if ($row.NumberOfVersionsRetention) { $safeParams.NumberOfVersionsRetention = [int]$row.NumberOfVersionsRetention }
                 Add-PASSafe @safeParams
@@ -106,7 +107,8 @@ function Invoke-CACBatchOnboarding {
                     if (-not [string]::IsNullOrWhiteSpace($inputName)) {
                         try {
                             Add-PASGroupMember -GroupId $groupId -MemberId $inputName -ErrorAction Stop
-                        } catch {}
+                        }
+                        catch {}
                     }
                 }
             }
@@ -134,7 +136,8 @@ function Invoke-CACBatchOnboarding {
         # Determine permission source (CSV override OR JSON Config key)
         $rawPerms = if ($row.Permissions) { 
             $row.Permissions -split ";" | ForEach-Object { $_.Trim() } 
-        } else { 
+        }
+        else { 
             $permissionSets.$($row.PermissionKey) 
         }
 

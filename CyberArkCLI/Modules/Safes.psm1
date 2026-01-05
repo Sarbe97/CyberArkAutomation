@@ -340,24 +340,69 @@ function Export-CACConsolidatedReport {
 # 4. Safe Account Counts
 # =========================================================
 function Export-CACSafeAccountCounts {
-    Write-Log "Inventory Scan Started" "DEBUG"
-    Write-Progress -Activity "Inventory" -Status "Fetching Safes..." -PercentComplete 0
-    try { $safes = Get-PASSafe -ErrorAction Stop } catch { return }
+    Write-Log "Started Export-CACSafeAccountCounts" "DEBUG"
 
-    $res = @(); $i = 0; $t = $safes.Count
-    foreach ($s in $safes) {
-        $i++
-        Write-Progress -Activity "Scanning" -Status "$($s.SafeName)" -PercentComplete (($i / $t) * 100)
-        $c = 0
-        try { $a = Get-PASAccount -SafeName $s.SafeName -ErrorAction SilentlyContinue; if ($a) { $c = $a.Count } } catch {}
-        $res += [PSCustomObject]@{ SafeName = $s.SafeName; Count = $c; Desc = $s.Description; CPM = $s.ManagingCPM }
+    # --- INPUT SELECTION ---
+    Write-Host "=== Safe Account Inventory Wizard ===" -ForegroundColor Cyan
+    Write-Host "1. Manual List (Comma separated)"
+    Write-Host "2. CSV Input (Header: SafeName)"
+    $mode = Read-Host "Select Input Mode"
+
+    if ($mode -eq '1') {
+        $safesInput = (Read-Host "Enter Safe Names") -split "," | ForEach-Object { $_.Trim() }
+        $outPathBase = "$PSScriptRoot/../Output"
     }
-    Write-Progress -Activity "Scanning" -Completed
+    elseif ($mode -eq '2') {
+        $csvPath = Read-Host "Enter CSV Path"
+        if (!(Test-Path $csvPath)) { Write-Host "File not found!"; return }
+        $safesInput = (Import-Csv $csvPath).SafeName | ForEach-Object { $_.Trim() }
+        $outPathBase = Split-Path $csvPath -Parent
+    }
+    else { return }
+
+    if (-not (Test-Path $outPathBase)) { New-Item -ItemType Directory -Path $outPathBase | Out-Null }
+
+    $res = @()
+    $i = 0
+    $total = $safesInput.Count
+
+    foreach ($safeName in $safesInput) {
+        $i++
+        Write-Progress -Activity "Inventory Scan" -Status "Processing Safe $i/$total : $safeName" -PercentComplete (($i / $total) * 100)
+        
+        try {
+            # Fetch Safe Details
+            $s = Get-PASSafe -SafeName $safeName -ErrorAction Stop
+            
+            # Fetch Account Count
+            $c = 0
+            try { 
+                $a = Get-PASAccount -SafeName $safeName -ErrorAction SilentlyContinue
+                if ($a) { $c = $a.Count }
+            }
+            catch {}
+
+            $res += [PSCustomObject]@{ 
+                SafeName = $safeName
+                Count    = $c
+                Desc     = $s.Description
+                CPM      = $s.ManagingCPM
+            }
+        }
+        catch {
+            Write-Log "Error processing $safeName : $($_.Exception.Message)" "ERROR"
+        }
+    }
+    Write-Progress -Activity "Inventory Scan" -Completed
     
-    if ($res) {
-        $out = "$PSScriptRoot/../Output/safe_counts_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
-        $res | Export-Csv $out -NoTypeInformation -Encoding UTF8
-        Write-Host "Done: $out" -ForegroundColor Green
+    if ($res.Count -gt 0) {
+        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+        $outFile = "$outPathBase/Safe_Account_Counts_$timestamp.csv"
+        $res | Export-Csv $outFile -NoTypeInformation -Encoding UTF8
+        Write-Host "Report Generated: $outFile" -ForegroundColor Green
+    }
+    else {
+        Write-Host "No data found." -ForegroundColor Yellow
     }
 }
 

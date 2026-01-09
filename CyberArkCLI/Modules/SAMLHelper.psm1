@@ -91,17 +91,47 @@ function New-SAMLInteractive {
         $webView.Dock = [System.Windows.Forms.DockStyle]::Fill
         $form.Controls.Add($webView)
 
-        # Initialize Async
-        $task = $webView.EnsureCoreWebView2Async($null)
-        
-        # We need to wait for initialization, but keep message pump alive
-        while (-not $task.IsCompleted) {
-            [System.Windows.Forms.Application]::DoEvents()
-            Start-Sleep -Milliseconds 50
+        # 1. Define User Data Folder
+        # WebView2 requires a writable folder for user data. By default it uses the executable path,
+        # which fails for scripts or restricted folders.
+        $userDataFolder = Join-Path $env:TEMP "CyberArkCLI_WebView2_Data"
+        if (-not (Test-Path $userDataFolder)) {
+            New-Item -ItemType Directory -Path $userDataFolder -Force | Out-Null
         }
-        
-        if ($task.IsFaulted) {
-            throw "WebView2 Initialization Failed: $($task.Exception.Message)"
+
+        # 2. Create Environment (Async)
+        try {
+            # CreateAsync(browserExecutableFolder, userDataFolder, options)
+            $envTask = [Microsoft.Web.WebView2.Core.CoreWebView2Environment]::CreateAsync($null, $userDataFolder, $null)
+            
+            # Wait for Environment
+            while (-not $envTask.IsCompleted) {
+                [System.Windows.Forms.Application]::DoEvents()
+                Start-Sleep -Milliseconds 50
+            }
+            
+            if ($envTask.IsFaulted) {
+                throw "Environment Creation Failed: $($envTask.Exception.InnerException.Message)"
+            }
+
+            $env = $envTask.Result
+
+            # 3. Initialize WebView with Environment
+            $task = $webView.EnsureCoreWebView2Async($env)
+            
+            # Wait for Initialization
+            while (-not $task.IsCompleted) {
+                [System.Windows.Forms.Application]::DoEvents()
+                Start-Sleep -Milliseconds 50
+            }
+            
+            if ($task.IsFaulted) {
+                throw "Control Initialization Failed: $($task.Exception.InnerException.Message)"
+            }
+        }
+        catch {
+            $form.Dispose()
+            throw "WebView2 Fatal Error: $_"
         }
 
         # Navigate

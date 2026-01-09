@@ -35,20 +35,31 @@ function Invoke-CACLogin {
             Set-CACConfig -PVWAURL $url
         }
 
-        # Construct IdP URL
-        # Logic: PVWA URL + /PasswordVault/auth/saml/
-        # Remove trailing slash from base if present
+        # Construct Base URL
         $baseUrl = $url.TrimEnd('/')
-        $idpUrl = "$baseUrl/PasswordVault/auth/saml/"
-        
-        Write-Host "Starting SAML Authentication..." -ForegroundColor Cyan
-        Write-Host "IdP URL: $idpUrl" -ForegroundColor Gray
+        $apiLogonUrl = "$baseUrl/PasswordVault/api/auth/saml/logon"
 
+        Write-Host "Starting SAML Authentication..." -ForegroundColor Cyan
         try {
+            # Step 1: Get IdP URL from API
+            # We must hit the logon API first. It returns the actual IdP URL.
+            # It also sets a CA88888 cookie which is handled by the browser session.
+            Write-Host "Fetching IdP URL from: $apiLogonUrl" -ForegroundColor Gray
+            
+            # Using Invoke-WebRequest to get headers/cookies if needed, but for now just body is enough for the URL.
+            # Note: psPAS might handle the session cookie internally if we init session later.
+            # Ideally we should capture cookies here but let's try the simple URL redirect first.
+            $response = Invoke-RestMethod -Uri $apiLogonUrl -Method Post -ErrorAction Stop
+            
+            # The API returns the URL as a string (usually quoted).
+            $idpUrl = $response.Trim('"')
+            
+            Write-Host "Redirecting to IdP: $idpUrl" -ForegroundColor Gray
+
+            # Step 2: Interactive Login
             $samlResponse = New-SAMLInteractive -LoginIDP $idpUrl
             
-            # Authenticate with SAML
-            # Note: psPAS New-PASSession -SAMLAuth requires -SAMLResponse
+            # Step 3: Authenticate with SAML Response
             $global:CACSession = New-PASSession -BaseURI $baseUrl -SAMLAuth -SAMLResponse $samlResponse
             
             Write-Host "SAML Login Successful!" -ForegroundColor Green
@@ -56,6 +67,12 @@ function Invoke-CACLogin {
         }
         catch {
             Write-Host "SAML Login Failed: $($_.Exception.Message)" -ForegroundColor Red
+            if ($_.Exception.Response) {
+                # Debugging info
+                $reader = New-Object System.IO.StreamReader $_.Exception.Response.GetResponseStream()
+                $respBody = $reader.ReadToEnd()
+                Write-Host "API Error Body: $respBody" -ForegroundColor DarkRed
+            }
             return $false
         }
     }

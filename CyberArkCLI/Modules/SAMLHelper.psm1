@@ -113,53 +113,67 @@ function New-SAMLInteractive {
 
         # --- EVENT HANDLERS ---
         
-        $webView.add_NavigationStarting({
+        # --- EVENT HANDLERS ---
+        
+        # Add Filter for WebResourceRequested
+        # We want to intercept the specific POST to the CyberArk api
+        $filter = "*PasswordVault/api/auth/saml/logon*"
+        $webView.CoreWebView2.AddWebResourceRequestedFilter($filter, [Microsoft.Web.WebView2.Core.CoreWebView2WebResourceContext]::All)
+
+        $webView.add_WebResourceRequested({
                 param($sender, $e)
             
-                $uri = $e.Uri.ToString()
-                # Write-Host "Navigating to: $uri" -ForegroundColor DarkGray
-
-                # OPTIMIZATION:
-                # Only inspect the page content if we are navigating TO the CyberArk SAML Logon endpoint.
-                # This means the CURRENT page (the autpost form) contains the SAML Response.
-                # We skip inspection for all other IdP pages (Login, MFA, etc.) to prevent UI blocking.
+                # Use Deferral to safely process async content
+                # $deferral = $e.GetDeferral() # Not strictly needed if reading sync, but good practice if we were awaiting.
+                # In PS event handlers, we try to be synchronous to avoid complexities.
             
-                if ($uri -match "(?i)/PasswordVault/api/auth/saml/logon") {
-                    Write-Host "Detected Redirect to CyberArk. Inspecting content..." -ForegroundColor Cyan
-
-                    try {
-                        $scriptTask = $webView.ExecuteScriptAsync("document.body.outerHTML")
+                try {
+                    $request = $e.Request
+                    # We expect a POST with the SAMLResponse
+                    if ($request.Method -eq "POST" -and $null -ne $request.Content) {
                     
-                        # Wait for script (blocking UI thread momentarily, but only once)
-                        while (-not $scriptTask.IsCompleted) {
-                            [System.Windows.Forms.Application]::DoEvents()
-                            Start-Sleep -Milliseconds 10
-                        }
-
-                        if ($scriptTask.Status -eq 'RanToCompletion') {
-                            $html = $scriptTask.Result
-                            if ($html -ne "null") {
-                                $htmlUnescaped = [System.Text.RegularExpressions.Regex]::Unescape($html)
-                                $htmlUnescaped = $htmlUnescaped.Trim('"')
-
-                                $RegEx = '(?i)name="SAMLResponse"(?: type="hidden")? value=\"(.*?)\"(?:.*)?\/>'
-                                if ($htmlUnescaped -match $RegEx) {
-                                    $captured = $Matches[1]
-                                    $captured = $captured -replace '&#x2b;', '+' -replace '&#x3d;', '='
-                                
-                                    Write-Host "SAML Response Captured!" -ForegroundColor Green
-                                    $Script:SAMLResponse = $captured
-                                
-                                    $e.Cancel = $true
+                        # Log
+                        Write-Host "Intercepted POST to logon API. Reading content..." -ForegroundColor Cyan
+                    
+                        # Content is an IStream. We need to read it.
+                        # Since this runs in the event handler, we must be careful.
+                        # The Content property returns a System.IO.Stream wrapper in the .NET projection.
+                    
+                        $stream = $request.Content
+                        if ($null -ne $stream) {
+                            $reader = New-Object System.IO.StreamReader($stream)
+                            $body = $reader.ReadToEnd()
+                         
+                            # Check for SAMLResponse
+                            # Format is usually: SAMLResponse=...&RelayState=...
+                            # We can regex it.
+                            if ($body -match "SAMLResponse=([^&]*)") {
+                                $rawSaml = $Matches[1]
+                             
+                                # The value is URL Encoded. Decode it.
+                                # Using System.Uri as it's standard available.
+                                $decodedSaml = [System.Uri]::UnescapeDataString($rawSaml) 
+                             
+                                # Fix specific entities if UnescapeDataString didn't catch them (it handles %xx)
+                                # Usually it's enough.
+                             
+                                if (-not [string]::IsNullOrWhiteSpace($decodedSaml)) {
+                                    Write-Host "SAML Response Captured via Network!" -ForegroundColor Green
+                                    $Script:SAMLResponse = $decodedSaml
+                                 
+                                    # We have the token. We can prevent the default network request if we want/can.
+                                    # But simplest is just to close the form now.
+                                    # If we let it proceed, it might return 401/200 but we don't care.
                                     $form.Close()
                                 }
                             }
                         }
                     }
-                    catch {
-                        Write-Host "Error inspecting page: $_" -ForegroundColor Red
-                    }
                 }
+                catch {
+                    Write-Warning "Error processing WebResource: $_"
+                }
+                # finally { $deferral.Complete() } 
             })
         
         # Start Navigation

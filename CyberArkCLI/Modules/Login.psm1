@@ -60,7 +60,7 @@ function Invoke-CACLogin {
             $samlResponse = New-SAMLInteractive -LoginIDP $idpUrl
             
             # Step 3: Authenticate with SAML Response
-            $global:CACSession = New-PASSession -BaseURI $baseUrl -SAMLAuth -SAMLResponse $samlResponse
+            $global:CACSession = New-PASSession -BaseURI $baseUrl -SAMLResponse $samlResponse
             
             Write-Host "SAML Login Successful!" -ForegroundColor Green
             return $true

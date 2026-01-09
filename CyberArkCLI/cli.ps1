@@ -37,7 +37,8 @@ function Reload-CACModules {
         "Monitor.psm1",
         "Reports.psm1",
         "Platforms.psm1",
-        "BatchOnboarding.psm1"
+        "BatchOnboarding.psm1",
+        "SAMLHelper.psm1"
     )
 
 
@@ -115,8 +116,9 @@ function Show-LoginMenu {
 
         Clear-Host
         Write-Host "=========== CyberArk CLI ===========" -ForegroundColor Cyan
-        Write-Host "1. Login"
-        Write-Host "2. Reload Modules (Dev Only)"
+        Write-Host "1. Login (Standard)"
+        Write-Host "2. Login (SAML)"
+        Write-Host "3. Reload Modules (Dev Only)"
         Write-Host "0. Exit"
         Write-Host "===================================="
 
@@ -138,6 +140,18 @@ function Show-LoginMenu {
 
 
             '2' {
+                if (Invoke-CACLogin -SAML) {
+                    $Script:IsLoggedIn = $true
+                    return
+                }
+                else {
+                    Write-Host "SAML Login failed. Try again." -ForegroundColor Red
+                    Pause
+                }
+            }
+
+
+            '3' {
                 Reload-CACModules
                 Pause
             }

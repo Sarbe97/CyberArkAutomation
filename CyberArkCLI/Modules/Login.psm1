@@ -8,31 +8,82 @@ if (-not (Test-Path $loginFormScript)) {
 
 
 function Invoke-CACLogin {
+    [CmdletBinding()]
+    param(
+        [switch]$SAML
+    )
+
     $cfg = Get-CACConfig
 
     # Show form
-    $result = Show-CACLoginForm -PVWAURL $cfg.PVWAURL
-    if (-not $result) { return $false }
+    if ($SAML) {
+        # --- SAML FLOW ---
+        if (-not [string]::IsNullOrWhiteSpace($cfg.PVWAURL)) {
+            $url = $cfg.PVWAURL
+        }
+        else {
+            $url = Read-Host "Enter PVWA URL (e.g. https://cyberark.example.com)"
+        }
 
-    if ([string]::IsNullOrWhiteSpace($result.Url)) {
-        Write-Host "PVWA URL cannot be empty." -ForegroundColor Red
-        return $false
+        if ([string]::IsNullOrWhiteSpace($url)) {
+            Write-Host "PVWA URL cannot be empty." -ForegroundColor Red
+            return $false
+        }
+
+        # Save URL if new (or updated)
+        if ($url -ne $cfg.PVWAURL) {
+            Set-CACConfig -PVWAURL $url
+        }
+
+        # Construct IdP URL
+        # Logic: PVWA URL + /PasswordVault/auth/saml/
+        # Remove trailing slash from base if present
+        $baseUrl = $url.TrimEnd('/')
+        $idpUrl = "$baseUrl/PasswordVault/auth/saml/"
+        
+        Write-Host "Starting SAML Authentication..." -ForegroundColor Cyan
+        Write-Host "IdP URL: $idpUrl" -ForegroundColor Gray
+
+        try {
+            $samlResponse = New-SAMLInteractive -LoginIDP $idpUrl
+            
+            # Authenticate with SAML
+            # Note: psPAS New-PASSession -SAMLAuth requires -SAMLResponse
+            $global:CACSession = New-PASSession -BaseURI $baseUrl -SAMLAuth -SAMLResponse $samlResponse
+            
+            Write-Host "SAML Login Successful!" -ForegroundColor Green
+            return $true
+        }
+        catch {
+            Write-Host "SAML Login Failed: $($_.Exception.Message)" -ForegroundColor Red
+            return $false
+        }
     }
+    else {
+        # --- STANDARD FLOW ---
+        $result = Show-CACLoginForm -PVWAURL $cfg.PVWAURL
+        if (-not $result) { return $false }
 
-    # Save URL if new
-    Set-CACConfig -PVWAURL $result.Url
+        if ([string]::IsNullOrWhiteSpace($result.Url)) {
+            Write-Host "PVWA URL cannot be empty." -ForegroundColor Red
+            return $false
+        }
 
-    # Build credentials
-    $secure = ConvertTo-SecureString $result.Password -AsPlainText -Force
-    $cred = New-Object System.Management.Automation.PSCredential ($result.Username, $secure)
+        # Save URL if new
+        Set-CACConfig -PVWAURL $result.Url
 
-    try {
-        $global:CACSession = New-PASSession -Credential $cred -BaseURI $result.Url
-        return $true
-    }
-    catch {
-        Write-Host "Login Failed: $($_.Exception.Message)" -ForegroundColor Red
-        return $false
+        # Build credentials
+        $secure = ConvertTo-SecureString $result.Password -AsPlainText -Force
+        $cred = New-Object System.Management.Automation.PSCredential ($result.Username, $secure)
+
+        try {
+            $global:CACSession = New-PASSession -Credential $cred -BaseURI $result.Url
+            return $true
+        }
+        catch {
+            Write-Host "Login Failed: $($_.Exception.Message)" -ForegroundColor Red
+            return $false
+        }
     }
 }
 

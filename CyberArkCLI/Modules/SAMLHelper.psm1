@@ -80,10 +80,10 @@ function New-SAMLInteractive {
         # Create Form
         $form = New-Object System.Windows.Forms.Form
         $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
-        $form.Width = 1024
-        $form.Height = 768
+        $form.Width = 600
+        $form.Height = 800
         $form.ShowIcon = $false
-        $form.TopMost = $false # Allow user to switch windows if needed
+        $form.TopMost = $false 
         $form.Text = "CyberArk SAML Authentication (WebView2)"
 
         # CREATE WEBVIEW2 CONTROL
@@ -111,56 +111,54 @@ function New-SAMLInteractive {
         }
         catch { $form.Dispose(); throw "WebView2 Fatal Error: $_" }
 
-        # --- EVENT HANDLERS (Must be added BEFORE navigation) ---
-
-        # Navigation Starting - Capture SAML Response
-        # This matches the logic in PSMEasyConnect: checking document.body.outerHTML during NavigationStarting
-        # allows us to catch the "Auto-Submit" page before it navigates away.
+        # --- EVENT HANDLERS ---
+        
         $webView.add_NavigationStarting({
                 param($sender, $e)
             
-                # Debug log to console (visible in parent CLI window)
-                Write-Host "Navigating to: $($e.Uri)" -ForegroundColor DarkGray
+                $uri = $e.Uri.ToString()
+                # Write-Host "Navigating to: $uri" -ForegroundColor DarkGray
 
-                # Check content of the CURRENT page (the one initiating the navigation)
-                # When IdP redirects to CyberArk, it often loads an HTML form that auto-submits.
-                # We want to catch that form content.
+                # OPTIMIZATION:
+                # Only inspect the page content if we are navigating TO the CyberArk SAML Logon endpoint.
+                # This means the CURRENT page (the autpost form) contains the SAML Response.
+                # We skip inspection for all other IdP pages (Login, MFA, etc.) to prevent UI blocking.
             
-                try {
-                    $scriptTask = $webView.ExecuteScriptAsync("document.body.outerHTML")
-                
-                    # Wait for script with UI pump
-                    while (-not $scriptTask.IsCompleted) {
-                        [System.Windows.Forms.Application]::DoEvents()
-                        Start-Sleep -Milliseconds 10
-                    }
+                if ($uri -match "(?i)/PasswordVault/api/auth/saml/logon") {
+                    Write-Host "Detected Redirect to CyberArk. Inspecting content..." -ForegroundColor Cyan
 
-                    if ($scriptTask.Status -eq 'RanToCompletion') {
-                        $html = $scriptTask.Result
-                        if ($html -ne "null") {
-                            # Unescape JSON string result
-                            $htmlUnescaped = [System.Text.RegularExpressions.Regex]::Unescape($html)
-                            $htmlUnescaped = $htmlUnescaped.Trim('"')
+                    try {
+                        $scriptTask = $webView.ExecuteScriptAsync("document.body.outerHTML")
+                    
+                        # Wait for script (blocking UI thread momentarily, but only once)
+                        while (-not $scriptTask.IsCompleted) {
+                            [System.Windows.Forms.Application]::DoEvents()
+                            Start-Sleep -Milliseconds 10
+                        }
 
-                            # Search for SAMLResponse
-                            $RegEx = '(?i)name="SAMLResponse"(?: type="hidden")? value=\"(.*?)\"(?:.*)?\/>'
-                            if ($htmlUnescaped -match $RegEx) {
-                                $captured = $Matches[1]
-                                # Decode XML entities
-                                $captured = $captured -replace '&#x2b;', '+' -replace '&#x3d;', '='
-                            
-                                Write-Host "SAML Response Captured!" -ForegroundColor Green
-                                $Script:SAMLResponse = $captured
-                            
-                                # Cancel navigation and close since we have what we need
-                                $e.Cancel = $true
-                                $form.Close()
+                        if ($scriptTask.Status -eq 'RanToCompletion') {
+                            $html = $scriptTask.Result
+                            if ($html -ne "null") {
+                                $htmlUnescaped = [System.Text.RegularExpressions.Regex]::Unescape($html)
+                                $htmlUnescaped = $htmlUnescaped.Trim('"')
+
+                                $RegEx = '(?i)name="SAMLResponse"(?: type="hidden")? value=\"(.*?)\"(?:.*)?\/>'
+                                if ($htmlUnescaped -match $RegEx) {
+                                    $captured = $Matches[1]
+                                    $captured = $captured -replace '&#x2b;', '+' -replace '&#x3d;', '='
+                                
+                                    Write-Host "SAML Response Captured!" -ForegroundColor Green
+                                    $Script:SAMLResponse = $captured
+                                
+                                    $e.Cancel = $true
+                                    $form.Close()
+                                }
                             }
                         }
                     }
-                }
-                catch {
-                    Write-Host "Error inspecting page content: $_" -ForegroundColor DarkGray
+                    catch {
+                        Write-Host "Error inspecting page: $_" -ForegroundColor Red
+                    }
                 }
             })
         
@@ -177,7 +175,13 @@ function New-SAMLInteractive {
             Remove-Variable -Name SAMLResponse -Scope Script -ErrorAction SilentlyContinue
         }
         else {
-            throw "SAMLResponse not matched or authentication cancelled"
+            if ($null -eq $global:SAMLError) {
+                # If no specific error but variable is null, assume user closed window
+                Write-Warning "Authentication window closed by user."
+            }
+            else {
+                throw $global:SAMLError
+            }
         }
     }
 

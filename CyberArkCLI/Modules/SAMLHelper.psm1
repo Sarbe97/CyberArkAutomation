@@ -83,7 +83,7 @@ function New-SAMLInteractive {
         $form.Width = 1024
         $form.Height = 768
         $form.ShowIcon = $false
-        $form.TopMost = $true
+        $form.TopMost = $false # Allow user to switch windows if needed
         $form.Text = "CyberArk SAML Authentication (WebView2)"
 
         # CREATE WEBVIEW2 CONTROL
@@ -92,8 +92,6 @@ function New-SAMLInteractive {
         $form.Controls.Add($webView)
 
         # 1. Define User Data Folder
-        # WebView2 requires a writable folder for user data. By default it uses the executable path,
-        # which fails for scripts or restricted folders.
         $userDataFolder = Join-Path $env:TEMP "CyberArkCLI_WebView2_Data"
         if (-not (Test-Path $userDataFolder)) {
             New-Item -ItemType Directory -Path $userDataFolder -Force | Out-Null
@@ -101,81 +99,74 @@ function New-SAMLInteractive {
 
         # 2. Create Environment (Async)
         try {
-            # CreateAsync(browserExecutableFolder, userDataFolder, options)
             $envTask = [Microsoft.Web.WebView2.Core.CoreWebView2Environment]::CreateAsync($null, $userDataFolder, $null)
-            
-            # Wait for Environment
-            while (-not $envTask.IsCompleted) {
-                [System.Windows.Forms.Application]::DoEvents()
-                Start-Sleep -Milliseconds 50
-            }
-            
-            if ($envTask.IsFaulted) {
-                throw "Environment Creation Failed: $($envTask.Exception.InnerException.Message)"
-            }
-
+            while (-not $envTask.IsCompleted) { [System.Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 10 }
+            if ($envTask.IsFaulted) { throw "Environment Creation Failed: $($envTask.Exception.InnerException.Message)" }
             $env = $envTask.Result
 
             # 3. Initialize WebView with Environment
             $task = $webView.EnsureCoreWebView2Async($env)
-            
-            # Wait for Initialization
-            while (-not $task.IsCompleted) {
-                [System.Windows.Forms.Application]::DoEvents()
-                Start-Sleep -Milliseconds 50
-            }
-            
-            if ($task.IsFaulted) {
-                throw "Control Initialization Failed: $($task.Exception.InnerException.Message)"
-            }
+            while (-not $task.IsCompleted) { [System.Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 10 }
+            if ($task.IsFaulted) { throw "Control Initialization Failed: $($task.Exception.InnerException.Message)" }
         }
-        catch {
-            $form.Dispose()
-            throw "WebView2 Fatal Error: $_"
-        }
+        catch { $form.Dispose(); throw "WebView2 Fatal Error: $_" }
 
-        # Navigate
-        $webView.Source = [Uri]$LoginIDP
+        # --- EVENT HANDLERS (Must be added BEFORE navigation) ---
 
-        # Navigation Starting - Check URL
+        # Navigation Starting - Capture SAML Response
+        # This matches the logic in PSMEasyConnect: checking document.body.outerHTML during NavigationStarting
+        # allows us to catch the "Auto-Submit" page before it navigates away.
         $webView.add_NavigationStarting({
                 param($sender, $e)
             
-                # Check for SAML Response in captured content by hooking NavigationCompleted
-            })
+                # Debug log to console (visible in parent CLI window)
+                Write-Host "Navigating to: $($e.Uri)" -ForegroundColor DarkGray
 
-        # Navigation Completed - Check for SAML Response
-        $webView.add_NavigationCompleted({
-                param($sender, $e)
+                # Check content of the CURRENT page (the one initiating the navigation)
+                # When IdP redirects to CyberArk, it often loads an HTML form that auto-submits.
+                # We want to catch that form content.
             
-                if (-not $e.IsSuccess) { return }
+                try {
+                    $scriptTask = $webView.ExecuteScriptAsync("document.body.outerHTML")
+                
+                    # Wait for script with UI pump
+                    while (-not $scriptTask.IsCompleted) {
+                        [System.Windows.Forms.Application]::DoEvents()
+                        Start-Sleep -Milliseconds 10
+                    }
 
-                # Execute script to get HTML content (document.body.outerHTML)
-                $scriptTask = $webView.ExecuteScriptAsync("document.body.outerHTML")
-            
-                while (-not $scriptTask.IsCompleted) {
-                    [System.Windows.Forms.Application]::DoEvents()
-                    Start-Sleep -Milliseconds 50
-                }
+                    if ($scriptTask.Status -eq 'RanToCompletion') {
+                        $html = $scriptTask.Result
+                        if ($html -ne "null") {
+                            # Unescape JSON string result
+                            $htmlUnescaped = [System.Text.RegularExpressions.Regex]::Unescape($html)
+                            $htmlUnescaped = $htmlUnescaped.Trim('"')
 
-                if ($scriptTask.Status -eq 'RanToCompletion') {
-                    $html = $scriptTask.Result
-                    # The result is JSON encoded string, need to unescape
-                    if ($html -ne "null") {
-                        # Simple unescape for quotes
-                        $htmlUnescaped = [System.Text.RegularExpressions.Regex]::Unescape($html)
-                        $htmlUnescaped = $htmlUnescaped.Trim('"')
-
-                        $RegEx = '(?i)name="SAMLResponse"(?: type="hidden")? value=\"(.*?)\"(?:.*)?\/>'
-                        if ($htmlUnescaped -match $RegEx) {
-                            $Script:SAMLResponse = $Matches[1]
-                            # Fix encoding if needed (standard replacements)
-                            $Script:SAMLResponse = $Script:SAMLResponse -replace '&#x2b;', '+' -replace '&#x3d;', '='
-                            $form.Close()
+                            # Search for SAMLResponse
+                            $RegEx = '(?i)name="SAMLResponse"(?: type="hidden")? value=\"(.*?)\"(?:.*)?\/>'
+                            if ($htmlUnescaped -match $RegEx) {
+                                $captured = $Matches[1]
+                                # Decode XML entities
+                                $captured = $captured -replace '&#x2b;', '+' -replace '&#x3d;', '='
+                            
+                                Write-Host "SAML Response Captured!" -ForegroundColor Green
+                                $Script:SAMLResponse = $captured
+                            
+                                # Cancel navigation and close since we have what we need
+                                $e.Cancel = $true
+                                $form.Close()
+                            }
                         }
                     }
                 }
+                catch {
+                    Write-Host "Error inspecting page content: $_" -ForegroundColor DarkGray
+                }
             })
+        
+        # Start Navigation
+        Write-Host "Navigating to Login Url..." -ForegroundColor Gray
+        $webView.Source = [Uri]$LoginIDP
 
         # Show browser window
         [void][System.Windows.Forms.Application]::Run($form)

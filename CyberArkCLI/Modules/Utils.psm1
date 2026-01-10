@@ -12,7 +12,9 @@ function Write-Log {
 
         [bool]$ShowOnScreen = $false,
 
-        [string]$LogDirectory = "$PSScriptRoot/../Logs"
+        [string]$LogDirectory = "$PSScriptRoot/../Logs",
+
+        [string]$LogName = "cyberark"
     )
 
     # ---------------------------------------------------------
@@ -24,10 +26,10 @@ function Write-Log {
 
     # ---------------------------------------------------------
     # 2. Determine today’s log file
-    #    Format: cyberark_2025-01-18.log
+    #    Format: <LogName>_2025-01-18.log
     # ---------------------------------------------------------
     $today = (Get-Date -Format "yyyy-MM-dd")
-    $logFile = Join-Path $LogDirectory "cyberark_$today.log"
+    $logFile = Join-Path $LogDirectory "${LogName}_${today}.log"
 
     # ---------------------------------------------------------
     # 3. Build log line

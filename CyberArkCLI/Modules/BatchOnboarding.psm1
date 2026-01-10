@@ -21,9 +21,14 @@ function Invoke-CACBatchOnboarding {
     if (-not (Get-Command Get-CACConfig -ErrorAction SilentlyContinue)) { Write-Error "Config missing. Please load your module."; return }
     if (-not (Get-Command Write-Log -ErrorAction SilentlyContinue)) { function Write-Log ($msg, $level) { Write-Host "[$level] $msg" } }
     
+    # Redirect logs to separate file (Locally scoped)
+    $PSDefaultParameterValues = $PSDefaultParameterValues.Clone()
+    $PSDefaultParameterValues["Write-Log:LogName"] = "BatchOnboarding"
+
     $config = Get-CACConfig
     $permissionSets = $config.SafePermissionSets
-    $results = @()
+    # Use script-scope variable for results to access it inside helper
+    $script:results = @()
     
     Write-Log "Starting Batch Onboarding (Strict Rename & Sync) from: $CsvPath" "INFO"
 
@@ -73,6 +78,7 @@ function Invoke-CACBatchOnboarding {
             OverallStatus        = $oStatus
             Message              = $msg
         }
+        # Append to the parent scope array
         $script:results += [pscustomobject]$res
     }
 
@@ -98,6 +104,7 @@ function Invoke-CACBatchOnboarding {
         # -----------------------------
         $safeReady = $false
         $safeStatus = "Unknown"
+        # Check if CSV has OldSafeName column
         $oldSafeName = if ($safeRows[0].PSObject.Properties['OldSafeName']) { $safeRows[0].OldSafeName } else { $null }
         $renameOccurred = $false
 
@@ -248,13 +255,7 @@ function Invoke-CACBatchOnboarding {
                     Add-Result $safeName $safeStatus $safeMember $memberType "Exists" "Failed" "FAILED" "Vault 404"
                 }
                 elseif ($_.Exception.Message -match "409|already exists") {
-                    # Even if it exists, Add-PASSafeMember usually UPDATES permissions if run again?
-                    # Actually psPAS Add-PASSafeMember throws 409 if exists.
-                    # We might need Update-PASSafeMember if we want to FORCE updates.
-                    # But often in batch onboarding, "Already Exists" is considered "Skipped" or "Good Enough".
-                    # However, User requested "set/update permissions".
-                    # So we should try Update-PASSafeMember if Add fails with 409.
-                    
+                    # Retry with Update-PASSafeMember for permission refresh
                     try {
                         Write-Log "[$safeName] Member exists. Attempting Update-PASSafeMember..." "INFO"
                         Update-PASSafeMember -SafeName $safeName -MemberName $safeMember @permParams -ErrorAction Stop
@@ -277,7 +278,7 @@ function Invoke-CACBatchOnboarding {
         }
     }
     
-    $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
+    $script:results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
     Write-Log "Batch Onboarding Complete. Results: $OutputCsvPath" "INFO"
     Write-Host "`nDone. Results saved to $OutputCsvPath" -ForegroundColor Green
 }

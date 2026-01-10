@@ -34,6 +34,8 @@ function New-CACSafeMemberDetailedRow {
     $baseObj = [ordered]@{
         MemberName                  = $MemberObj.MemberName
         MemberType                  = $MemberObj.MemberType
+        MemberSource                = if ($MemberObj.PSObject.Properties.Match('MemberSource')) { $MemberObj.MemberSource } else { "N/A" }
+        IsPredefined                = $MemberObj.IsPredefinedUser
         MembershipExpirationDate    = $MemberObj.MembershipExpirationDate
         
         # Permissions
@@ -236,6 +238,23 @@ function Export-CACConsolidatedReport {
             # --- BRANCH 2: Permissions Included ---
             if ($reqPerms -eq 'y') {
                 foreach ($m in $members) {
+                    # Lookup Source for Permissions View
+                    $source = "Unknown"
+                    try {
+                        if ($m.MemberType -eq "Group") {
+                            $gInfo = Get-PASGroup -GroupName $m.MemberName -ErrorAction SilentlyContinue
+                            if ($gInfo) { $source = $gInfo.source }
+                        }
+                        elseif ($m.MemberType -eq "User") {
+                            $uInfo = Get-CACUserDetailsFromStore -InputValue $m.MemberName
+                            if ($uInfo -and $uInfo.Source) { $source = $uInfo.Source }
+                        }
+                    }
+                    catch {}
+                    
+                    # Attach source to member object temporarily for the helper
+                    $m | Add-Member -MemberType NoteProperty -Name "MemberSource" -Value $source -Force
+
                     # Use helper to flatten perms + merge safe attrs
                     $results += New-CACSafeMemberDetailedRow -SafeName $safeName -MemberObj $m -SafeProps $safePropsHash
                 }
@@ -297,6 +316,25 @@ function Export-CACConsolidatedReport {
                     
                     $row["MemberName"] = $m.MemberName
                     $row["MemberType"] = $m.MemberType
+                    $row["IsPredefined"] = $m.IsPredefinedUser
+
+                    # Lookup Source
+                    $source = "Unknown"
+                    try {
+                        if ($m.MemberType -eq "Group") {
+                            # Fetch Group Details to get Source
+                            $gInfo = Get-PASGroup -GroupName $m.MemberName -ErrorAction SilentlyContinue
+                            if ($gInfo) { $source = $gInfo.source }
+                        }
+                        elseif ($m.MemberType -eq "User") {
+                            # Fetch User Details to get Source
+                            $uInfo = Get-CACUserDetailsFromStore -InputValue $m.MemberName
+                            if ($uInfo -and $uInfo.Source) { $source = $uInfo.Source }
+                        }
+                    }
+                    catch { $source = "LookupFailed" }
+                    
+                    $row["MemberSource"] = $source
 
                     if ($m.MemberType -eq "Group") {
                         $gUsers = Get-CACGroupUsers -GroupName $m.MemberName

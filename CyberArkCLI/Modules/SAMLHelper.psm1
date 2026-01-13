@@ -5,49 +5,87 @@ function New-SAMLInteractive {
         [string] $LoginIDP
     )
 
-    Write-Host ""
-    Write-Host "===================== SAML AUTHENTICATION =====================" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "1. A browser will open for SAML login to: $LoginIDP" -ForegroundColor Yellow
-    Write-Host "2. Complete your authentication in the browser" -ForegroundColor Yellow
-    Write-Host "3. After successful login, the browser will redirect to CyberArk" -ForegroundColor Yellow
-    Write-Host "4. Press F12 to open Developer Tools (Network tab)" -ForegroundColor Yellow
-    Write-Host "5. Find the POST request to: /PasswordVault/api/auth/saml/logon" -ForegroundColor Yellow
-    Write-Host "6. Copy the SAMLResponse value (long encoded string)" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "===============================================================" -ForegroundColor Cyan
-    Write-Host ""
-
-    # Open browser
-    try {
-        Write-Host "Opening browser..." -ForegroundColor Green
-        Start-Process $LoginIDP
-    }
-    catch {
-        Write-Host "Could not open browser automatically." -ForegroundColor Red
-        Write-Host "Please manually open: $LoginIDP" -ForegroundColor Yellow
+    Begin {
+        # Same regex pattern as the working example
+        $RegEx = '(?i)name="SAMLResponse"(?: type="hidden")? value=\"(.*?)\"(?:.*)?\/>'
+        
+        Add-Type -AssemblyName System.Windows.Forms 
+        Add-Type -AssemblyName System.Web
     }
 
-    # Get SAML response from user
-    Write-Host ""
-    $samlResponse = Read-Host "Paste the SAMLResponse value here (or press Enter to cancel)"
-
-    if ([string]::IsNullOrWhiteSpace($samlResponse)) {
-        Write-Host "Authentication cancelled." -ForegroundColor Red
-        throw "SAML authentication cancelled"
-    }
-
-    # Clean up the response
-    $samlResponse = $samlResponse.Trim()
+    Process {
+        # Create Script-level variable for SAML response
+        $Script:SAMLResponse = $null
+        
+        # Create window for embedded browser
+        $form = New-Object System.Windows.Forms.Form
+        $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
+        $form.Width = 640
+        $form.Height = 700
+        $form.ShowIcon = $false
+        $form.TopMost = $true
     
-    # Remove quotes if present
-    $samlResponse = $samlResponse.Trim('"', "'")
-    
-    # Remove any whitespace/newlines
-    $samlResponse = $samlResponse -replace "`n|`r|\s", ""
+        # Use the legacy WebBrowser control (NOT WebView2)
+        $web = New-Object System.Windows.Forms.WebBrowser
+        $web.Size = $form.ClientSize
+        $web.Anchor = "Left,Top,Right,Bottom"
+        $web.ScriptErrorsSuppressed = $true
+        $form.Controls.Add($web)
 
-    Write-Host "SAML response captured successfully!" -ForegroundColor Green
-    return $samlResponse
+        # Navigate to the IdP
+        $web.Navigate($LoginIDP)
+        
+        # Monitor for SAML response during navigation
+        $web.add_Navigating({
+                param($sender, $e)
+            
+                # Check if current page contains SAMLResponse
+                if ($web.DocumentText -match "SAMLResponse") {
+                    # Cancel further navigation since we found what we need
+                    $e.Cancel = $true
+
+                    # Extract the SAMLResponse using regex
+                    if ($web.DocumentText -match $RegEx) {
+                        # Close the form
+                        $form.Close()
+                    
+                        # Decode HTML entities (&#x2b; = +, &#x3d; = =)
+                        $Script:SAMLResponse = $(($Matches[1] -replace '&#x2b;', '+') -replace '&#x3d;', '=')
+                    }
+                }
+            })
+        
+        # Add additional check for DocumentCompleted event (sometimes needed)
+        $web.add_DocumentCompleted({
+                if ($web.DocumentText -match $RegEx) {
+                    $form.Close()
+                    $Script:SAMLResponse = $(($Matches[1] -replace '&#x2b;', '+') -replace '&#x3d;', '=')
+                }
+            })
+    
+        # Show browser window and wait for it to close
+        Write-Host "Opening SAML authentication window..." -ForegroundColor Cyan
+        Write-Host "Please complete login in the browser window" -ForegroundColor Yellow
+        
+        $form.Add_Shown({ $form.Activate() })
+        [void]$form.ShowDialog()
+
+        # Return the SAML response
+        if ($null -ne $Script:SAMLResponse) {
+            Write-Host "SAML response captured successfully!" -ForegroundColor Green
+            return $Script:SAMLResponse
+        }
+        else {
+            throw "SAMLResponse not found. Authentication may have failed or was cancelled."
+        }
+    }
+
+    End {
+        # Cleanup
+        if ($form -ne $null) {
+            $form.Dispose()
+        }
+    }
 }
 
 Export-ModuleMember -Function New-SAMLInteractive

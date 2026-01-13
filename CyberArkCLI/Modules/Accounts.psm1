@@ -10,7 +10,7 @@ function Get-CACAccounts {
     param(
         [string]$Search,
         [string]$SafeName,
-        [int]$LimitPerPage = 100
+        [int]$LimitPerPage = 10000
     )
 
     Write-Log "Started Get-CACAccounts()" "DEBUG"
@@ -83,53 +83,45 @@ function Get-CACAccounts {
             $queryIndex++
             Write-Log "Processing query $queryIndex/$($searchQueries.Count)" "INFO"
 
-            $offset = 0
-            do {
-                # Execute Search request using Splatting
-                try {
-                    $searchParams = @{
-                        ErrorAction = 'Stop'
-                        offset      = $offset
-                    }
+            Write-Log "Processing query $queryIndex/$($searchQueries.Count)" "INFO"
 
-                    # Use 'search' parameter for keyword search
-                    if (-not [string]::IsNullOrWhiteSpace($query.Search)) {
-                        $searchParams['search'] = $query.Search
-                    }
+            # Execute Search request using Splatting
+            try {
+                $searchParams = @{
+                    ErrorAction = 'Stop'
+                }
 
-                    # Use 'safeName' parameter for Safe search
-                    if (-not [string]::IsNullOrWhiteSpace($query.Safe)) {
-                        $searchParams['safeName'] = $query.Safe
-                    }
+                # Use 'search' parameter for keyword search
+                if (-not [string]::IsNullOrWhiteSpace($query.Search)) {
+                    $searchParams['search'] = $query.Search
+                }
 
-                    # Use 'limit' parameter if provided
-                    if ($LimitPerPage) {
-                        $searchParams['limit'] = $LimitPerPage
-                    }
+                # Use 'safeName' parameter for Safe search
+                if (-not [string]::IsNullOrWhiteSpace($query.Safe)) {
+                    $searchParams['safeName'] = $query.Safe
+                }
 
-                    Write-Log "Searching params: Search='$($query.Search)', Safe='$($query.Safe)', Limit=$LimitPerPage, Offset=$offset" "DEBUG"
+                # Use 'limit' parameter if provided or default
+                if ($LimitPerPage) {
+                    $searchParams['limit'] = $LimitPerPage
+                }
 
-                    $accounts = @(Get-PASAccount @searchParams)
-                    $countReturned = $accounts.Count
-                    
-                    Write-Host "." -NoNewline -ForegroundColor Gray
-                    
-                    if ($accounts) {
-                        foreach ($acc in $accounts) {
-                            if (-not $allAccounts.ContainsKey($acc.id)) {
-                                $allAccounts[$acc.id] = $acc
-                            }
+                Write-Log "Searching params: Search='$($query.Search)', Safe='$($query.Safe)', Limit=$LimitPerPage" "DEBUG"
+
+                $accounts = @(Get-PASAccount @searchParams)
+                
+                if ($accounts) {
+                    foreach ($acc in $accounts) {
+                        if (-not $allAccounts.ContainsKey($acc.id)) {
+                            $allAccounts[$acc.id] = $acc
                         }
                     }
-                    
-                    $offset += $countReturned
                 }
-                catch {
-                    Write-Host "`nError in search [Search=$($query.Search), Safe=$($query.Safe)]: $($_.Exception.Message)" -ForegroundColor Red
-                    Write-Log "Error processing query: $($_.Exception.Message)" "ERROR"
-                    $countReturned = 0 # Stop loop on error
-                }
-            } until ($countReturned -lt $LimitPerPage)
+            }
+            catch {
+                Write-Host "`nError in search [Search=$($query.Search), Safe=$($query.Safe)]: $($_.Exception.Message)" -ForegroundColor Red
+                Write-Log "Error processing query: $($_.Exception.Message)" "ERROR"
+            }
         }
 
         if (-not $allAccounts) {

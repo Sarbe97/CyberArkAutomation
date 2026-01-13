@@ -42,39 +42,44 @@ function Invoke-CACLogin {
         Write-Host "Starting SAML Authentication..." -ForegroundColor Cyan
         try {
             # Step 1: Get IdP URL from API
-            # We must hit the logon API first. It returns the actual IdP URL.
-            # It also sets a CA88888 cookie which is handled by the browser session.
             Write-Host "Fetching IdP URL from: $apiLogonUrl" -ForegroundColor Gray
-            
-            # Using Invoke-WebRequest to get headers/cookies if needed, but for now just body is enough for the URL.
-            # Note: psPAS might handle the session cookie internally if we init session later.
-            # Ideally we should capture cookies here but let's try the simple URL redirect first.
-            $response = Invoke-RestMethod -Uri $apiLogonUrl -Method Post -ErrorAction Stop
-            
-            # The API returns the URL as a string (usually quoted).
-            $idpUrl = $response.Trim('"')
-            
-            Write-Host "Redirecting to IdP: $idpUrl" -ForegroundColor Gray
+    
+            # Important: Use Invoke-WebRequest to get proper headers/cookies
+            $response = Invoke-WebRequest -Uri $apiLogonUrl -Method Post -SessionVariable 'session' -ErrorAction Stop
+            $idpUrl = $response.Content.Trim('"')
+    
+            Write-Host "IdP URL received: $idpUrl" -ForegroundColor Gray
 
             # Step 2: Interactive Login
+            Write-Host "Opening browser for SAML login..." -ForegroundColor Cyan
             $samlResponse = New-SAMLInteractive -LoginIDP $idpUrl
-            
+    
+            if ([string]::IsNullOrWhiteSpace($samlResponse)) {
+                throw "No SAML response received"
+            }
+
             # Step 3: Authenticate with SAML Response
+            Write-Host "Authenticating with CyberArk..." -ForegroundColor Gray
             $global:CACSession = New-PASSession -BaseURI $baseUrl -SAMLResponse $samlResponse
-            
+    
             Write-Host "SAML Login Successful!" -ForegroundColor Green
             return $true
         }
         catch {
             Write-Host "SAML Login Failed: $($_.Exception.Message)" -ForegroundColor Red
             if ($_.Exception.Response) {
-                # Debugging info
-                $reader = New-Object System.IO.StreamReader $_.Exception.Response.GetResponseStream()
-                $respBody = $reader.ReadToEnd()
-                Write-Host "API Error Body: $respBody" -ForegroundColor DarkRed
+                try {
+                    $reader = New-Object System.IO.StreamReader $_.Exception.Response.GetResponseStream()
+                    $respBody = $reader.ReadToEnd()
+                    Write-Host "API Error Body: $respBody" -ForegroundColor DarkRed
+                }
+                catch {
+                    Write-Host "Could not read error response body" -ForegroundColor DarkRed
+                }
             }
             return $false
         }
+
     }
     else {
         # --- STANDARD FLOW ---

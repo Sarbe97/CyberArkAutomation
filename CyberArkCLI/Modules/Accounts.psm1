@@ -953,8 +953,8 @@ function Invoke-CACBatchAccountDeletion {
         # Clone item properties to result object
         $resObj = $item | Select-Object *
         
-        # Ensure 'id' exists (case-insensitive check)
-        $idVal = if ($item.PSObject.Properties['id']) { $item.id } else { $null }
+        # Ensure 'AccountID' or 'id' exists (case-insensitive check)
+        $idVal = if ($item.PSObject.Properties['AccountID']) { $item.AccountID } elseif ($item.PSObject.Properties['id']) { $item.id } else { $null }
 
         if (-not $idVal) {
             Write-Host "Row $current : Missing 'id' column. Skipping." -ForegroundColor Yellow

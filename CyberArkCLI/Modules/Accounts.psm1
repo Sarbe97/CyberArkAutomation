@@ -886,7 +886,7 @@ function Invoke-CACBatchAccountDeletion {
     [CmdletBinding()]
     param()
 
-    $OutputCsvPath = (Join-Path $PWD "BatchDeletion_Result.csv")
+    $OutputCsvPath = Join-Path (Resolve-Path "$PSScriptRoot\..").Path "BatchDeletion_Result_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
 
     Write-Log "Started Invoke-CACBatchAccountDeletion()" "DEBUG"
 
@@ -964,6 +964,7 @@ function Invoke-CACBatchAccountDeletion {
             continue
         }
 
+        Write-Progress -Activity "Deleting Accounts (Batch)" -Status "Processing: $idVal" -PercentComplete (($current / $total) * 100)
         Write-Host "[$current/$total] Deleting Account ID: $idVal ... " -NoNewline
 
         try {
@@ -986,6 +987,7 @@ function Invoke-CACBatchAccountDeletion {
 
         $results += $resObj
     }
+    Write-Progress -Activity "Deleting Accounts (Batch)" -Completed
 
     # --- 3. Export Results ---
     $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8

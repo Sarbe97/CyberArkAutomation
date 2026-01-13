@@ -884,16 +884,16 @@ function Remove-CACAccount {
 # ============================================================
 function Invoke-CACBatchAccountDeletion {
     [CmdletBinding()]
-    param(
-        [string]$Id,
-        [string]$CsvPath,
-        [string]$OutputCsvPath = (Join-Path $PWD "BatchDeletion_Result.csv")
-    )
+    param()
+
+    $OutputCsvPath = (Join-Path $PWD "BatchDeletion_Result.csv")
 
     Write-Log "Started Invoke-CACBatchAccountDeletion()" "DEBUG"
 
     # --- 1. Gather Input Data ---
     $itemsToProcess = @()
+    $Id = $null
+    $CsvPath = $null
 
     # --- INTERACTIVE MODE CHECK ---
     if ([string]::IsNullOrWhiteSpace($Id) -and [string]::IsNullOrWhiteSpace($CsvPath)) {

@@ -44,14 +44,29 @@ function Invoke-CACLogin {
             # Step 1: Get IdP URL from API
             Write-Host "Fetching IdP URL from: $apiLogonUrl" -ForegroundColor Gray
     
-            # Important: Use Invoke-WebRequest to get proper headers/cookies
-            $response = Invoke-WebRequest -Uri $apiLogonUrl -Method Post -SessionVariable 'session' -ErrorAction Stop
-            $idpUrl = $response.Content.Trim('"')
+            # IMPORTANT: Some CyberArk implementations require specific headers
+            $headers = @{
+                "Content-Type" = "application/json"
+                "Accept"       = "application/json"
+            }
     
-            Write-Host "IdP URL received: $idpUrl" -ForegroundColor Gray
+            # Use Invoke-RestMethod with proper error handling
+            $idpUrl = Invoke-RestMethod -Uri $apiLogonUrl -Method Post -Headers $headers -ErrorAction Stop
+    
+            # The response is usually a JSON object or a string
+            if ($idpUrl -is [string]) {
+                $idpUrl = $idpUrl.Trim('"')
+            }
+            elseif ($idpUrl.PSObject.Properties['URL']) {
+                $idpUrl = $idpUrl.URL
+            }
+            elseif ($idpUrl.PSObject.Properties['Value']) {
+                $idpUrl = $idpUrl.Value
+            }
+    
+            Write-Host "Redirecting to IdP: $idpUrl" -ForegroundColor Gray
 
             # Step 2: Interactive Login
-            Write-Host "Opening browser for SAML login..." -ForegroundColor Cyan
             $samlResponse = New-SAMLInteractive -LoginIDP $idpUrl
     
             if ([string]::IsNullOrWhiteSpace($samlResponse)) {
@@ -60,18 +75,32 @@ function Invoke-CACLogin {
 
             # Step 3: Authenticate with SAML Response
             Write-Host "Authenticating with CyberArk..." -ForegroundColor Gray
-            $global:CACSession = New-PASSession -BaseURI $baseUrl -SAMLResponse $samlResponse
+    
+            # Try different parameter names based on psPAS version
+            try {
+                $global:CACSession = New-PASSession -BaseURI $baseUrl -SAMLResponse $samlResponse
+            }
+            catch {
+                # Some versions use different parameter name
+                Write-Host "Trying alternative parameter name..." -ForegroundColor Yellow
+                $global:CACSession = New-PASSession -BaseURI $baseUrl -SAMLAuth $samlResponse
+            }
     
             Write-Host "SAML Login Successful!" -ForegroundColor Green
             return $true
         }
         catch {
             Write-Host "SAML Login Failed: $($_.Exception.Message)" -ForegroundColor Red
+    
+            # Debug information
+            Write-Host "URL used: $apiLogonUrl" -ForegroundColor DarkGray
+            Write-Host "PVWA URL: $baseUrl" -ForegroundColor DarkGray
+    
             if ($_.Exception.Response) {
                 try {
                     $reader = New-Object System.IO.StreamReader $_.Exception.Response.GetResponseStream()
                     $respBody = $reader.ReadToEnd()
-                    Write-Host "API Error Body: $respBody" -ForegroundColor DarkRed
+                    Write-Host "API Error Details: $respBody" -ForegroundColor DarkRed
                 }
                 catch {
                     Write-Host "Could not read error response body" -ForegroundColor DarkRed
@@ -79,7 +108,6 @@ function Invoke-CACLogin {
             }
             return $false
         }
-
     }
     else {
         # --- STANDARD FLOW ---

@@ -68,198 +68,113 @@ function New-SAMLInteractive {
     Begin {
         Add-Type -AssemblyName System.Windows.Forms
         Add-Type -AssemblyName System.Drawing
-        Ensure-WebView2Dependencies
     }
 
     Process {
-        # Create Script-level variable for SAML response
-        $Script:SAMLResponse = $null
-        
-        # Create Form
+        # Create a simple form with instructions
         $form = New-Object System.Windows.Forms.Form
-        $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
-        $form.Width = 600
-        $form.Height = 800
-        $form.ShowIcon = $false
-        $form.TopMost = $false 
         $form.Text = "CyberArk SAML Authentication"
-        $form.Add_FormClosing({
-                param($sender, $e)
-                # If we don't have a SAML response yet and user closes window, cancel
-                if (-not $Script:SAMLResponse) {
-                    Write-Warning "Authentication cancelled by user"
-                }
-            })
+        $form.Size = New-Object System.Drawing.Size(600, 400)
+        $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
+        $form.TopMost = $true
 
-        # CREATE WEBVIEW2 CONTROL
-        $webView = New-Object Microsoft.Web.WebView2.WinForms.WebView2
-        $webView.Dock = [System.Windows.Forms.DockStyle]::Fill
-        $form.Controls.Add($webView)
-
-        # Initialize WebView2 properly with async pattern
-        $initTask = $webView.EnsureCoreWebView2Async($null)
-        
-        # Wait for initialization
-        while (-not $initTask.IsCompleted) { 
-            [System.Windows.Forms.Application]::DoEvents()
-            Start-Sleep -Milliseconds 100 
-        }
-
-        if ($initTask.IsFaulted) {
-            $form.Dispose()
-            throw "WebView2 Initialization Failed: $($initTask.Exception.InnerException.Message)"
-        }
-
-        # Set up event handlers BEFORE navigating
-        $webView.CoreWebView2.add_NavigationCompleted({
-                param($sender, $e)
-            
-                if ($e.IsSuccess) {
-                    Write-Host "Navigation completed to: $($sender.Source)" -ForegroundColor Gray
-                
-                    # Check if we're on a CyberArk callback URL (common patterns)
-                    $currentUrl = $sender.Source.ToString()
-                    if ($currentUrl -like "*PasswordVault/api/auth/saml/logon*") {
-                        Write-Host "Detected CyberArk SAML callback URL" -ForegroundColor Cyan
-                    
-                        # Try to extract SAML from URL fragment/query string
-                        try {
-                            $uri = [Uri]$currentUrl
-                            $query = [System.Web.HttpUtility]::ParseQueryString($uri.Query)
-                        
-                            if ($query["SAMLResponse"]) {
-                                $Script:SAMLResponse = $query["SAMLResponse"]
-                                Write-Host "SAML Response found in URL query!" -ForegroundColor Green
-                                $form.Close()
-                            }
-                            elseif ($uri.Fragment -match "SAMLResponse=([^&]*)") {
-                                $Script:SAMLResponse = $Matches[1]
-                                Write-Host "SAML Response found in URL fragment!" -ForegroundColor Green
-                                $form.Close()
-                            }
-                        }
-                        catch {
-                            Write-Warning "Error parsing URL: $_"
-                        }
-                    }
-                }
-                else {
-                    Write-Warning "Navigation failed: $($e.WebErrorStatus)"
-                }
-            })
-
-        # Intercept WebResource responses to catch SAML POST
-        $webView.CoreWebView2.AddWebResourceRequestedFilter("*", [Microsoft.Web.WebView2.Core.CoreWebView2WebResourceContext]::All)
-        
-        $webView.CoreWebView2.add_WebResourceRequested({
-                param($sender, $e)
-            
-                $request = $e.Request
-                $uri = $request.Uri
-            
-                Write-Host "Request to: $uri" -ForegroundColor DarkGray
-            
-                # Look for SAML response in POST requests
-                if ($request.Method -eq "POST" -and $uri -like "*PasswordVault/api/auth/saml/logon*") {
-                    Write-Host "Intercepted SAML POST request" -ForegroundColor Cyan
-                
-                    # Get the content
-                    try {
-                        $stream = $request.Content
-                        if ($stream) {
-                            $reader = New-Object System.IO.StreamReader($stream)
-                            $body = $reader.ReadToEnd()
-                        
-                            # Parse the form data
-                            if ($body -match "SAMLResponse=([^&]*)") {
-                                $encodedSaml = $Matches[1]
-                            
-                                # URL decode the SAML response
-                                $decodedSaml = [System.Web.HttpUtility]::UrlDecode($encodedSaml)
-                            
-                                if (-not [string]::IsNullOrWhiteSpace($decodedSaml)) {
-                                    $Script:SAMLResponse = $decodedSaml
-                                    Write-Host "SAML Response captured from POST body!" -ForegroundColor Green
-                                    $form.Close()
-                                }
-                            }
-                        }
-                    }
-                    catch {
-                        Write-Warning "Error reading POST content: $_"
-                    }
-                }
-            })
-
-        # Monitor for SAML in page content (some IdPs embed it in HTML)
-        $webView.CoreWebView2.add_ContentLoading({
-                param($sender, $e)
-            
-                # After page loads, check for hidden SAML input fields
-                $script = @"
-                (function() {
-                    // Look for SAMLResponse input field
-                    var samlInput = document.querySelector('input[name="SAMLResponse"]');
-                    if (samlInput && samlInput.value) {
-                        return samlInput.value;
-                    }
-                    
-                    // Look for SAMLResponse in forms
-                    var forms = document.getElementsByTagName('form');
-                    for (var i = 0; i < forms.length; i++) {
-                        var form = forms[i];
-                        if (form.action && form.action.includes('PasswordVault')) {
-                            var inputs = form.getElementsByTagName('input');
-                            for (var j = 0; j < inputs.length; j++) {
-                                if (inputs[j].name === 'SAMLResponse' && inputs[j].value) {
-                                    return inputs[j].value;
-                                }
-                            }
-                        }
-                    }
-                    return null;
-                })();
+        # Instructions label
+        $label = New-Object System.Windows.Forms.Label
+        $label.Location = New-Object System.Drawing.Point(10, 10)
+        $label.Size = New-Object System.Drawing.Size(560, 120)
+        $label.Text = @"
+INSTRUCTIONS:
+1. A browser window will open for SAML authentication
+2. Complete your login in the browser
+3. After successful login, the browser will redirect to CyberArk
+4. Press F12 to open Developer Tools
+5. Go to the Network tab
+6. Look for the POST request to: /PasswordVault/api/auth/saml/logon
+7. Click on that request and go to the 'Request' or 'Payload' tab
+8. Copy the entire SAMLResponse value (it will be a long encoded string)
+9. Paste it in the text box below
 "@
-            
-                # Execute script to check for SAML
-                $webView.CoreWebView2.ExecuteScriptAsync($script) | Out-Null
-            })
+        $label.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 9)
+        $form.Controls.Add($label)
 
-        # Handle script execution results
-        $webView.CoreWebView2.add_WebMessageReceived({
-                param($sender, $e)
-            
-                try {
-                    $message = $e.WebMessageAsJson | ConvertFrom-Json
-                    if ($message -and $message.SAMLResponse) {
-                        $Script:SAMLResponse = $message.SAMLResponse
-                        Write-Host "SAML Response found via JavaScript!" -ForegroundColor Green
-                        $form.Close()
-                    }
-                }
-                catch {
-                    # Not a JSON message or not our SAML response
-                }
-            })
+        # Text box for SAML response
+        $textBox = New-Object System.Windows.Forms.TextBox
+        $textBox.Location = New-Object System.Drawing.Point(10, 140)
+        $textBox.Size = New-Object System.Drawing.Size(560, 100)
+        $textBox.Multiline = $true
+        $textBox.ScrollBars = [System.Windows.Forms.ScrollBars]::Vertical
+        $textBox.Font = New-Object System.Drawing.Font("Consolas", 8)
+        $form.Controls.Add($textBox)
 
-        # Start Navigation
+        # Status label
+        $statusLabel = New-Object System.Windows.Forms.Label
+        $statusLabel.Location = New-Object System.Drawing.Point(10, 250)
+        $statusLabel.Size = New-Object System.Drawing.Size(560, 20)
+        $statusLabel.Text = "Waiting for SAML response..."
+        $form.Controls.Add($statusLabel)
+
+        # Buttons
+        $okButton = New-Object System.Windows.Forms.Button
+        $okButton.Location = New-Object System.Drawing.Point(400, 280)
+        $okButton.Size = New-Object System.Drawing.Size(80, 30)
+        $okButton.Text = "OK"
+        $okButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
+        $form.Controls.Add($okButton)
+
+        $cancelButton = New-Object System.Windows.Forms.Button
+        $cancelButton.Location = New-Object System.Drawing.Point(490, 280)
+        $cancelButton.Size = New-Object System.Drawing.Size(80, 30)
+        $cancelButton.Text = "Cancel"
+        $cancelButton.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+        $form.Controls.Add($cancelButton)
+
+        # Open browser button
+        $browserButton = New-Object System.Windows.Forms.Button
+        $browserButton.Location = New-Object System.Drawing.Point(10, 280)
+        $browserButton.Size = New-Object System.Drawing.Size(120, 30)
+        $browserButton.Text = "Open Browser"
+        $browserButton.Add_Click({
+            Write-Host "Opening browser to: $LoginIDP" -ForegroundColor Cyan
+            Start-Process $LoginIDP
+            $statusLabel.Text = "Browser opened. Complete authentication..."
+        })
+        $form.Controls.Add($browserButton)
+
+        # Set form properties
+        $form.AcceptButton = $okButton
+        $form.CancelButton = $cancelButton
+
+        # Open browser automatically
         Write-Host "Opening browser for SAML authentication..." -ForegroundColor Cyan
-        $webView.CoreWebView2.Navigate($LoginIDP)
+        Write-Host "URL: $LoginIDP" -ForegroundColor Gray
+        Start-Process $LoginIDP
 
-        # Show and process the form
-        $form.Add_Shown({ $form.Activate() })
-        [void]$form.ShowDialog()
+        # Show the form
+        $result = $form.ShowDialog()
 
-        # Cleanup
-        $form.Dispose()
+        if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
+            $samlResponse = $textBox.Text.Trim()
+            
+            if ([string]::IsNullOrWhiteSpace($samlResponse)) {
+                throw "No SAML response provided"
+            }
 
-        if ($Script:SAMLResponse) {
-            # Remove any + signs that might be spaces (URL encoding artifact)
-            $Script:SAMLResponse = $Script:SAMLResponse.Replace('+', ' ')
-            return $Script:SAMLResponse
+            # Clean up the SAML response (remove quotes, trim)
+            $samlResponse = $samlResponse.Trim('"', "'").Trim()
+            
+            # Validate it looks like a SAML response
+            if ($samlResponse -match "^[A-Za-z0-9+/]+={0,2}$") {
+                Write-Host "SAML response captured successfully" -ForegroundColor Green
+                return $samlResponse
+            }
+            else {
+                Write-Warning "The entered text doesn't look like a valid SAML response"
+                Write-Host "Make sure you copied only the SAMLResponse value (not the entire POST data)" -ForegroundColor Yellow
+                throw "Invalid SAML response format"
+            }
         }
         else {
-            throw "SAML authentication failed or was cancelled"
+            throw "SAML authentication cancelled by user"
         }
     }
 }

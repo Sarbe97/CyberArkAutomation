@@ -10,7 +10,7 @@ function Get-CACAccounts {
     param(
         [string]$Search,
         [string]$SafeName,
-        [int]$LimitPerPage = 10000
+        [int]$LimitPerPage = 1000
     )
 
     Write-Log "Started Get-CACAccounts()" "DEBUG"
@@ -81,6 +81,7 @@ function Get-CACAccounts {
         # ---------- EXECUTE SEARCHES ----------
         foreach ($query in $searchQueries) {
             $queryIndex++
+            Write-Progress -Activity "Searching Accounts" -Status "Processing Query $queryIndex / $($searchQueries.Count)" -PercentComplete (($queryIndex / $searchQueries.Count) * 100)
             Write-Log "Processing query $queryIndex/$($searchQueries.Count)" "INFO"
 
             Write-Log "Processing query $queryIndex/$($searchQueries.Count)" "INFO"
@@ -110,6 +111,11 @@ function Get-CACAccounts {
 
                 $accounts = @(Get-PASAccount @searchParams)
                 
+                # DEBUG: Explicitly show what was found
+                $cnt = $accounts.Count
+                Write-Host " [Found: $cnt]" -NoNewline -ForegroundColor DarkGray
+                if ($cnt -eq 50) { Write-Host " (HIT 50 LIMIT?)" -NoNewline -ForegroundColor Yellow }
+
                 if ($accounts) {
                     foreach ($acc in $accounts) {
                         if (-not $allAccounts.ContainsKey($acc.id)) {
@@ -123,53 +129,80 @@ function Get-CACAccounts {
                 Write-Log "Error processing query: $($_.Exception.Message)" "ERROR"
             }
         }
+        Write-Progress -Activity "Searching Accounts" -Completed
 
-        if (-not $allAccounts) {
-            Write-Host "No accounts found." -ForegroundColor Yellow
+        if ($allResults.Count -eq 0) {
+            Write-Host "No results generated." -ForegroundColor Yellow
             return
         }
 
         # ---------- FORMAT OUTPUT ----------
+        # ---------- FORMAT OUTPUT ----------
         $formatted = @()
         $processed = 0
 
-        foreach ($account in $allAccounts.Values) {
+        foreach ($item in $allResults) {
             $processed++
+            $account = $item.Account
+            $query = $item.Query
+            $found = $item.Found
+
             try {
                 if ($processed % 10 -eq 0) {
-                    Write-Progress -Activity "Processing Accounts" `
-                        -Status "$processed / $($allAccounts.Count)" `
-                        -PercentComplete (($processed / $allAccounts.Count) * 100)
+                    Write-Progress -Activity "Formatting Output" `
+                        -Status "$processed / $($allResults.Count)" `
+                        -PercentComplete (($processed / $allResults.Count) * 100)
                 }
 
-                $row = [Ordered]@{
-                    AccountID    = $account.id
-                    AccountName  = $account.name
-                    UserName     = $account.userName
-                    Address      = $account.address
-                    PlatformID   = $account.platformId
-                    SafeName     = $account.safeName
-                    CreatedDate  = Convert-CACTimestamp $account.createdTime
-                    ModifiedDate = Convert-CACTimestamp $account.lastModifiedTime
-                }
+                if ($found) {
+                    $row = [Ordered]@{
+                        InputSearch  = $query.Search
+                        InputSafe    = $query.Safe
+                        Status       = "Found"
+                        AccountID    = $account.id
+                        AccountName  = $account.name
+                        UserName     = $account.userName
+                        Address      = $account.address
+                        PlatformID   = $account.platformId
+                        SafeName     = $account.safeName
+                        CreatedDate  = Convert-CACTimestamp $account.createdTime
+                        ModifiedDate = Convert-CACTimestamp $account.lastModifiedTime
+                    }
 
-                if ($retrievePassword) {
-                    try {
-                        $row['Password'] = Get-PASAccountPassword -AccountID $account.id -ErrorAction Stop
+                    if ($retrievePassword) {
+                        try {
+                            $row['Password'] = Get-PASAccountPassword -AccountID $account.id -ErrorAction Stop
+                        }
+                        catch {
+                            $row['Password'] = "ERROR"
+                            Write-Log "Password fetch failed for $($account.id): $($_.Exception.Message)" "WARN"
+                        }
                     }
-                    catch {
-                        $row['Password'] = "ERROR"
-                        Write-Log "Password fetch failed for $($account.id): $($_.Exception.Message)" "WARN"
+                }
+                else {
+                    $row = [Ordered]@{
+                        InputSearch  = $query.Search
+                        InputSafe    = $query.Safe
+                        Status       = "Not Found"
+                        AccountID    = ""
+                        AccountName  = ""
+                        UserName     = ""
+                        Address      = ""
+                        PlatformID   = ""
+                        SafeName     = ""
+                        CreatedDate  = ""
+                        ModifiedDate = ""
+                        Password     = ""
                     }
+                    if ($item.Error) { $row.Status = "Error: $($item.Error)" }
                 }
 
                 $formatted += [PSCustomObject]$row
             }
             catch {
-                Write-Log "Formatting failed for AccountID $($account.id): $($_.Exception.Message)" "ERROR"
+                Write-Log "Formatting failed for item: $($_.Exception.Message)" "ERROR"
             }
         }
-
         Write-Progress -Activity "Processing Accounts" -Completed
 
         # ---------- EXPORT ----------
@@ -184,11 +217,11 @@ function Get-CACAccounts {
             "safe_$(& $sanitize $searchQueries[0].Safe)"
         }
 
-        $file = "$outputDir/accounts_${desc}_$($allAccounts.Count)_$(Get-Date -Format yyyyMMdd_HHmmss).csv"
+        $file = "$outputDir/accounts_${desc}_$($allResults.Count)_$(Get-Date -Format yyyyMMdd_HHmmss).csv"
         $formatted | Export-Csv $file -NoTypeInformation -Encoding UTF8
 
         Write-Log "Export successful: $file" "SUCCESS"
-        Write-Host "Exported $($allAccounts.Count) accounts to $file" -ForegroundColor Green
+        Write-Host "Exported $($allResults.Count) rows to $file" -ForegroundColor Green
 
         return $formatted
     }

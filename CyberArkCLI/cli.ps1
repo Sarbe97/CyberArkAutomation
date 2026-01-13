@@ -357,6 +357,7 @@ function Show-AccountMenu {
         Write-Host "5. Connect via PSM"
         Write-Host "6. Create Account Template"
         Write-Host "7. Add Accounts from CSV"
+        Write-Host "8. Batch Delete Accounts (ID or CSV)"
         Write-Host "0. Back"
         Write-Host "===================================="
 
@@ -372,6 +373,10 @@ function Show-AccountMenu {
             '5' { New-CACPSMConnection; Pause }
             '6' { New-CACAccountTemplate; Pause }
             '7' { New-CACAccountsFromCsv; Pause }
+            '8' {
+                Invoke-CACBatchAccountDeletion
+                Pause
+            }
             '0' { return }
 
 

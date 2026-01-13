@@ -84,42 +84,49 @@ function Get-CACAccounts {
             Write-Log "Processing query $queryIndex/$($searchQueries.Count)" "INFO"
 
             $offset = 0
-            # Execute Search request using Splatting
-            try {
-                $searchParams = @{
-                    ErrorAction = 'Stop'
-                }
+            do {
+                # Execute Search request using Splatting
+                try {
+                    $searchParams = @{
+                        ErrorAction = 'Stop'
+                        offset      = $offset
+                    }
 
-                # Use 'search' parameter for keyword search
-                if (-not [string]::IsNullOrWhiteSpace($query.Search)) {
-                    $searchParams['search'] = $query.Search
-                }
+                    # Use 'search' parameter for keyword search
+                    if (-not [string]::IsNullOrWhiteSpace($query.Search)) {
+                        $searchParams['search'] = $query.Search
+                    }
 
-                # Use 'safeName' parameter for Safe search
-                if (-not [string]::IsNullOrWhiteSpace($query.Safe)) {
-                    $searchParams['safeName'] = $query.Safe
-                }
+                    # Use 'safeName' parameter for Safe search
+                    if (-not [string]::IsNullOrWhiteSpace($query.Safe)) {
+                        $searchParams['safeName'] = $query.Safe
+                    }
 
-                # Use 'limit' parameter if provided
-                if ($LimitPerPage) {
-                    $searchParams['limit'] = $LimitPerPage
-                }
+                    # Use 'limit' parameter if provided
+                    if ($LimitPerPage) {
+                        $searchParams['limit'] = $LimitPerPage
+                    }
 
-                Write-Log "Searching with params: $($searchParams | ConvertTo-Json -Depth 1 -Compress)" "DEBUG"
+                    Write-Log "Searching params: Search='$($query.Search)', Safe='$($query.Safe)', Limit=$LimitPerPage, Offset=$offset" "DEBUG"
 
-                $accounts = @(Get-PASAccount @searchParams)
+                    $accounts = @(Get-PASAccount @searchParams)
+                    $countReturned = $accounts.Count
 
-                if ($accounts) {
-                    foreach ($acc in $accounts) {
-                        if (-not $allAccounts.ContainsKey($acc.id)) {
-                            $allAccounts[$acc.id] = $acc
+                    if ($accounts) {
+                        foreach ($acc in $accounts) {
+                            if (-not $allAccounts.ContainsKey($acc.id)) {
+                                $allAccounts[$acc.id] = $acc
+                            }
                         }
                     }
+                    
+                    $offset += $countReturned
                 }
-            }
-            catch {
-                Write-Log "Error processing query: $($_.Exception.Message)" "ERROR"
-            }
+                catch {
+                    Write-Log "Error processing query: $($_.Exception.Message)" "ERROR"
+                    $countReturned = 0 # Stop loop on error
+                }
+            } until ($countReturned -lt $LimitPerPage)
         }
 
         if (-not $allAccounts) {
@@ -829,6 +836,121 @@ function Remove-CACAccount {
 
 
 
+
+# ============================================================
+# 8. Batch Delete Accounts (ID or CSV)
+# ============================================================
+function Invoke-CACBatchAccountDeletion {
+    [CmdletBinding()]
+    param(
+        [string]$Id,
+        [string]$CsvPath,
+        [string]$OutputCsvPath = (Join-Path $PWD "BatchDeletion_Result.csv")
+    )
+
+    Write-Log "Started Invoke-CACBatchAccountDeletion()" "DEBUG"
+
+    # --- 1. Gather Input Data ---
+    $itemsToProcess = @()
+
+    # --- INTERACTIVE MODE CHECK ---
+    if ([string]::IsNullOrWhiteSpace($Id) -and [string]::IsNullOrWhiteSpace($CsvPath)) {
+        Write-Host "Select Deletion Mode:" -ForegroundColor Cyan
+        Write-Host "1. Single Account ID"
+        Write-Host "2. Batch CSV File"
+        
+        $mode = Read-Host "Mode (1/2)"
+        if ($mode -eq '1') {
+            $val = Read-Host "Enter Account ID"
+            if (-not [string]::IsNullOrWhiteSpace($val)) { $Id = $val }
+        }
+        elseif ($mode -eq '2') {
+            $val = Read-Host "Enter CSV Path"
+            if (-not [string]::IsNullOrWhiteSpace($val)) { $CsvPath = $val }
+        }
+        else {
+            Write-Warning "Invalid selection."
+            return
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($Id)) {
+        # Single ID Mode
+        Write-Log "Processing single ID: $Id" "INFO"
+        $itemsToProcess += [PSCustomObject]@{
+            id            = $Id
+            ProcessSource = "ManualInput"
+        }
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($CsvPath)) {
+        # CSV Mode
+        if (-not (Test-Path $CsvPath)) {
+            Write-Error "CSV file not found: $CsvPath"
+            return
+        }
+        Write-Log "Processing CSV: $CsvPath" "INFO"
+        $itemsToProcess = Import-Csv $CsvPath
+    }
+    else {
+        Write-Error "No valid ID or CSV path provided."
+        return
+    }
+
+    if ($itemsToProcess.Count -eq 0) {
+        Write-Warning "No items to process."
+        return
+    }
+
+    # --- 2. Process Deletions ---
+    $results = @()
+    $total = $itemsToProcess.Count
+    $current = 0
+
+    foreach ($item in $itemsToProcess) {
+        $current++
+        # Clone item properties to result object
+        $resObj = $item | Select-Object *
+        
+        # Ensure 'id' exists (case-insensitive check)
+        $idVal = if ($item.PSObject.Properties['id']) { $item.id } else { $null }
+
+        if (-not $idVal) {
+            Write-Host "Row $current : Missing 'id' column. Skipping." -ForegroundColor Yellow
+            $resObj | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "Skipped" -Force
+            $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Missing 'id' column" -Force
+            $results += $resObj
+            continue
+        }
+
+        Write-Host "[$current/$total] Deleting Account ID: $idVal ... " -NoNewline
+
+        try {
+            # --- Deletion ---
+            Remove-PASAccount -id $idVal -ErrorAction Stop
+            
+            Write-Host "Success" -ForegroundColor Green
+            $resObj | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "Success" -Force
+            $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Deleted" -Force
+            Write-Log "Deleted Account: $idVal" "SUCCESS"
+        }
+        catch {
+            $errMsg = $_.Exception.Message
+            Write-Host "Failed ($errMsg)" -ForegroundColor Red
+            
+            $resObj | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "Failed" -Force
+            $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value $errMsg -Force
+            Write-Log "Failed to delete $idVal : $errMsg" "ERROR"
+        }
+
+        $results += $resObj
+    }
+
+    # --- 3. Export Results ---
+    $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
+    Write-Host "`nBatch Deletion Complete. Results: $OutputCsvPath" -ForegroundColor Green
+    Write-Log "Batch Deletion Complete. Results saved to $OutputCsvPath" "INFO"
+}
+
 # ============================================================
 # EXPORT ALL PUBLIC FUNCTIONS
 # ============================================================
@@ -840,4 +962,5 @@ Export-ModuleMember -Function `
     New-CACPSMConnection, `
     New-CACAccountsFromCsv, `
     New-CACAccountTemplate, `
-    Remove-CACAccount
+    Remove-CACAccount, `
+    Invoke-CACBatchAccountDeletion

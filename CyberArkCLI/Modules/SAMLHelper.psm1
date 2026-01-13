@@ -1,3 +1,28 @@
+function Set-BrowserEmulation {
+    <#
+    .SYNOPSIS
+        Sets the Internet Explorer emulation mode for the current process to IE11.
+    #>
+    try {
+        $key = "HKCU:\Software\Microsoft\Internet Explorer\Main\FeatureControl\FEATURE_BROWSER_EMULATION"
+        if (-not (Test-Path $key)) {
+            New-Item $key -Force | Out-Null
+        }
+
+        $processName = [System.IO.Path]::GetFileName([System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName)
+        $currentValue = (Get-ItemProperty $key).$processName
+
+        # 11001 (0x2AF9) = IE11. 
+        if ($currentValue -ne 11001) {
+            Write-Host "Setting Browser Emulation to IE11 for $processName..." -ForegroundColor DarkGray
+            Set-ItemProperty $key -Name $processName -Value 11001 -Type DWord -Force
+        }
+    }
+    catch {
+        Write-Warning "Failed to set browser emulation: $_"
+    }
+}
+
 function New-SAMLInteractive {
     [CmdletBinding()]
     param(
@@ -8,6 +33,16 @@ function New-SAMLInteractive {
     Begin {
         Add-Type -AssemblyName System.Windows.Forms 
         Add-Type -AssemblyName System.Web
+        
+        # Ensure we are running with IE11 Emulation
+        Set-BrowserEmulation
+
+        # Save page source to file for debugging
+        $debugDir = Join-Path $env:TEMP "SAML_Debug"
+        if (-not (Test-Path $debugDir)) {
+            New-Item -ItemType Directory -Path $debugDir -Force | Out-Null
+        }
+        $debugFile = Join-Path $debugDir "saml_debug_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
     }
 
     Process {
@@ -15,138 +50,112 @@ function New-SAMLInteractive {
         
         $form = New-Object System.Windows.Forms.Form
         $form.StartPosition = "CenterScreen"
-        $form.Width = 800
-        $form.Height = 700
-        $form.Text = "SAML Login - Will auto-close"
+        $form.Width = 1000
+        $form.Height = 800
+        $form.Text = "SAML Authentication - Please Login"
+        $form.ShowIcon = $false
         
         $web = New-Object System.Windows.Forms.WebBrowser
         $web.Dock = "Fill"
-        $web.ScriptErrorsSuppressed = $true
+        $web.ScriptErrorsSuppressed = $true # Suppress JS errors which are common in IE control
         $form.Controls.Add($web)
         
-        # Navigate to IdP
-        Write-Host "Opening SAML login..." -ForegroundColor Cyan
-        $web.Navigate($LoginIDP)
-        
-        # Monitor for SAML response
-        $web.add_DocumentCompleted({
-                param($sender, $e)
+        # Regex patterns to find SAML Response in HTML
+        $patterns = @(
+            '(?i)name=["'']SAMLResponse["'']\s+(?:type=["'']hidden["'']\s+)?value=["'']([^"'']+)["'']',
+            '(?i)value=["'']([^"'']+)["'']\s+(?:type=["'']hidden["'']\s+)?name=["'']SAMLResponse["'']',
+            'SAMLResponse=([^&"''\s]+)'
+        )
+
+        # Handler to check content
+        $checkContent = {
+            param($source, $msg)
             
-                $url = $web.Url.ToString()
-                Write-Host "Page loaded: $url" -ForegroundColor DarkGray
-            
-                try {
-                    # Method 1: Check DOM for SAMLResponse input field
-                    $doc = $web.Document
-                    if ($doc -ne $null) {
-                        $inputs = $doc.GetElementsByTagName("input")
-                        foreach ($input in $inputs) {
-                            $name = $input.GetAttribute("name")
-                            if ($name -eq "SAMLResponse") {
-                                $value = $input.GetAttribute("value")
-                                if (-not [string]::IsNullOrWhiteSpace($value)) {
-                                    Write-Host "Found SAMLResponse in DOM!" -ForegroundColor Green
-                                
-                                    # CORRECT DECODING: First URL decode, then fix entities
-                                    $decoded = [System.Web.HttpUtility]::UrlDecode($value)
-                                    $decoded = $decoded -replace '&#x2b;', '+'
-                                    $decoded = $decoded -replace '&#x3d;', '='
-                                    $decoded = $decoded -replace '&#13;&#10;', ''
-                                    $decoded = $decoded.Trim()
-                                
-                                    $Script:SAMLResponse = $decoded
-                                    $form.Close()
-                                    return
-                                }
-                            }
-                        }
-                    }
-                
-                    # Method 2: Check URL for SAMLResponse
-                    if ($url -match "SAMLResponse=([^&]+)") {
-                        Write-Host "Found SAMLResponse in URL!" -ForegroundColor Green
-                    
-                        $encodedSaml = $Matches[1]
-                        # URL decode the SAML response
-                        $decoded = [System.Web.HttpUtility]::UrlDecode($encodedSaml)
-                        $decoded = $decoded -replace '\+', ' '
-                        $decoded = $decoded.Trim()
-                    
-                        $Script:SAMLResponse = $decoded
+            if ([string]::IsNullOrWhiteSpace($source)) { return }
+
+            # Log URL for debug
+            $url = $web.Url.ToString()
+            $timestamp = Get-Date -Format "HH:mm:ss"
+            Add-Content -Path $debugFile -Value "[$timestamp] $msg - $url"
+
+            # Check 1: URL Parameters
+            if ($url -match "SAMLResponse=([^&]+)") {
+                Write-Host "DEBUG: Found SAML in URL!" -ForegroundColor Green
+                $Script:SAMLResponse = [System.Web.HttpUtility]::UrlDecode($Matches[1])
+                $form.Close()
+                return
+            }
+
+            # Check 2: HTML Content via Regex
+            foreach ($pattern in $patterns) {
+                if ($source -match $pattern) {
+                    Write-Host "DEBUG: Found SAML via Regex ($msg)" -ForegroundColor Green
+                    $val = $Matches[1]
+                    # Decode HTML entities if present
+                    $val = $val -replace '&#x2b;', '+' -replace '&#x3d;', '='
+                    $Script:SAMLResponse = $val
+                    $form.Close()
+                    return
+                }
+            }
+
+            # Check 3: DOM Elements (more reliable for parsed HTML)
+            if ($web.Document) {
+                $inputs = $web.Document.GetElementsByTagName("input")
+                foreach ($input in $inputs) {
+                    if ($input.Name -eq "SAMLResponse") {
+                        Write-Host "DEBUG: Found SAML input field in DOM!" -ForegroundColor Green
+                        $Script:SAMLResponse = $input.GetAttribute("value")
                         $form.Close()
                         return
                     }
-                
-                    # Method 3: Check for form with SAMLResponse
-                    if ($doc -ne $null) {
-                        $forms = $doc.GetElementsByTagName("form")
-                        foreach ($formElem in $forms) {
-                            $action = $formElem.GetAttribute("action")
-                            if ($action -match "PasswordVault.*saml.*logon") {
-                                Write-Host "Found CyberArk SAML form!" -ForegroundColor Yellow
-                            
-                                # Look for SAMLResponse in this form
-                                $formHtml = $formElem.OuterHtml
-                                if ($formHtml -match 'name="SAMLResponse" value="([^"]+)"') {
-                                    $value = $Matches[1]
-                                    Write-Host "Extracted SAML from form HTML" -ForegroundColor Green
-                                
-                                    $decoded = [System.Web.HttpUtility]::UrlDecode($value)
-                                    $decoded = $decoded -replace '&#x2b;', '+'
-                                    $decoded = $decoded -replace '&#x3d;', '='
-                                    $decoded = $decoded.Trim()
-                                
-                                    $Script:SAMLResponse = $decoded
-                                    $form.Close()
-                                    return
-                                }
-                            }
-                        }
-                    }
                 }
-                catch {
-                    Write-Host "Error checking page: $_" -ForegroundColor Red
-                }
-            })
-        
-        # Also check when navigating
+            }
+        }
+
+        # Event: Navigating (Before load)
+        # Use this to catch redirects or early content
         $web.add_Navigating({
                 param($sender, $e)
             
+                # Check if we are being redirected with SAMLResponse in URL
                 $url = $e.Url.ToString()
-                if ($url -match "SAMLResponse=([^&]+)") {
-                    Write-Host "Intercepted SAML in navigation!" -ForegroundColor Green
-                
-                    $encodedSaml = $Matches[1]
-                    $decoded = [System.Web.HttpUtility]::UrlDecode($encodedSaml)
-                    $decoded = $decoded -replace '\+', ' '
-                    $decoded = $decoded.Trim()
-                
-                    $Script:SAMLResponse = $decoded
-                    $e.Cancel = $true
-                    $form.Close()
+            
+                # Note: We can't easily see POST body here in WebBrowser control
+                # But we can check if the URL *is* the logic endpoint
+                if ($url -match "SAMLResponse") {
+                    & $checkContent $url "Navigating(URL)"
+                }
+            })
+
+        # Event: DocumentCompleted (After load)
+        $web.add_DocumentCompleted({
+                param($sender, $e)
+                $url = $web.Url.ToString()
+            
+                # Only process if we are not on 'about:blank'
+                if ($url -ne "about:blank") {
+                    Write-Host "Loaded: $url" -ForegroundColor Gray
+                    & $checkContent $web.DocumentText "DocumentCompleted"
                 }
             })
         
-        # Show and wait
+        # Navigate to IDP
+        Write-Host "Opening Login Window..." -ForegroundColor Cyan
+        $web.Navigate($LoginIDP)
+        
+        # Show form
         [void]$form.ShowDialog()
         
-        if ($null -ne $Script:SAMLResponse) {
-            Write-Host "SAML captured successfully!" -ForegroundColor Green
-            Write-Host "SAML length: $($Script:SAMLResponse.Length) chars" -ForegroundColor DarkGray
-            
-            # Validate format
-            if ($Script:SAMLResponse -match "^[A-Za-z0-9+/]+={0,2}$") {
-                Write-Host "Format: Valid Base64" -ForegroundColor Green
-            }
-            else {
-                Write-Host "Format: Not Base64 - may need different encoding" -ForegroundColor Yellow
-            }
-            
+        $form.Dispose()
+
+        if ($Script:SAMLResponse) {
             return $Script:SAMLResponse
         }
         else {
-            throw "No SAML response captured"
+            Write-Warning "SAML Authentication window closed without capturing a response."
+            Write-Warning "Debug log: $debugFile"
+            return $null
         }
     }
 }

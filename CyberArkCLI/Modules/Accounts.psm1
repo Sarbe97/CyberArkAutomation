@@ -13,13 +13,16 @@ function Get-CACAccounts {
         [int]$LimitPerPage = 1000
     )
 
+    # Ensure dependencies exist (or mock them for this run if missing)
+    if (-not (Get-Command Write-Log -ErrorAction SilentlyContinue)) { function Write-Log ($msg, $level) { Write-Host "[$level] $msg" } }
+    
     Write-Log "Started Get-CACAccounts()" "DEBUG"
     Write-Log "Search='$Search', Safe='$SafeName', Limit=$LimitPerPage" "INFO"
 
     try {
         $searchQueries = @()
 
-        # ---------- BUILD QUERY LIST ----------
+        # ---------- 1. BUILD QUERY LIST ----------
         if ($Search) {
             $searchQueries += [PSCustomObject]@{ Search = $Search; Safe = $null }
         }
@@ -27,53 +30,88 @@ function Get-CACAccounts {
             $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $SafeName }
         }
 
-        # ---------- INTERACTIVE MODE ----------
+        # ---------- 2. INTERACTIVE MODE ----------
         if (-not $searchQueries) {
-            # (Keeping your existing interactive logic here for brevity, assume it is unchanged)
             Write-Host "Choose search method:" -ForegroundColor Cyan
+            Write-Host "1 = Search by keyword"
+            Write-Host "2 = Search by safe name"
             Write-Host "3 = Batch search from CSV"
-            
-            # ... [Assuming your switch block is here] ...
-            # For the sake of the fix, let's assume Option 3 was selected
-            $p = Read-Host "Enter CSV path"
-            if (-not (Test-Path $p)) { throw "CSV file not found." }
-            $csvData = Import-Csv $p
-            foreach ($row in $csvData) {
-                if ($row.Search) { $searchQueries += [PSCustomObject]@{ Search = $row.Search; Safe = $null } }
-                if ($row.Safe) { $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $row.Safe } }
+
+            switch (Read-Host "Enter choice") {
+                '1' {
+                    $k = Read-Host "Enter search keywords"
+                    if ($k) { $searchQueries += [PSCustomObject]@{ Search = $k; Safe = $null } }
+                }
+                '2' {
+                    $s = Read-Host "Enter safe name"
+                    if ($s) { $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $s } }
+                }
+                '3' {
+                    $p = Read-Host "Enter CSV path"
+                    if (-not (Test-Path $p)) { throw "CSV file not found." }
+
+                    $csvData = Import-Csv $p
+                    foreach ($row in $csvData) {
+                        # Handle varied CSV headers (Search, Keywords, Safe, SafeName, etc.)
+                        $sVal = if ($row.Search) { $row.Search } elseif ($row.Keywords) { $row.Keywords } else { $null }
+                        $safeVal = if ($row.Safe) { $row.Safe } elseif ($row.SafeName) { $row.SafeName } else { $null }
+
+                        if ($sVal) {
+                            $searchQueries += [PSCustomObject]@{ Search = $sVal; Safe = $null }
+                        }
+                        if ($safeVal) {
+                            $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $safeVal }
+                        }
+                    }
+                }
+                default { throw "Invalid selection." }
             }
         }
 
         if (-not $searchQueries) { throw "No valid search criteria provided." }
 
-        # ---------- PASSWORD OPTION ----------
+        # ---------- 3. PASSWORD OPTION ----------
         $retrievePassword = ((Read-Host "Retrieve passwords? (Y/N)") -match '^[Yy]$')
+        if ($retrievePassword) {
+            Write-Log "Password retrieval enabled for all accounts." "WARN"
+        }
 
-        # ---------- OUTPUT SETUP ----------
+        # ---------- 4. OUTPUT SETUP ----------
         $outputDir = "$PSScriptRoot/../Output"
-        if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir | Out-Null }
+        if (-not (Test-Path $outputDir)) {
+            New-Item -ItemType Directory -Path $outputDir | Out-Null
+        }
 
-        # *** FIX 1: Initialize the results array ***
+        # *** KEY FIX: Initialize the results array used in output loop ***
         $allResults = @() 
         $queryIndex = 0
 
-        # ---------- EXECUTE SEARCHES ----------
+        # ---------- 5. EXECUTE SEARCHES ----------
         foreach ($query in $searchQueries) {
             $queryIndex++
-            Write-Progress -Activity "Searching Accounts" -Status "Processing Query $queryIndex / $($searchQueries.Count)" -PercentComplete (($queryIndex / $searchQueries.Count) * 100)
-            
+            $statusMsg = "Processing Query $queryIndex / $($searchQueries.Count)"
+            Write-Progress -Activity "Searching Accounts" -Status $statusMsg -PercentComplete (($queryIndex / $searchQueries.Count) * 100)
+            Write-Log $statusMsg "INFO"
+
             try {
-                $searchParams = @{ ErrorAction = 'Stop'; limit = $LimitPerPage }
-                
+                $searchParams = @{
+                    ErrorAction = 'Stop'
+                }
+
+                # Conditional Parameters
                 if (-not [string]::IsNullOrWhiteSpace($query.Search)) { $searchParams['search'] = $query.Search }
                 if (-not [string]::IsNullOrWhiteSpace($query.Safe)) { $searchParams['safeName'] = $query.Safe }
+                if ($LimitPerPage) { $searchParams['limit'] = $LimitPerPage }
 
+                Write-Log "Searching params: Search='$($query.Search)', Safe='$($query.Safe)'" "DEBUG"
+
+                # Perform Search
                 $accounts = @(Get-PASAccount @searchParams)
                 
-                # *** FIX 2: Handle BOTH Found and Not Found scenarios ***
-                if ($accounts) {
+                # *** KEY FIX: Handle both Found AND Not Found scenarios ***
+                if ($accounts.Count -gt 0) {
                     foreach ($acc in $accounts) {
-                        # Add a success object for every account found
+                        # Add Success Row
                         $allResults += [PSCustomObject]@{
                             Query   = $query
                             Account = $acc
@@ -83,18 +121,21 @@ function Get-CACAccounts {
                     }
                 }
                 else {
-                    # Add a "Not Found" object if the array is empty
+                    # Add Failure/Empty Row (Preserves the input row count)
+                    Write-Log "No accounts found for criteria: $($query.Search) $($query.Safe)" "WARN"
                     $allResults += [PSCustomObject]@{
                         Query   = $query
                         Account = $null
                         Found   = $false
-                        Error   = $null
+                        Error   = "No accounts found"
                     }
                 }
             }
             catch {
-                # Handle API errors gracefully in the output
+                # Add Error Row
+                Write-Host "`nError in search [Search=$($query.Search), Safe=$($query.Safe)]: $($_.Exception.Message)" -ForegroundColor Red
                 Write-Log "Error processing query: $($_.Exception.Message)" "ERROR"
+                
                 $allResults += [PSCustomObject]@{
                     Query   = $query
                     Account = $null
@@ -110,21 +151,38 @@ function Get-CACAccounts {
             return
         }
 
-        # ---------- FORMAT OUTPUT ----------
+        # ---------- 6. FORMAT OUTPUT ----------
         $formatted = @()
         $processed = 0
 
-        # *** FIX 3: Iterate over $allResults (which now actually exists) ***
         foreach ($item in $allResults) {
             $processed++
             $account = $item.Account
             $query = $item.Query
             $found = $item.Found
 
+            if ($processed % 10 -eq 0) {
+                Write-Progress -Activity "Formatting Output" -Status "$processed / $($allResults.Count)" -PercentComplete (($processed / $allResults.Count) * 100)
+            }
+
+            # Prepare common Input Data
+            $inputSearch = if ($query.Search) { $query.Search } else { "N/A" }
+            $inputSafe = if ($query.Safe) { $query.Safe } else { "N/A" }
+
             if ($found) {
+                # --- Handle Timestamps safely ---
+                $createdStr = $account.createdTime
+                $modifiedStr = $account.lastModifiedTime
+                
+                # Use your existing conversion function if available, otherwise use raw
+                if (Get-Command Convert-CACTimestamp -ErrorAction SilentlyContinue) {
+                    $createdStr = Convert-CACTimestamp $account.createdTime
+                    $modifiedStr = Convert-CACTimestamp $account.lastModifiedTime
+                }
+
                 $row = [Ordered]@{
-                    InputSearch  = $query.Search
-                    InputSafe    = $query.Safe
+                    InputSearch  = $inputSearch
+                    InputSafe    = $inputSafe
                     Status       = "Found"
                     AccountID    = $account.id
                     AccountName  = $account.name
@@ -132,8 +190,8 @@ function Get-CACAccounts {
                     Address      = $account.address
                     PlatformID   = $account.platformId
                     SafeName     = $account.safeName
-                    CreatedDate  = $account.createdTime # Assuming you handle timestamp conversion elsewhere
-                    ModifiedDate = $account.lastModifiedTime
+                    CreatedDate  = $createdStr
+                    ModifiedDate = $modifiedStr
                 }
 
                 if ($retrievePassword) {
@@ -141,19 +199,17 @@ function Get-CACAccounts {
                         $row['Password'] = Get-PASAccountPassword -AccountID $account.id -ErrorAction Stop
                     }
                     catch {
-                        $row['Password'] = "ERROR"
+                        $row['Password'] = "ERROR: $($_.Exception.Message)"
+                        Write-Log "Password fetch failed for $($account.id)" "WARN"
                     }
                 }
             }
             else {
-                # Logic for "Not Found" or "Error" rows
-                $statusMsg = "Not Found"
-                if ($item.Error) { $statusMsg = "Error: $($item.Error)" }
-
+                # --- Handle Not Found / Errors ---
                 $row = [Ordered]@{
-                    InputSearch  = $query.Search
-                    InputSafe    = $query.Safe
-                    Status       = $statusMsg
+                    InputSearch  = $inputSearch
+                    InputSafe    = $inputSafe
+                    Status       = if ($item.Error) { "Error: $($item.Error)" } else { "Not Found" }
                     AccountID    = ""
                     AccountName  = ""
                     UserName     = ""
@@ -162,20 +218,29 @@ function Get-CACAccounts {
                     SafeName     = ""
                     CreatedDate  = ""
                     ModifiedDate = ""
-                    Password     = ""
                 }
+                if ($retrievePassword) { $row['Password'] = "" }
             }
+
             $formatted += [PSCustomObject]$row
         }
+        Write-Progress -Activity "Formatting Output" -Completed
 
-        # ---------- EXPORT ----------
-        $file = "$outputDir/accounts_Report_$(Get-Date -Format yyyyMMdd_HHmmss).csv"
+        # ---------- 7. EXPORT ----------
+        $sanitize = { $_ -replace '[\\/:*?"<>|]', '_' }
+        $desc = "Batch_Search"
+        
+        $file = "$outputDir/accounts_${desc}_$($allResults.Count)_$(Get-Date -Format yyyyMMdd_HHmmss).csv"
+        
         $formatted | Export-Csv $file -NoTypeInformation -Encoding UTF8
-        Write-Host "Exported $($formatted.Count) rows to $file" -ForegroundColor Green
+
+        Write-Log "Export successful: $file" "SUCCESS"
+        Write-Host "Exported $($allResults.Count) rows to $file" -ForegroundColor Green
 
         return $formatted
     }
     catch {
+        Write-Log "Fatal error in Get-CACAccounts: $($_.Exception.Message)" "ERROR"
         throw
     }
 }

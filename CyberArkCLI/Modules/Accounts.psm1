@@ -111,7 +111,9 @@ function Get-CACAccounts {
 
                     $accounts = @(Get-PASAccount @searchParams)
                     $countReturned = $accounts.Count
-
+                    
+                    Write-Host "." -NoNewline -ForegroundColor Gray
+                    
                     if ($accounts) {
                         foreach ($acc in $accounts) {
                             if (-not $allAccounts.ContainsKey($acc.id)) {
@@ -123,6 +125,7 @@ function Get-CACAccounts {
                     $offset += $countReturned
                 }
                 catch {
+                    Write-Host "`nError in search [Search=$($query.Search), Safe=$($query.Safe)]: $($_.Exception.Message)" -ForegroundColor Red
                     Write-Log "Error processing query: $($_.Exception.Message)" "ERROR"
                     $countReturned = 0 # Stop loop on error
                 }

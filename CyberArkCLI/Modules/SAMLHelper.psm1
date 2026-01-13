@@ -6,84 +6,128 @@ function New-SAMLInteractive {
     )
 
     Begin {
-        # Same regex pattern as the working example
-        $RegEx = '(?i)name="SAMLResponse"(?: type="hidden")? value=\"(.*?)\"(?:.*)?\/>'
-        
         Add-Type -AssemblyName System.Windows.Forms 
         Add-Type -AssemblyName System.Web
+        
+        # Save page source to file for debugging
+        $debugDir = Join-Path $env:TEMP "SAML_Debug"
+        if (-not (Test-Path $debugDir)) {
+            New-Item -ItemType Directory -Path $debugDir -Force | Out-Null
+        }
+        $debugFile = Join-Path $debugDir "saml_debug_$(Get-Date -Format 'yyyyMMdd_HHmmss').html"
     }
 
     Process {
-        # Create Script-level variable for SAML response
         $Script:SAMLResponse = $null
+        $formClosed = $false
         
-        # Create window for embedded browser
         $form = New-Object System.Windows.Forms.Form
-        $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
-        $form.Width = 640
+        $form.StartPosition = "CenterScreen"
+        $form.Width = 800
         $form.Height = 700
-        $form.ShowIcon = $false
-        $form.TopMost = $true
-    
-        # Use the legacy WebBrowser control (NOT WebView2)
+        $form.Text = "SAML DEBUG - Login will auto-close when SAML found"
+        
         $web = New-Object System.Windows.Forms.WebBrowser
-        $web.Size = $form.ClientSize
-        $web.Anchor = "Left,Top,Right,Bottom"
+        $web.Dock = "Fill"
         $web.ScriptErrorsSuppressed = $true
         $form.Controls.Add($web)
-
-        # Navigate to the IdP
-        $web.Navigate($LoginIDP)
         
-        # Monitor for SAML response during navigation
-        $web.add_Navigating({
+        # DEBUG: Save every page load
+        $web.add_DocumentCompleted({
                 param($sender, $e)
             
-                # Check if current page contains SAMLResponse
-                if ($web.DocumentText -match "SAMLResponse") {
-                    # Cancel further navigation since we found what we need
-                    $e.Cancel = $true
-
-                    # Extract the SAMLResponse using regex
-                    if ($web.DocumentText -match $RegEx) {
-                        # Close the form
-                        $form.Close()
+                $url = $web.Url.ToString()
+                Write-Host "DEBUG: Page loaded - $url" -ForegroundColor Cyan
+            
+                # Save page source to file
+                try {
+                    $pageSource = $web.DocumentText
+                    if (-not [string]::IsNullOrWhiteSpace($pageSource)) {
+                        $timestamp = Get-Date -Format "HH:mm:ss"
+                        $divider = "`n`n" + ("=" * 80) + "`n"
+                        $debugContent = "`n`n[$timestamp] URL: $url`n" + $divider + $pageSource
+                        Add-Content -Path $debugFile -Value $debugContent -Encoding UTF8
                     
-                        # Decode HTML entities (&#x2b; = +, &#x3d; = =)
-                        $Script:SAMLResponse = $(($Matches[1] -replace '&#x2b;', '+') -replace '&#x3d;', '=')
+                        Write-Host "DEBUG: Page saved to $debugFile" -ForegroundColor DarkGray
+                    
+                        # Check for SAML in multiple ways
+                        CheckForSAML -WebControl $web -PageSource $pageSource -Url $url
                     }
                 }
-            })
-        
-        # Add additional check for DocumentCompleted event (sometimes needed)
-        $web.add_DocumentCompleted({
-                if ($web.DocumentText -match $RegEx) {
-                    $form.Close()
-                    $Script:SAMLResponse = $(($Matches[1] -replace '&#x2b;', '+') -replace '&#x3d;', '=')
+                catch {
+                    Write-Host "DEBUG: Failed to save page: $_" -ForegroundColor Red
                 }
             })
-    
-        # Show browser window and wait for it to close
-        Write-Host "Opening SAML authentication window..." -ForegroundColor Cyan
-        Write-Host "Please complete login in the browser window" -ForegroundColor Yellow
         
-        $form.Add_Shown({ $form.Activate() })
+        function CheckForSAML {
+            param($WebControl, $PageSource, $Url)
+            
+            # Method 1: Check URL
+            if ($Url -match "SAMLResponse=([^&]+)") {
+                Write-Host "DEBUG: Found SAML in URL!" -ForegroundColor Green
+                $Script:SAMLResponse = [System.Web.HttpUtility]::UrlDecode($Matches[1])
+                $form.Close()
+                return
+            }
+            
+            # Method 2: Check HTML for SAMLResponse input
+            try {
+                $doc = $WebControl.Document
+                if ($doc -ne $null) {
+                    $inputs = $doc.GetElementsByTagName("input")
+                    foreach ($input in $inputs) {
+                        $name = $input.GetAttribute("name")
+                        if ($name -eq "SAMLResponse") {
+                            $value = $input.GetAttribute("value")
+                            if (-not [string]::IsNullOrWhiteSpace($value)) {
+                                Write-Host "DEBUG: Found SAML in input field!" -ForegroundColor Green
+                                $Script:SAMLResponse = $value
+                                $form.Close()
+                                return
+                            }
+                        }
+                    }
+                }
+            }
+            catch {}
+            
+            # Method 3: Regex on page source
+            $patterns = @(
+                'name=["'']SAMLResponse["''][^>]*value=["'']([^"'']+)["'']',
+                'value=["'']([^"'']+)["''][^>]*name=["'']SAMLResponse["'']',
+                'SAMLResponse=([^&"''\s]+)'
+            )
+            
+            foreach ($pattern in $patterns) {
+                if ($PageSource -match $pattern) {
+                    Write-Host "DEBUG: Found SAML with pattern: $pattern" -ForegroundColor Green
+                    $Script:SAMLResponse = $Matches[1]
+                    $Script:SAMLResponse = $Script:SAMLResponse -replace '&#x2b;', '+' -replace '&#x3d;', '='
+                    $form.Close()
+                    return
+                }
+            }
+            
+            Write-Host "DEBUG: No SAML found on this page" -ForegroundColor DarkGray
+        }
+        
+        # Navigate
+        Write-Host "DEBUG: Navigating to $LoginIDP" -ForegroundColor Yellow
+        $web.Navigate($LoginIDP)
+        
+        # Show form
         [void]$form.ShowDialog()
-
-        # Return the SAML response
-        if ($null -ne $Script:SAMLResponse) {
-            Write-Host "SAML response captured successfully!" -ForegroundColor Green
+        
+        if ($Script:SAMLResponse) {
+            Write-Host "SUCCESS: Got SAML response!" -ForegroundColor Green
+            Write-Host "DEBUG file: $debugFile" -ForegroundColor DarkGray
             return $Script:SAMLResponse
         }
         else {
-            throw "SAMLResponse not found. Authentication may have failed or was cancelled."
-        }
-    }
-
-    End {
-        # Cleanup
-        if ($form -ne $null) {
-            $form.Dispose()
+            Write-Host "FAILED: No SAML found" -ForegroundColor Red
+            Write-Host "Check debug file: $debugFile" -ForegroundColor Yellow
+            Write-Host "Look for any HTML forms with SAMLResponse" -ForegroundColor Yellow
+            throw "No SAML response captured. Check debug file."
         }
     }
 }

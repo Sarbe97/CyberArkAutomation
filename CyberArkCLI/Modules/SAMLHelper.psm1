@@ -102,10 +102,10 @@ function New-SAMLInteractive {
             # Check 3: DOM Elements (more reliable for parsed HTML)
             if ($web.Document) {
                 $inputs = $web.Document.GetElementsByTagName("input")
-                foreach ($input in $inputs) {
-                    if ($input.Name -eq "SAMLResponse") {
+                foreach ($inp in $inputs) {
+                    if ($inp.Name -eq "SAMLResponse") {
                         Write-Host "DEBUG: Found SAML input field in DOM!" -ForegroundColor Green
-                        $Script:SAMLResponse = $input.GetAttribute("value")
+                        $Script:SAMLResponse = $inp.GetAttribute("value")
                         $form.Close()
                         return
                     }
@@ -116,7 +116,7 @@ function New-SAMLInteractive {
         # Event: Navigating (Before load)
         # Use this to catch redirects or early content
         $web.add_Navigating({
-                param($sender, $e)
+                param($sndr, $e)
             
                 # Check if we are being redirected with SAMLResponse in URL
                 $url = $e.Url.ToString()
@@ -130,7 +130,7 @@ function New-SAMLInteractive {
 
         # Event: DocumentCompleted (After load)
         $web.add_DocumentCompleted({
-                param($sender, $e)
+                param($sndr, $e)
                 $url = $web.Url.ToString()
             
                 # Only process if we are not on 'about:blank'

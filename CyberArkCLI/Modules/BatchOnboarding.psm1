@@ -174,6 +174,37 @@ function Invoke-CACBatchOnboarding {
         }
 
         # -----------------------------
+        # STEP 2.5: SYNC SAFE DETAILS (If Provided)
+        # -----------------------------
+        # Gather optional properties from the first row of the safe group
+        $desc = if ($safeRows[0].PSObject.Properties['SafeDescription']) { $safeRows[0].SafeDescription } else { $null }
+        $cpm = if ($safeRows[0].PSObject.Properties['ManagingCPM']) { $safeRows[0].ManagingCPM } else { $null }
+        $retDays = if ($safeRows[0].PSObject.Properties['NumberOfDaysRetention']) { $safeRows[0].NumberOfDaysRetention } else { $null }
+        $retVers = if ($safeRows[0].PSObject.Properties['NumberOfVersionsRetention']) { $safeRows[0].NumberOfVersionsRetention } else { $null }
+
+        $safeUpdateParams = @{}
+        if (-not [string]::IsNullOrWhiteSpace($desc)) { $safeUpdateParams["Description"] = $desc }
+        if (-not [string]::IsNullOrWhiteSpace($cpm)) { $safeUpdateParams["ManagingCPM"] = $cpm }
+        if (-not [string]::IsNullOrWhiteSpace($retDays)) { $safeUpdateParams["NumberOfDaysRetention"] = [int]$retDays }
+        if (-not [string]::IsNullOrWhiteSpace($retVers)) { $safeUpdateParams["NumberOfVersionsRetention"] = [int]$retVers }
+
+        if ($safeUpdateParams.Count -gt 0) {
+            try {
+                Write-Log "[$safeName] Updating Safe Properties..." "INFO"
+                Set-PASSafe -SafeName $safeName @safeUpdateParams -ErrorAction Stop
+                Write-Log "[$safeName] Safe Properties Updated." "SUCCESS"
+                Write-Host " [PROPS UPDATED]" -ForegroundColor Green
+            }
+            catch {
+                Write-Log "[$safeName] Failed to Update Properties: $($_.Exception.Message)" "ERROR"
+                Write-Host " [PROPS FAILED]" -ForegroundColor Red
+            }
+        }
+
+        # -----------------------------
+        # STEP 3: SYNC PERMISSIONS (Iterate Rows)
+        # -----------------------------
+        # -----------------------------
         # STEP 3: SYNC PERMISSIONS (Iterate Rows)
         # -----------------------------
         foreach ($row in $safeRows) {
@@ -182,7 +213,7 @@ function Invoke-CACBatchOnboarding {
             
             if (-not $safeMember) { continue }
             
-            Write-Log "[$safeName] Processing Member: $safeMember ($memberType)" "INFO"
+            Write-Log "[$safeName] [START] Processing Member: $safeMember ($memberType)" "INFO"
             Write-Host "   Member: $safeMember" -ForegroundColor Gray -NoNewline
 
             # --- A. Validate Member Existence (Read-Only Check) ---
@@ -195,9 +226,10 @@ function Invoke-CACBatchOnboarding {
                     $memberExists = $true
                 } 
                 catch { 
-                    Write-Log "[$safeName] Group '$safeMember' not found." "ERROR"
+                    Write-Log "[$safeName] Group '$safeMember' not found. Skipping." "ERROR"
                     Write-Host " [GROUP MISSING]" -ForegroundColor Red
                     Add-Result $safeName $safeStatus $safeMember $memberType "Missing" "Failed" "FAILED" "Group not found"
+                    Write-Log "[$safeName] [END] Job Failed for Member: $safeMember" "INFO"
                     continue
                 }
             }
@@ -208,9 +240,10 @@ function Invoke-CACBatchOnboarding {
                     $memberExists = $true
                 } 
                 catch { 
-                    Write-Log "[$safeName] User '$safeMember' not found." "ERROR"
+                    Write-Log "[$safeName] User '$safeMember' not found. Skipping." "ERROR"
                     Write-Host " [USER MISSING]" -ForegroundColor Red
                     Add-Result $safeName $safeStatus $safeMember $memberType "Missing" "Failed" "FAILED" "User not found"
+                    Write-Log "[$safeName] [END] Job Failed for Member: $safeMember" "INFO"
                     continue
                 }
             }
@@ -246,6 +279,7 @@ function Invoke-CACBatchOnboarding {
                 Write-Log "[$safeName] Successfully added/updated member permissions." "SUCCESS"
                 Write-Host " [OK]" -ForegroundColor Green
                 Add-Result $safeName $safeStatus $safeMember $memberType "Exists" "Success" "SUCCESS" "Permissions updated"
+                Write-Log "[$safeName] [END] Finished Processing Member: $safeMember" "INFO"
             }
             catch {
                 if ($_.Exception.Message -match "404|Not Found") {
@@ -253,6 +287,7 @@ function Invoke-CACBatchOnboarding {
                     Write-Log "[$safeName] Add-Member 404 Error." "ERROR"
                     Write-Host " [404 ERROR]" -ForegroundColor Red
                     Add-Result $safeName $safeStatus $safeMember $memberType "Exists" "Failed" "FAILED" "Vault 404"
+                    Write-Log "[$safeName] [END] Job Failed for Member: $safeMember" "INFO"
                 }
                 elseif ($_.Exception.Message -match "409|already exists") {
                     # Retry with Update-PASSafeMember for permission refresh
@@ -262,17 +297,20 @@ function Invoke-CACBatchOnboarding {
                         Write-Log "[$safeName] Permissions updated via Update-PASSafeMember." "SUCCESS"
                         Write-Host " [UPDATED]" -ForegroundColor Green
                         Add-Result $safeName $safeStatus $safeMember $memberType "Exists" "Updated" "SUCCESS" "Permissions updated"
+                        Write-Log "[$safeName] [END] Finished Processing Member: $safeMember" "INFO"
                     }
                     catch {
                         Write-Log "[$safeName] Update failed: $($_.Exception.Message)" "ERROR"
                         Write-Host " [UPDATE FAILED]" -ForegroundColor Red
                         Add-Result $safeName $safeStatus $safeMember $memberType "Exists" "Failed" "FAILED" "Could not update permissions"
+                        Write-Log "[$safeName] [END] Job Failed for Member: $safeMember" "INFO"
                     }
                 }
                 else {
                     Write-Log "[$safeName] Add-Member Error: $($_.Exception.Message)" "ERROR"
                     Write-Host " [ERROR]" -ForegroundColor Red
                     Add-Result $safeName $safeStatus $safeMember $memberType "Exists" "Failed" "FAILED" $_.Exception.Message
+                    Write-Log "[$safeName] [END] Job Failed for Member: $safeMember" "INFO"
                 }
             }
         }
@@ -297,7 +335,6 @@ function New-CACOnboardingTemplate {
         NumberOfDaysRetention     = "7"
         SafeMember                = "Domain\Group"
         MemberType                = "Group" 
-        MemberDescription         = "Group Desc"
         # Users Column Removed Per Requirement
         PermissionKey             = "SAFE_READ"
         Permissions               = ""

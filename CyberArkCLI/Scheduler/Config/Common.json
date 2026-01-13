@@ -1,0 +1,19 @@
+{
+    "CCP": {
+        "Url": "http://ccp.company.com/AIMWebService/api/Accounts",
+        "AppId": "CyberArkHealthCheck",
+        "Safe": "PAM-Health"
+    },
+    "Email": {
+        "SmtpServer": "smtp.company.com",
+        "From": "cyberark-alerts@company.com",
+        "To": [
+            "pam-ops@company.com"
+        ]
+    },
+    "Features": {
+        "SystemHealth": {
+            "Enabled": true
+        }
+    }
+}

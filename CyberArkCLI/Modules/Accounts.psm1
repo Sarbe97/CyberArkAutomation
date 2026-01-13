@@ -3,12 +3,6 @@ Import-Module psPAS -ErrorAction Stop
 
 
 # ============================================================
-# 1. Get Accounts by Search/Safe with Pagination (limit 100 per page)
-# ============================================================
-# ============================================================
-# 1. Get Accounts by Search/Safe or Batch CSV with Pagination
-# ============================================================
-# ============================================================
 # 1. Get Accounts by Search/Safe or Batch CSV with Pagination
 # ============================================================
 function Get-CACAccounts {

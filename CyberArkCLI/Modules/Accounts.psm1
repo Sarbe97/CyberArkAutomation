@@ -858,8 +858,10 @@ function Remove-CACAccount {
 
         # Get account details for confirmation using direct API call
         try {
+            Write-Log "STEP 1: About to call GET /API/Accounts/$AccountID" "DEBUG"
             $endpoint = "/API/Accounts/$AccountID"
             $account = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint -ErrorAction Stop
+            Write-Log "STEP 1: GET request successful" "DEBUG"
             
             if (-not $account) {
                 Write-Log "Account not found for ID: $AccountID" "WARN"
@@ -868,7 +870,8 @@ function Remove-CACAccount {
             }
         }
         catch {
-            Write-Log "Error retrieving account details: $($_.Exception.Message)" "ERROR"
+            Write-Log "STEP 1 FAILED: Error retrieving account details: $($_.Exception.Message)" "ERROR"
+            Write-Log "Stack trace: $($_.ScriptStackTrace)" "ERROR"
             Write-Host "Error retrieving account: $($_.Exception.Message)" -ForegroundColor Red
             return
         }
@@ -892,14 +895,17 @@ function Remove-CACAccount {
         Write-Log "User confirmed; deleting account: $AccountID" "WARN"
 
         # Remove Account using direct API call
+        Write-Log "STEP 2: About to call DELETE /API/Accounts/$AccountID" "DEBUG"
         $deleteEndpoint = "/API/Accounts/$AccountID"
         Invoke-CACAPIRequest -Method DELETE -Endpoint $deleteEndpoint -ErrorAction Stop
+        Write-Log "STEP 2: DELETE request successful" "DEBUG"
 
         Write-Log "Account deleted successfully: $AccountID" "SUCCESS"
         Write-Host "Account deleted successfully." -ForegroundColor Green
     }
     catch {
-        Write-Log "Error in Remove-CACAccount(): $($_.Exception.Message)" "ERROR"
+        Write-Log "FINAL CATCH: Error in Remove-CACAccount(): $($_.Exception.Message)" "ERROR"
+        Write-Log "Stack trace: $($_.ScriptStackTrace)" "ERROR"
         Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
     }
 }

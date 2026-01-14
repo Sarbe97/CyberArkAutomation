@@ -6,14 +6,13 @@ if ([Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls12') {
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 }
 
-
+ 
 $loginFormScript = Join-Path $PSScriptRoot "LoginForm.ps1"
 if (-not (Test-Path $loginFormScript)) {
     throw "LoginForm.ps1 not found: $loginFormScript"
 }
 . $loginFormScript   # <-- dot-source the UI function
 
- 
 
 function Invoke-CACLogin {
     [CmdletBinding()]
@@ -60,9 +59,6 @@ function Invoke-CACLogin {
     }
     else {
         # --- SAML FLOW ---
-        
-
-
         Write-Log "Starting SAML Authentication Flow" "INFO"
 
         # Get PVWA URL
@@ -86,85 +82,57 @@ function Invoke-CACLogin {
             Set-CACConfig -PVWAURL $url
         }
 
-        # Use the complete SAML authentication flow
-        # This function handles its own internal logging redirection too
+        # Get SAMLResponse from our helper function
+        # This opens the browser for IdP authentication and returns the SAMLResponse
         $authResult = Invoke-SAMLAuthentication -PVWAURL $url
 
-        if ($null -eq $authResult) {
-            Write-Log "SAML Authentication returned null result." "ERROR"
+        if ($null -eq $authResult -or [string]::IsNullOrEmpty($authResult.SAMLResponse)) {
+            Write-Log "SAML Authentication returned null or empty SAMLResponse." "ERROR"
             return $false
         }
 
-        Write-Log "Authentication successful. Token length: $($authResult.SessionToken.Length)" "DEBUG"
+        Write-Log "SAMLResponse captured. Length: $($authResult.SAMLResponse.Length)" "DEBUG"
         Write-Log "Base URL: $($authResult.BaseUrl)" "DEBUG"
 
-        # Establish psPAS session manually since New-PASSession -Token is not supported
+        # Use psPAS native SAML authentication
+        # This properly establishes the PASSession so all psPAS commands work
         try {
-            Write-Log "Initializing psPAS session with token..." "INFO"
+            Write-Log "Establishing psPAS session with New-PASSession -SAMLResponse..." "INFO"
             
-            $baseUrl = $authResult.BaseUrl
-            $token = $authResult.SessionToken
+            $global:CACSession = New-PASSession `
+                -SAMLResponse $authResult.SAMLResponse `
+                -BaseURI $authResult.BaseUrl `
+                -concurrentSession $true
 
-            # Ensure BaseURI is a valid System.Uri object for psPAS
-            if ($baseUrl -is [string]) {
-                try {
-                    $baseUrl = [System.Uri]$baseUrl
-                }
-                catch {
-                    Write-Log "Failed to convert BaseUrl '$baseUrl' to Uri: $($_.Exception.Message)" "ERROR"
-                    throw "Invalid BaseUrl format encountered."
-                }
-            }
-
-            # Manual Session Construction
-            # This mirrors the structure psPAS expects
-            $session = @{
-                BaseURI    = $baseUrl
-                Token      = $token # Using simple 'Token' key as per modern psPAS custom session handling
-                Headers    = @{ 
-                    "Authorization" = $token 
-                    "Content-Type"  = "application/json"
-                }
-                WebSession = $null # Not using a WebSession container for basic token auth
-            }
+            Write-Log "psPAS SAML session established successfully!" "SUCCESS"
             
-            # --- CRITICAL STEP ---
-            # Inject this session into ALL psPAS commands globally
-            # This makes Get-PASAccount, Get-PASSafe, etc. automatically pick up this session
-            if ($null -eq $PSDefaultParameterValues) {
-                $global:PSDefaultParameterValues = @{}
-            }
-            
-            # Set wildcard default for the 'Session' parameter on all modules
-            # This ensures any cmdlet using a -Session parameter uses our object
-            $global:PSDefaultParameterValues["*:Session"] = $session
-            $global:PSDefaultParameterValues["*:BaseURI"] = $baseUrl
-
-            # Update legacy globals for backward compatibility
-            $global:CACSession = $session
-            $global:CACSessionToken = $token
-            
-            Write-Log "psPAS session injected into global defaults." "SUCCESS"
-            
-            # Verify by attempting a simple lightweight call
-            # We wrap this to ensure we don't fail the whole login if just the verification fails
+            # Verify session by attempting a lightweight call
             try {
-                Write-Log "Verifying session with Get-PASUser..." "DEBUG"
-                $currentUser = Get-PASUser -UserName "Manage" -ErrorAction SilentlyContinue 
-                if ($currentUser) {
-                    Write-Log "Session verification successful (Available)." "SUCCESS"
+                Write-Log "Verifying session..." "DEBUG"
+                $loggedInUser = Get-PASLoggedOnUser -ErrorAction SilentlyContinue
+                if ($loggedInUser) {
+                    Write-Log "Session verified. Logged in as: $($loggedInUser.UserName)" "SUCCESS"
                 }
             }
             catch {
-                Write-Log "Session verification skipped/failed (non-fatal): $($_.Exception.Message)" "WARN"
+                Write-Log "Session verification call failed (non-fatal): $($_.Exception.Message)" "WARN"
             }
             
             Write-Log "SAML Login Complete." "SUCCESS"
             return $true
         }
         catch {
-            Write-Log "Failed to initialize psPAS session manually." "ERROR"
+            Write-Log "Failed to establish psPAS session." "ERROR"
             Write-Log "Error: $($_.Exception.Message)" "ERROR"
+            
+            # Check for common issues
+            if ($_.Exception.Message -match "401|Unauthorized") {
+                Write-Log "The SAMLResponse may have expired or is invalid. Please try again." "ERROR"
+            }
+            elseif ($_.Exception.Message -match "hostname|URL") {
+                Write-Log "Base URL issue. Please verify your PVWA URL is correct." "ERROR"
+            }
+            
             return $false
         }
     }

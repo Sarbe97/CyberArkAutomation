@@ -13,10 +13,6 @@ function New-SAMLInteractive {
         [string]$LoginIDP
     )
 
-    # Redirect logs to separate file (Locally scoped)
-    $PSDefaultParameterValues = $PSDefaultParameterValues.Clone()
-    $PSDefaultParameterValues["Write-Log:LogName"] = "SAML_Debug"
-    $PSDefaultParameterValues["Write-Log:ShowOnScreen"] = $true
 
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Web
@@ -166,14 +162,18 @@ function New-SAMLInteractive {
 function Invoke-SAMLAuthentication {
     <#
     .SYNOPSIS
-        Complete SAML authentication flow for CyberArk.
+        Performs the SAML authentication flow and returns the SAMLResponse for psPAS.
+    .DESCRIPTION
+        This function handles obtaining the IdP URL from CyberArk, opening a browser
+        for user authentication, and returning the SAMLResponse token. The actual
+        session establishment should be done via New-PASSession -SAMLResponse.
+    .OUTPUTS
+        Hashtable with SAMLResponse and BaseUrl, or $null on failure.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [string]$PVWAURL,
-        
-        [bool]$ConcurrentSession = $true
+        [string]$PVWAURL
     )
 
     # Redirect logs to separate file (Locally scoped)
@@ -194,11 +194,11 @@ function Invoke-SAMLAuthentication {
 
     try {
         # ========================================
-        # PHASE 1: Get IdP URL and CA88888 cookie
+        # PHASE 1: Get IdP URL from CyberArk
         # ========================================
-        Write-Log "PHASE 1: Getting IdP URL" "INFO"
+        Write-Log "PHASE 1: Getting IdP URL from CyberArk" "INFO"
 
-        $response = Invoke-WebRequest -Uri $apiLogonUrl -Method Post -ContentType "application/json" -Body "" -SessionVariable webSession -UseBasicParsing
+        $response = Invoke-WebRequest -Uri $apiLogonUrl -Method Post -ContentType "application/json" -Body "" -UseBasicParsing
 
         Write-Log "Response Status: $($response.StatusCode)" "DEBUG"
         
@@ -210,33 +210,12 @@ function Invoke-SAMLAuthentication {
             throw "Could not extract Identity Provider URL from response"
         }
         
-        Write-Log "IdP URL received" "INFO"
-
-        # Extract CA88888 cookie
-        $ca88888 = $null
-        $setCookieHeader = $response.Headers["Set-Cookie"]
-        Write-Log "Set-Cookie header available: $(if($setCookieHeader){'Yes'}else{'No'})" "DEBUG"
-        
-        if ($setCookieHeader) {
-            $cookieString = if ($setCookieHeader -is [array]) { $setCookieHeader -join "; " } else { $setCookieHeader.ToString() }
-            Write-Log "Cookie string: $cookieString" "DEBUG"
-            
-            if ($cookieString -match 'CA88888=([^;]+)') {
-                $ca88888 = $Matches[1]
-                Write-Log "CA88888 cookie found" "SUCCESS"
-            }
-            else {
-                Write-Log "CA88888 not found in cookies!" "WARN"
-            }
-        }
-        else {
-            Write-Log "No Set-Cookie header found!" "WARN"
-        }
+        Write-Log "IdP URL received successfully" "SUCCESS"
 
         # ========================================
         # PHASE 2: User authenticates at IdP
         # ========================================
-        Write-Log "PHASE 2: Opening browser for IdP auth" "INFO"
+        Write-Log "PHASE 2: Opening browser for IdP authentication" "INFO"
 
         $samlResponse = New-SAMLInteractive -LoginIDP $idpUrl
 
@@ -249,90 +228,19 @@ function Invoke-SAMLAuthentication {
             throw "No SAML response received from IdP"
         }
 
-        # ========================================
-        # PHASE 3: Complete authentication
-        # ========================================
-        Write-Log "PHASE 3: Sending SAMLResponse to CyberArk" "INFO"
-
-        # Build form data
-        $formData = @{
-            concurrentSession = if ($ConcurrentSession) { "true" } else { "false" }
-            apiUse            = "true"
-            SAMLResponse      = $samlResponse
-        }
-        
-        Write-Log "Form data: concurrentSession=$($formData.concurrentSession), apiUse=$($formData.apiUse)" "DEBUG"
-
-        # Create cookie container
-        $domain = ([System.Uri]$baseUrl).Host
-        Write-Log "Cookie domain: $domain" "DEBUG"
-        
-        $cookieContainer = New-Object System.Net.CookieContainer
-        
-        if ($ca88888) {
-            $cookie = New-Object System.Net.Cookie("CA88888", $ca88888, "/", $domain)
-            $cookie.HttpOnly = $true
-            $cookie.Secure = $true
-            $cookieContainer.Add($cookie)
-            Write-Log "Added CA88888 cookie to request" "DEBUG"
-        }
-
-        # Create request
-        Write-Log "Creating POST request to: $apiLogonUrl" "DEBUG"
-        $authRequest = [System.Net.HttpWebRequest]::Create($apiLogonUrl)
-        $authRequest.Method = "POST"
-        $authRequest.ContentType = "application/x-www-form-urlencoded"
-        $authRequest.CookieContainer = $cookieContainer
-
-        # Encode form data
-        $bodyParts = @()
-        foreach ($key in $formData.Keys) {
-            $encodedKey = [System.Web.HttpUtility]::UrlEncode($key)
-            $encodedValue = [System.Web.HttpUtility]::UrlEncode($formData[$key])
-            $bodyParts += "$encodedKey=$encodedValue"
-        }
-        $bodyString = $bodyParts -join "&"
-        Write-Log "Request body length: $($bodyString.Length)" "DEBUG"
-        
-        $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($bodyString)
-        $authRequest.ContentLength = $bodyBytes.Length
-        
-        $requestStream = $authRequest.GetRequestStream()
-        $requestStream.Write($bodyBytes, 0, $bodyBytes.Length)
-        $requestStream.Close()
-
-        # Get response
-        Write-Log "Sending request..." "DEBUG"
-        $authResponse = $authRequest.GetResponse()
-        Write-Log "Response status: $($authResponse.StatusCode)" "DEBUG"
-        
-        $responseStream = $authResponse.GetResponseStream()
-        $reader = New-Object System.IO.StreamReader($responseStream)
-        $rawToken = $reader.ReadToEnd()
-        $reader.Close()
-        $authResponse.Close()
-        
-        Write-Log "Raw token response received" "DEBUG"
-        
-        $sessionToken = $rawToken.Trim('"')
-        Write-Log "Session token length: $($sessionToken.Length)" "DEBUG"
-
-        if ([string]::IsNullOrWhiteSpace($sessionToken)) {
-            throw "No session token received from CyberArk"
-        }
-
         Write-Log "==========================================" "SUCCESS"
-        Write-Log "AUTHENTICATION SUCCESSFUL" "SUCCESS"
+        Write-Log "SAML RESPONSE CAPTURED SUCCESSFULLY" "SUCCESS"
         Write-Log "==========================================" "SUCCESS"
 
+        # Return SAMLResponse for psPAS to handle authentication
         return @{
-            SessionToken = $sessionToken
+            SAMLResponse = $samlResponse
             BaseUrl      = $baseUrl
         }
     }
     catch {
         Write-Log "==========================================" "ERROR"
-        Write-Log "AUTHENTICATION FAILED" "ERROR"
+        Write-Log "SAML AUTHENTICATION FAILED" "ERROR"
         Write-Log "Error: $($_.Exception.Message)" "ERROR"
         Write-Log "Exception type: $($_.Exception.GetType().FullName)" "ERROR"
         Write-Log "Stack: $($_.ScriptStackTrace)" "ERROR"

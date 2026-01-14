@@ -1,163 +1,292 @@
-function Set-BrowserEmulation {
-    <#
-    .SYNOPSIS
-        Sets the Internet Explorer emulation mode for the current process to IE11.
-    #>
-    try {
-        $key = "HKCU:\Software\Microsoft\Internet Explorer\Main\FeatureControl\FEATURE_BROWSER_EMULATION"
-        if (-not (Test-Path $key)) {
-            New-Item $key -Force | Out-Null
-        }
-
-        $processName = [System.IO.Path]::GetFileName([System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName)
-        $currentValue = (Get-ItemProperty $key).$processName
-
-        # 11001 (0x2AF9) = IE11. 
-        if ($currentValue -ne 11001) {
-            Write-Host "Setting Browser Emulation to IE11 for $processName..." -ForegroundColor DarkGray
-            Set-ItemProperty $key -Name $processName -Value 11001 -Type DWord -Force
-        }
-    }
-    catch {
-        Write-Warning "Failed to set browser emulation: $_"
-    }
-}
+# SAMLHelper.psm1
+# SAML Authentication Helper for CyberArk
+# Follows the PSMEasyConnect pattern for reliable SAML auth
 
 function New-SAMLInteractive {
+    <#
+    .SYNOPSIS
+        Opens a browser window for SAML authentication and captures the SAMLResponse.
+    .PARAMETER LoginIDP
+        The Identity Provider URL to navigate to.
+    .OUTPUTS
+        String containing the base64-encoded SAMLResponse.
+    #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [string] $LoginIDP
+        [string]$LoginIDP
     )
 
-    Begin {
-        Add-Type -AssemblyName System.Windows.Forms 
-        Add-Type -AssemblyName System.Web
-        
-        # Ensure we are running with IE11 Emulation
-        Set-BrowserEmulation
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Web
 
-        # Save page source to file for debugging
-        $debugDir = Join-Path $env:TEMP "SAML_Debug"
-        if (-not (Test-Path $debugDir)) {
-            New-Item -ItemType Directory -Path $debugDir -Force | Out-Null
-        }
-        $debugFile = Join-Path $debugDir "saml_debug_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
-    }
+    $Script:SAMLResponse = $null
+    $Script:FormClosed = $false
 
-    Process {
-        $Script:SAMLResponse = $null
-        
-        $form = New-Object System.Windows.Forms.Form
-        $form.StartPosition = "CenterScreen"
-        $form.Width = 1000
-        $form.Height = 800
-        $form.Text = "SAML Authentication - Please Login"
-        $form.ShowIcon = $false
-        
-        $web = New-Object System.Windows.Forms.WebBrowser
-        $web.Dock = "Fill"
-        $web.ScriptErrorsSuppressed = $true # Suppress JS errors which are common in IE control
-        $form.Controls.Add($web)
-        
-        # Regex patterns to find SAML Response in HTML
-        $patterns = @(
-            '(?i)name=["'']SAMLResponse["'']\s+(?:type=["'']hidden["'']\s+)?value=["'']([^"'']+)["'']',
-            '(?i)value=["'']([^"'']+)["'']\s+(?:type=["'']hidden["'']\s+)?name=["'']SAMLResponse["'']',
-            'SAMLResponse=([^&"''\s]+)'
-        )
+    # Create the form
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = "SAML Authentication - Please Login"
+    $form.Size = New-Object System.Drawing.Size(900, 700)
+    $form.StartPosition = "CenterScreen"
+    $form.FormBorderStyle = "FixedDialog"
+    $form.MinimizeBox = $false
+    $form.MaximizeBox = $false
+    $form.TopMost = $true
+    $form.ShowIcon = $false
 
-        # Handler to check content
-        $checkContent = {
-            param($source, $msg)
+    # Create the WebBrowser control
+    $web = New-Object System.Windows.Forms.WebBrowser
+    $web.Dock = "Fill"
+    $web.ScriptErrorsSuppressed = $true
+    $web.IsWebBrowserContextMenuEnabled = $false
+    $web.AllowWebBrowserDrop = $false
+    $form.Controls.Add($web)
+
+    # Event: Navigating - fires BEFORE navigation, can check document content
+    $web.add_Navigating({
+            param($sender, $e)
+        
+            # Skip if form already closed
+            if ($Script:FormClosed) { return }
+        
+            try {
+                $documentText = $web.DocumentText
             
-            if ([string]::IsNullOrWhiteSpace($source)) { return }
-
-            # Log URL for debug
-            $url = $web.Url.ToString()
-            $timestamp = Get-Date -Format "HH:mm:ss"
-            Add-Content -Path $debugFile -Value "[$timestamp] $msg - $url"
-
-            # Check 1: URL Parameters
-            if ($url -match "SAMLResponse=([^&]+)") {
-                Write-Host "DEBUG: Found SAML in URL!" -ForegroundColor Green
-                $Script:SAMLResponse = [System.Web.HttpUtility]::UrlDecode($Matches[1])
-                $form.Close()
-                return
-            }
-
-            # Check 2: HTML Content via Regex
-            foreach ($pattern in $patterns) {
-                if ($source -match $pattern) {
-                    Write-Host "DEBUG: Found SAML via Regex ($msg)" -ForegroundColor Green
-                    $val = $Matches[1]
-                    # Decode HTML entities if present
-                    $val = $val -replace '&#x2b;', '+' -replace '&#x3d;', '='
-                    $Script:SAMLResponse = $val
-                    $form.Close()
-                    return
-                }
-            }
-
-            # Check 3: DOM Elements (more reliable for parsed HTML)
-            if ($web.Document) {
-                $inputs = $web.Document.GetElementsByTagName("input")
-                foreach ($inp in $inputs) {
-                    if ($inp.Name -eq "SAMLResponse") {
-                        Write-Host "DEBUG: Found SAML input field in DOM!" -ForegroundColor Green
-                        $Script:SAMLResponse = $inp.GetAttribute("value")
+                # Check if SAMLResponse is in the document
+                if ($documentText -match 'name="SAMLResponse"') {
+                
+                    # Try to extract from DOM first (most reliable)
+                    if ($web.Document) {
+                        $inputs = $web.Document.GetElementsByTagName("input")
+                        foreach ($inp in $inputs) {
+                            if ($inp.GetAttribute("name") -eq "SAMLResponse") {
+                                $Script:SAMLResponse = $inp.GetAttribute("value")
+                                break
+                            }
+                        }
+                    }
+                
+                    # Fallback: Extract via regex if DOM failed
+                    if ([string]::IsNullOrEmpty($Script:SAMLResponse)) {
+                        # Pattern: name="SAMLResponse" ... value="..."
+                        if ($documentText -match 'name="SAMLResponse"[^>]*value="([^"]+)"') {
+                            $Script:SAMLResponse = $Matches[1]
+                        }
+                        elseif ($documentText -match 'value="([^"]+)"[^>]*name="SAMLResponse"') {
+                            $Script:SAMLResponse = $Matches[1]
+                        }
+                    }
+                
+                    if (-not [string]::IsNullOrEmpty($Script:SAMLResponse)) {
+                        # Decode HTML entities
+                        $Script:SAMLResponse = $Script:SAMLResponse -replace '&#x2b;', '+' -replace '&#x3d;', '='
+                    
+                        # Cancel navigation and close form
+                        $e.Cancel = $true
+                        $Script:FormClosed = $true
                         $form.Close()
-                        return
                     }
                 }
             }
-        }
+            catch {
+                # Silently continue - document might not be ready
+            }
+        })
 
-        # Event: Navigating (Before load)
-        # Use this to catch redirects or early content
-        $web.add_Navigating({
-                param($sndr, $e)
-            
-                # Check if we are being redirected with SAMLResponse in URL
-                $url = $e.Url.ToString()
-            
-                # Note: We can't easily see POST body here in WebBrowser control
-                # But we can check if the URL *is* the logic endpoint
-                if ($url -match "SAMLResponse") {
-                    & $checkContent $url "Navigating(URL)"
-                }
-            })
+    # Navigate to IdP
+    Write-Host "Opening SAML authentication window..." -ForegroundColor Cyan
+    $web.Navigate($LoginIDP)
 
-        # Event: DocumentCompleted (After load)
-        $web.add_DocumentCompleted({
-                param($sndr, $e)
-                $url = $web.Url.ToString()
-            
-                # Only process if we are not on 'about:blank'
-                if ($url -ne "about:blank") {
-                    Write-Host "Loaded: $url" -ForegroundColor Gray
-                    & $checkContent $web.DocumentText "DocumentCompleted"
-                }
-            })
-        
-        # Navigate to IDP
-        Write-Host "Opening Login Window..." -ForegroundColor Cyan
-        $web.Navigate($LoginIDP)
-        
-        # Show form
-        [void]$form.ShowDialog()
-        
-        $form.Dispose()
+    # Show dialog (blocks until closed)
+    [void]$form.ShowDialog()
 
-        if ($Script:SAMLResponse) {
-            return $Script:SAMLResponse
-        }
-        else {
-            Write-Warning "SAML Authentication window closed without capturing a response."
-            Write-Warning "Debug log: $debugFile"
-            return $null
-        }
+    # Cleanup
+    $web.Dispose()
+    $form.Dispose()
+
+    if (-not [string]::IsNullOrEmpty($Script:SAMLResponse)) {
+        Write-Host "SAML Response captured successfully." -ForegroundColor Green
+        return $Script:SAMLResponse
+    }
+    else {
+        Write-Warning "SAML Authentication window closed without capturing a response."
+        return $null
     }
 }
 
-Export-ModuleMember -Function New-SAMLInteractive
+function Invoke-SAMLAuthentication {
+    <#
+    .SYNOPSIS
+        Complete SAML authentication flow for CyberArk.
+        Handles the full 3-phase flow: Get IdP URL -> User Auth -> Complete Auth
+    .PARAMETER PVWAURL
+        The CyberArk PVWA base URL (e.g., https://cyberark.example.com)
+    .PARAMETER ConcurrentSession
+        Whether to allow concurrent sessions. Default: $true
+    .OUTPUTS
+        Hashtable with SessionToken if successful, $null otherwise.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PVWAURL,
+        
+        [bool]$ConcurrentSession = $true
+    )
+
+    # Ensure TLS 1.2
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+    $baseUrl = $PVWAURL.TrimEnd('/')
+    $apiLogonUrl = "$baseUrl/PasswordVault/api/auth/saml/logon"
+
+    Write-Host ""
+    Write-Host "==============================" -ForegroundColor Cyan
+    Write-Host "      SAML Authentication     " -ForegroundColor Cyan
+    Write-Host "==============================" -ForegroundColor Cyan
+    Write-Host ""
+
+    try {
+        # ========================================
+        # PHASE 1: Get IdP URL and CA88888 cookie
+        # ========================================
+        Write-Host "Step 1: Getting Identity Provider URL..." -ForegroundColor Cyan
+        Write-Host "  API: $apiLogonUrl" -ForegroundColor DarkGray
+
+        # Use Invoke-WebRequest to capture cookies
+        $response = Invoke-WebRequest -Uri $apiLogonUrl -Method Post -ContentType "application/json" -Body "" -SessionVariable webSession -UseBasicParsing
+
+        # Extract IdP URL from response
+        $idpUrl = $response.Content.Trim('"')
+        
+        if ([string]::IsNullOrWhiteSpace($idpUrl)) {
+            throw "Could not extract Identity Provider URL from response"
+        }
+        
+        Write-Host "  IdP URL received" -ForegroundColor Green
+
+        # Extract CA88888 cookie from response headers
+        $ca88888 = $null
+        $setCookieHeader = $response.Headers["Set-Cookie"]
+        if ($setCookieHeader) {
+            if ($setCookieHeader -match 'CA88888=([^;]+)') {
+                $ca88888 = $Matches[1]
+                Write-Host "  CA88888 cookie captured" -ForegroundColor Green
+            }
+        }
+
+        if ([string]::IsNullOrEmpty($ca88888)) {
+            Write-Warning "CA88888 cookie not found - authentication may fail"
+        }
+
+        # ========================================
+        # PHASE 2: User authenticates at IdP
+        # ========================================
+        Write-Host ""
+        Write-Host "Step 2: Opening authentication window..." -ForegroundColor Cyan
+        Write-Host "  Please log in with your credentials." -ForegroundColor Yellow
+        Write-Host ""
+
+        $samlResponse = New-SAMLInteractive -LoginIDP $idpUrl
+
+        if ([string]::IsNullOrWhiteSpace($samlResponse)) {
+            throw "No SAML response received from IdP"
+        }
+
+        # ========================================
+        # PHASE 3: Complete authentication
+        # ========================================
+        Write-Host ""
+        Write-Host "Step 3: Completing authentication with CyberArk..." -ForegroundColor Cyan
+
+        # Build form data (like PSMEasyConnect does)
+        $formData = @{
+            concurrentSession = if ($ConcurrentSession) { "true" } else { "false" }
+            apiUse            = "true"
+            SAMLResponse      = $samlResponse
+        }
+
+        # Create web request session with CA88888 cookie
+        $domain = ([System.Uri]$baseUrl).Host
+        $cookieContainer = New-Object System.Net.CookieContainer
+        
+        if ($ca88888) {
+            $cookie = New-Object System.Net.Cookie("CA88888", $ca88888, "/", $domain)
+            $cookie.HttpOnly = $true
+            $cookie.Secure = $true
+            $cookieContainer.Add($cookie)
+        }
+
+        # Create HttpWebRequest for the final auth call
+        $authRequest = [System.Net.HttpWebRequest]::Create($apiLogonUrl)
+        $authRequest.Method = "POST"
+        $authRequest.ContentType = "application/x-www-form-urlencoded"
+        $authRequest.CookieContainer = $cookieContainer
+
+        # Encode form data
+        $bodyParts = @()
+        foreach ($key in $formData.Keys) {
+            $encodedKey = [System.Web.HttpUtility]::UrlEncode($key)
+            $encodedValue = [System.Web.HttpUtility]::UrlEncode($formData[$key])
+            $bodyParts += "$encodedKey=$encodedValue"
+        }
+        $bodyString = $bodyParts -join "&"
+        $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($bodyString)
+        
+        $authRequest.ContentLength = $bodyBytes.Length
+        $requestStream = $authRequest.GetRequestStream()
+        $requestStream.Write($bodyBytes, 0, $bodyBytes.Length)
+        $requestStream.Close()
+
+        # Get response
+        $authResponse = $authRequest.GetResponse()
+        $responseStream = $authResponse.GetResponseStream()
+        $reader = New-Object System.IO.StreamReader($responseStream)
+        $sessionToken = $reader.ReadToEnd().Trim('"')
+        $reader.Close()
+        $authResponse.Close()
+
+        if ([string]::IsNullOrWhiteSpace($sessionToken)) {
+            throw "No session token received from CyberArk"
+        }
+
+        Write-Host ""
+        Write-Host "SAML AUTHENTICATION SUCCESSFUL!" -ForegroundColor Green
+        Write-Host ""
+
+        return @{
+            SessionToken = $sessionToken
+            BaseUrl      = $baseUrl
+        }
+    }
+    catch {
+        Write-Host ""
+        Write-Host "SAML AUTHENTICATION FAILED" -ForegroundColor Red
+        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+        
+        # Try to get more details from web exception
+        if ($_.Exception -is [System.Net.WebException]) {
+            $webEx = $_.Exception
+            if ($webEx.Response) {
+                try {
+                    $errStream = $webEx.Response.GetResponseStream()
+                    $errReader = New-Object System.IO.StreamReader($errStream)
+                    $errBody = $errReader.ReadToEnd()
+                    Write-Host "Server response: $errBody" -ForegroundColor DarkRed
+                    $errReader.Close()
+                }
+                catch {}
+            }
+        }
+        
+        Write-Host ""
+        Write-Host "Troubleshooting:" -ForegroundColor Yellow
+        Write-Host "  1. Verify PVWA URL is correct" -ForegroundColor Yellow
+        Write-Host "  2. Ensure SAML is configured in CyberArk" -ForegroundColor Yellow
+        Write-Host "  3. Check IdP (PingId) configuration" -ForegroundColor Yellow
+        
+        return $null
+    }
+}
+
+Export-ModuleMember -Function New-SAMLInteractive, Invoke-SAMLAuthentication

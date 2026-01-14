@@ -188,7 +188,7 @@ function Invoke-CACLogin {
             # Verify session with direct API call (most reliable)
             Write-Log "Verifying session with direct API call..." "DEBUG"
             try {
-                $verifyUrl = "$Uri/api/LoggedOnUser"
+                $verifyUrl = "$Uri/WebServices/PIMServices.svc/User"
                 Write-Log "Direct API URL: $verifyUrl" "DEBUG"
                 $verifyResponse = Invoke-WebRequest -Uri $verifyUrl -Method Get -WebSession $authResult.WebSession -UseBasicParsing
                 $userData = $verifyResponse.Content | ConvertFrom-Json

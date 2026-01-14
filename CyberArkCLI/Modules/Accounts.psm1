@@ -838,6 +838,9 @@ function Remove-CACAccount {
         [string]$AccountID
     )
 
+    # Auto-repair psPAS session for SAML
+    if (Get-Command Repair-CACPASSession -ErrorAction SilentlyContinue) { Repair-CACPASSession }
+    
     Write-Log "Started Remove-CACAccount()" "DEBUG"
 
     try {

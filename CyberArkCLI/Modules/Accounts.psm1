@@ -277,8 +277,9 @@ function Get-CACAccountById {
 
         Write-Log "Fetching account details for ID: $AccountID" "INFO"
 
-        # Fetch from psPAS
-        $account = Get-PASAccount -id $AccountID -ErrorAction Stop
+        # Use direct API call instead of psPAS cmdlet
+        $endpoint = "/API/Accounts/$AccountID"
+        $account = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint -ErrorAction Stop
 
         if (-not $account) {
             Write-Log "Account not found for ID: $AccountID" "WARN"
@@ -852,9 +853,11 @@ function Remove-CACAccount {
 
         Write-Log "Preparing to delete account: $AccountID" "INFO"
 
-        # Get account details for confirmation
+        # Get account details for confirmation using direct API call
         try {
-            $account = Get-PASAccount -id $AccountID -ErrorAction Stop
+            $endpoint = "/API/Accounts/$AccountID"
+            $account = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint -ErrorAction Stop
+            
             if (-not $account) {
                 Write-Log "Account not found for ID: $AccountID" "WARN"
                 Write-Host "Account not found." -ForegroundColor Yellow
@@ -885,8 +888,9 @@ function Remove-CACAccount {
 
         Write-Log "User confirmed; deleting account: $AccountID" "WARN"
 
-        # Remove Account
-        Remove-PASAccount -id $AccountID -ErrorAction Stop
+        # Remove Account using direct API call
+        $deleteEndpoint = "/API/Accounts/$AccountID"
+        Invoke-CACAPIRequest -Method DELETE -Endpoint $deleteEndpoint -ErrorAction Stop
 
         Write-Log "Account deleted successfully: $AccountID" "SUCCESS"
         Write-Host "Account deleted successfully." -ForegroundColor Green

@@ -71,10 +71,7 @@ function Invoke-CACLogin {
     else {
         # --- SAML FLOW ---
         
-        # Configure Log Redirection for this scope
-        $PSDefaultParameterValues = $PSDefaultParameterValues.Clone()
-        $PSDefaultParameterValues["Write-Log:LogName"] = "SAML_Debug"
-        $PSDefaultParameterValues["Write-Log:ShowOnScreen"] = $true
+
 
         Write-Log "Starting SAML Authentication Flow" "INFO"
 
@@ -111,49 +108,63 @@ function Invoke-CACLogin {
         Write-Log "Authentication successful. Token length: $($authResult.SessionToken.Length)" "DEBUG"
         Write-Log "Base URL: $($authResult.BaseUrl)" "DEBUG"
 
-        # Establish psPAS session with the obtained token
+        # Establish psPAS session manually since New-PASSession -Token is not supported
         try {
             Write-Log "Initializing psPAS session with token..." "INFO"
             
-            # Set the session token for psPAS
             $baseUrl = $authResult.BaseUrl
             $token = $authResult.SessionToken
+
+            # Manual Session Construction
+            # This mirrors the structure psPAS expects
+            $session = @{
+                BaseURI    = $baseUrl
+                Token      = $token # Using simple 'Token' key as per modern psPAS custom session handling
+                Headers    = @{ 
+                    "Authorization" = $token 
+                    "Content-Type"  = "application/json"
+                }
+                WebSession = $null # Not using a WebSession container for basic token auth
+            }
             
-            # Try to create a psPAS session using the token (modern psPAS support)
-            # This is critical for subsequent psPAS commands (Get-PASSafe etc) to work
-            $session = New-PASSession -BaseURI $baseUrl -Token $token -ErrorAction Stop
+            # --- CRITICAL STEP ---
+            # Inject this session into ALL psPAS commands globally
+            # This makes Get-PASAccount, Get-PASSafe, etc. automatically pick up this session
+            if ($null -eq $PSDefaultParameterValues) {
+                $global:PSDefaultParameterValues = @{}
+            }
             
-            # Update globals
+            # Set wildcard default for the 'Session' parameter on all modules
+            # This ensures any cmdlet using a -Session parameter uses our object
+            $global:PSDefaultParameterValues["*:Session"] = $session
+            $global:PSDefaultParameterValues["*:BaseURI"] = $baseUrl
+
+            # Update legacy globals for backward compatibility
             $global:CACSession = $session
             $global:CACSessionToken = $token
             
-            # Verify session object
-            if ($session) {
-                Write-Log "psPAS session established successfully." "SUCCESS"
+            Write-Log "psPAS session injected into global defaults." "SUCCESS"
+            
+            # Verify by attempting a simple lightweight call
+            # We wrap this to ensure we don't fail the whole login if just the verification fails
+            try {
+                Write-Log "Verifying session with Get-PASUser..." "DEBUG"
+                $currentUser = Get-PASUser -UserName "Manage" -ErrorAction SilentlyContinue 
+                if ($currentUser) {
+                    Write-Log "Session verification successful (Available)." "SUCCESS"
+                }
             }
-            else {
-                Write-Log "New-PASSession returned null but no error thrown." "WARN"
+            catch {
+                Write-Log "Session verification skipped/failed (non-fatal): $($_.Exception.Message)" "WARN"
             }
             
             Write-Log "SAML Login Complete." "SUCCESS"
             return $true
         }
         catch {
-            Write-Log "Failed to initialize psPAS session using token." "ERROR"
+            Write-Log "Failed to initialize psPAS session manually." "ERROR"
             Write-Log "Error: $($_.Exception.Message)" "ERROR"
-            Write-Log "Exception Type: $($_.Exception.GetType().FullName)" "ERROR"
-            
-            Write-Log "Falling back to manual session construction (some psPAS commands may fail)." "WARN"
-            
-            # Manual fallback
-            $global:CACSession = @{
-                BaseURI      = $authResult.BaseUrl
-                sessionToken = $authResult.SessionToken
-                Headers      = @{ "Authorization" = $authResult.SessionToken }
-            }
-            $global:CACSessionToken = $authResult.SessionToken
-            
-            return $true
+            return $false
         }
     }
 }

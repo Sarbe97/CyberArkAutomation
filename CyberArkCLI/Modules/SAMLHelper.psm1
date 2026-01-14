@@ -168,18 +168,13 @@ function Invoke-SAMLAuthentication {
         for user authentication, and returning the SAMLResponse token. The actual
         session establishment should be done via New-PASSession -SAMLResponse.
     .OUTPUTS
-        Hashtable with SAMLResponse and BaseUrl, or $null on failure.
+        Hashtable with SAMLResponse, BaseUrl, and WebSession, or $null on failure.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
         [string]$PVWAURL
     )
-
-    # Redirect logs to separate file (Locally scoped)
-    $PSDefaultParameterValues = $PSDefaultParameterValues.Clone()
-    $PSDefaultParameterValues["Write-Log:LogName"] = "SAML_Debug"
-    $PSDefaultParameterValues["Write-Log:ShowOnScreen"] = $true
 
     # Ensure TLS 1.2
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -195,10 +190,12 @@ function Invoke-SAMLAuthentication {
     try {
         # ========================================
         # PHASE 1: Get IdP URL from CyberArk
+        # This also establishes the WebSession with CA88888 cookie
         # ========================================
         Write-Log "PHASE 1: Getting IdP URL from CyberArk" "INFO"
 
-        $response = Invoke-WebRequest -Uri $apiLogonUrl -Method Post -ContentType "application/json" -Body "" -UseBasicParsing
+        # Use -SessionVariable to capture the WebSession with cookies
+        $response = Invoke-WebRequest -Uri $apiLogonUrl -Method Post -ContentType "application/json" -Body "" -SessionVariable webSession -UseBasicParsing
 
         Write-Log "Response Status: $($response.StatusCode)" "DEBUG"
         
@@ -212,6 +209,12 @@ function Invoke-SAMLAuthentication {
         
         Write-Log "IdP URL received successfully" "SUCCESS"
 
+        # Log cookie information for debugging
+        Write-Log "WebSession cookies captured: $($webSession.Cookies.Count)" "DEBUG"
+        foreach ($cookie in $webSession.Cookies.GetCookies($apiLogonUrl)) {
+            Write-Log "  Cookie: $($cookie.Name) = $($cookie.Value.Substring(0, [Math]::Min(20, $cookie.Value.Length)))..." "DEBUG"
+        }
+
         # ========================================
         # PHASE 2: User authenticates at IdP
         # ========================================
@@ -222,6 +225,7 @@ function Invoke-SAMLAuthentication {
         Write-Log "SAMLResponse returned: $(if ($samlResponse) { 'YES' } else { 'NULL' })" "DEBUG"
         if ($samlResponse) {
             Write-Log "SAMLResponse length: $($samlResponse.Length)" "DEBUG"
+            Write-Log "SAMLResponse preview: $($samlResponse.Substring(0, [Math]::Min(100, $samlResponse.Length)))..." "DEBUG"
         }
 
         if ([string]::IsNullOrWhiteSpace($samlResponse)) {
@@ -232,10 +236,11 @@ function Invoke-SAMLAuthentication {
         Write-Log "SAML RESPONSE CAPTURED SUCCESSFULLY" "SUCCESS"
         Write-Log "==========================================" "SUCCESS"
 
-        # Return SAMLResponse for psPAS to handle authentication
+        # Return SAMLResponse AND WebSession for psPAS to handle authentication
         return @{
             SAMLResponse = $samlResponse
             BaseUrl      = $baseUrl
+            WebSession   = $webSession
         }
     }
     catch {

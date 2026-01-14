@@ -91,18 +91,45 @@ function Invoke-CACLogin {
             return $false
         }
 
-        Write-Log "SAMLResponse captured. Length: $($authResult.SAMLResponse.Length)" "DEBUG"
-        Write-Log "Base URL: $($authResult.BaseUrl)" "DEBUG"
+        Write-Log "==========================================" "DEBUG"
+        Write-Log "SAML Authentication Result Details:" "DEBUG"
+        Write-Log "  SAMLResponse Length: $($authResult.SAMLResponse.Length)" "DEBUG"
+        Write-Log "  SAMLResponse Preview: $($authResult.SAMLResponse.Substring(0, [Math]::Min(80, $authResult.SAMLResponse.Length)))..." "DEBUG"
+        Write-Log "  BaseUrl: $($authResult.BaseUrl)" "DEBUG"
+        Write-Log "  WebSession: $(if ($authResult.WebSession) { 'Present' } else { 'NULL' })" "DEBUG"
+        if ($authResult.WebSession -and $authResult.WebSession.Cookies) {
+            Write-Log "  WebSession Cookies Count: $($authResult.WebSession.Cookies.Count)" "DEBUG"
+            foreach ($cookie in $authResult.WebSession.Cookies.GetCookies($authResult.BaseUrl)) {
+                Write-Log "    Cookie: $($cookie.Name) = $($cookie.Value.Substring(0, [Math]::Min(20, $cookie.Value.Length)))..." "DEBUG"
+            }
+        }
+        Write-Log "==========================================" "DEBUG"
 
         # Use psPAS native SAML authentication
         # This properly establishes the PASSession so all psPAS commands work
         try {
-            Write-Log "Establishing psPAS session with New-PASSession -SAMLResponse..." "INFO"
+            Write-Log "Calling New-PASSession with following parameters:" "INFO"
+            Write-Log "  -SAMLResponse: [Base64 string, length $($authResult.SAMLResponse.Length)]" "INFO"
+            Write-Log "  -BaseURI: $($authResult.BaseUrl)" "INFO"
+            Write-Log "  -concurrentSession: `$true" "INFO"
+            if ($authResult.WebSession) {
+                Write-Log "  -WebSession: [WebRequestSession with cookies]" "INFO"
+            }
             
-            $global:CACSession = New-PASSession `
-                -SAMLResponse $authResult.SAMLResponse `
-                -BaseURI $authResult.BaseUrl `
-                -concurrentSession $true
+            # Call New-PASSession with WebSession if available
+            if ($authResult.WebSession) {
+                $global:CACSession = New-PASSession `
+                    -SAMLResponse $authResult.SAMLResponse `
+                    -BaseURI $authResult.BaseUrl `
+                    -concurrentSession $true `
+                    -WebSession $authResult.WebSession
+            }
+            else {
+                $global:CACSession = New-PASSession `
+                    -SAMLResponse $authResult.SAMLResponse `
+                    -BaseURI $authResult.BaseUrl `
+                    -concurrentSession $true
+            }
 
             Write-Log "psPAS SAML session established successfully!" "SUCCESS"
             
@@ -122,17 +149,30 @@ function Invoke-CACLogin {
             return $true
         }
         catch {
-            Write-Log "Failed to establish psPAS session." "ERROR"
-            Write-Log "Error: $($_.Exception.Message)" "ERROR"
+            Write-Log "==========================================" "ERROR"
+            Write-Log "FAILED TO ESTABLISH psPAS SESSION" "ERROR"
+            Write-Log "==========================================" "ERROR"
+            Write-Log "Error Message: $($_.Exception.Message)" "ERROR"
+            Write-Log "Error Type: $($_.Exception.GetType().FullName)" "ERROR"
+            Write-Log "Stack Trace: $($_.ScriptStackTrace)" "ERROR"
+            
+            # Try to get more details from web exception
+            if ($_.Exception.InnerException) {
+                Write-Log "Inner Exception: $($_.Exception.InnerException.Message)" "ERROR"
+            }
             
             # Check for common issues
             if ($_.Exception.Message -match "401|Unauthorized") {
-                Write-Log "The SAMLResponse may have expired or is invalid. Please try again." "ERROR"
+                Write-Log "HINT: The SAMLResponse may have expired or is invalid. Please try again." "WARN"
             }
             elseif ($_.Exception.Message -match "hostname|URL") {
-                Write-Log "Base URL issue. Please verify your PVWA URL is correct." "ERROR"
+                Write-Log "HINT: Base URL issue. Please verify your PVWA URL is correct." "WARN"
+            }
+            elseif ($_.Exception.Message -match "parameter") {
+                Write-Log "HINT: Parameter issue with New-PASSession. Check psPAS version supports -SAMLResponse." "WARN"
             }
             
+            Write-Log "==========================================" "ERROR"
             return $false
         }
     }

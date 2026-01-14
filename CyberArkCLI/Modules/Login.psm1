@@ -138,18 +138,24 @@ function Invoke-CACLogin {
             
             Write-Log "Session token received. Length: $($CyberArkLogonResult.Length)" "SUCCESS"
             
-            # Add Authorization header to WebSession (this is how psPAS stores the token)
-            $authResult.WebSession.Headers["Authorization"] = [string]$CyberArkLogonResult
-            
             Write-Log "==========================================" "DEBUG"
             Write-Log "Setting up psPAS session:" "DEBUG"
             Write-Log "  BaseURI: $Uri" "DEBUG"
             Write-Log "  Token Length: $($CyberArkLogonResult.Length)" "DEBUG"
             Write-Log "==========================================" "DEBUG"
             
+            # CRITICAL: Add Authorization header to WebSession BEFORE creating session object
+            if ($null -eq $authResult.WebSession.Headers) {
+                $authResult.WebSession.Headers = @{}
+            }
+            $authResult.WebSession.Headers["Authorization"] = [string]$CyberArkLogonResult
+            
+            Write-Log "Added Authorization header to WebSession" "DEBUG"
+            
             # Create session object that matches psPAS internal structure
-            $sessionObject = [PSCustomObject]@{
-                BaseURI            = [System.Uri]$Uri
+            # MUST use ordered hashtable that psPAS expects
+            $sessionData = [ordered]@{
+                BaseURI            = $Uri  # Keep as string, psPAS will convert
                 ApiURI             = $null
                 WebSession         = $authResult.WebSession
                 StartTime          = Get-Date
@@ -162,11 +168,10 @@ function Invoke-CACLogin {
             }
             
             # Store in our global variable for backward compatibility
-            $global:CACSession = $sessionObject
+            $global:CACSession = [PSCustomObject]$sessionData
             $global:CACSessionToken = $CyberArkLogonResult
             
             # Inject session directly into psPAS module's Script scope using reflection
-            # This is necessary because psPAS 7.x doesn't have Set-PASSession
             Write-Log "Injecting SAML session into psPAS internal variable..." "DEBUG"
             try {
                 # Get the psPAS module
@@ -177,10 +182,11 @@ function Invoke-CACLogin {
                 }
                 
                 # Use reflection to set Script:PASSession variable in psPAS module scope
+                # Use the ordered hashtable directly as psPAS stores it as OrderedDictionary
                 $psPASModule.Invoke({
-                        param($session)
-                        $Script:PASSession = $session
-                    }, $sessionObject)
+                        param($sessionHash)
+                        $Script:PASSession = $sessionHash
+                    }, $sessionData)
                 
                 Write-Log "Successfully injected session into psPAS module scope!" "SUCCESS"
                 
@@ -196,30 +202,43 @@ function Invoke-CACLogin {
                     Write-Log "  Type: $($testSession.GetType().FullName)" "DEBUG"
                     
                     # Log each property
-                    $properties = @('BaseURI', 'ApiURI', 'WebSession', 'StartTime', 'User', 'ExternalVersion')
-                    foreach ($prop in $properties) {
-                        $value = $testSession.$prop
-                        if ($null -eq $value) {
-                            Write-Log "  $prop = NULL" "WARN"
-                        }
-                        elseif ($prop -eq 'WebSession') {
-                            Write-Log "  $prop = [WebRequestSession] (Exists)" "DEBUG"
-                            if ($value.Headers -and $value.Headers['Authorization']) {
-                                Write-Log "    Authorization Header: Present (Length: $($value.Headers['Authorization'].Length))" "DEBUG"
+                    if ($testSession -is [System.Collections.IDictionary]) {
+                        Write-Log "  Session is Dictionary type - checking keys" "DEBUG"
+                        foreach ($key in @('BaseURI', 'ApiURI', 'WebSession', 'StartTime', 'User')) {
+                            if ($testSession.Contains($key)) {
+                                $value = $testSession[$key]
+                                if ($null -eq $value) {
+                                    Write-Log "  $key = NULL" "WARN"
+                                }
+                                elseif ($key -eq 'WebSession') {
+                                    Write-Log "  $key = [WebRequestSession] (Exists)" "DEBUG"
+                                    if ($value.Headers -and $value.Headers['Authorization']) {
+                                        Write-Log "    Authorization Header: Present (Length: $($value.Headers['Authorization'].Length))" "DEBUG"
+                                    }
+                                    else {
+                                        Write-Log "    Authorization Header: MISSING" "ERROR"
+                                    }
+                                }
+                                else {
+                                    Write-Log "  $key = $value" "DEBUG"
+                                }
                             }
                             else {
-                                Write-Log "    Authorization Header: MISSING" "WARN"
+                                Write-Log "  $key = KEY NOT FOUND" "ERROR"
                             }
                         }
-                        else {
-                            Write-Log "  $prop = $value" "DEBUG"
-                        }
+                    }
+                    else {
+                        # PSCustomObject style
+                        Write-Log "  BaseURI: $($testSession.BaseURI)" "DEBUG"
+                        Write-Log "  WebSession: $(if ($testSession.WebSession) { 'Present' } else { 'NULL' })" "DEBUG"
                     }
                 }
                 Write-Log "=========================================================" "DEBUG"
             }
             catch {
                 Write-Log "Session injection failed: $($_.Exception.Message)" "ERROR"
+                Write-Log "Stack: $($_.ScriptStackTrace)" "ERROR"
                 Write-Log "psPAS cmdlets may not work, but direct API calls via WebSession will still function" "WARN"
             }
             

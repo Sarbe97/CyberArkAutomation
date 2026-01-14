@@ -25,18 +25,34 @@ function Invoke-CACAPIRequest {
         }
         
         Write-Log "Session Type: $($session.GetType().FullName)" "DEBUG"
-        Write-Log "Session Properties:" "DEBUG"
-        Write-Log "  BaseURI: $($session.BaseURI) (Type: $($session.BaseURI.GetType().FullName))" "DEBUG"
-        Write-Log "  WebSession: $(if ($session.WebSession) { 'Present' } else { 'NULL' })" "DEBUG"
         
-        # Handle BaseURI whether it's a string or Uri object
-        if ($null -eq $session.BaseURI) {
-            Write-Log "CRITICAL: BaseURI is NULL!" "ERROR"
+        # Handle both OrderedDictionary (psPAS 7.x) and PSCustomObject
+        $baseURIValue = $null
+        $webSessionValue = $null
+        
+        if ($session -is [System.Collections.IDictionary]) {
+            Write-Log "Session is Dictionary type - using key access" "DEBUG"
+            $baseURIValue = $session['BaseURI']
+            $webSessionValue = $session['WebSession']
+        }
+        else {
+            Write-Log "Session is Object type - using property access" "DEBUG"
+            $baseURIValue = $session.BaseURI
+            $webSessionValue = $session.WebSession
+        }
+        
+        Write-Log "  BaseURI: $baseURIValue" "DEBUG"
+        Write-Log "  WebSession: $(if ($webSessionValue) { 'Present' } else { 'NULL' })" "DEBUG"
+        
+        # Validate BaseURI
+        if ($null -eq $baseURIValue -or [string]::IsNullOrWhiteSpace($baseURIValue)) {
+            Write-Log "CRITICAL: BaseURI is NULL or empty!" "ERROR"
+            Write-Log "Session may not be properly initialized. Try logging in again." "ERROR"
             throw "Session BaseURI is null. Session may not be properly initialized."
         }
         
         # Convert Uri to string if needed and trim
-        $baseURI = $session.BaseURI.ToString().TrimEnd('/')
+        $baseURI = $baseURIValue.ToString().TrimEnd('/')
         
         Write-Log "Converted BaseURI: $baseURI" "DEBUG"
         Write-Log "=========================================================" "DEBUG"
@@ -53,7 +69,7 @@ function Invoke-CACAPIRequest {
         $requestParams = @{
             Uri         = $fullURL
             Method      = $Method
-            WebSession  = $session.WebSession
+            WebSession  = $webSessionValue
             ContentType = "application/json"
             ErrorAction = "Stop"
         }

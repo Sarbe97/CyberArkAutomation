@@ -147,7 +147,7 @@ function Invoke-CACLogin {
             Write-Log "  Token Length: $($CyberArkLogonResult.Length)" "DEBUG"
             Write-Log "==========================================" "DEBUG"
             
-            # Create session object that matches psPAS internal structure (must be PSCustomObject)
+            # Create session object that matches psPAS internal structure
             $sessionObject = [PSCustomObject]@{
                 BaseURI            = [System.Uri]$Uri
                 ApiURI             = $null
@@ -161,39 +161,23 @@ function Invoke-CACLogin {
                 ExternalVersion    = [System.Version]"0.0"
             }
             
-            # Store in our global variables
+            # Use Set-PASSession to properly inject the session into psPAS's internal state
+            # This ensures Get-PASSession will return our SAML session
+            Write-Log "Injecting SAML session into psPAS using Set-PASSession..." "DEBUG"
+            try {
+                Set-PASSession -Session $sessionObject
+                Write-Log "Set-PASSession succeeded - psPAS session initialized!" "SUCCESS"
+            }
+            catch {
+                Write-Log "Set-PASSession failed: $($_.Exception.Message)" "ERROR"
+                Write-Log "Falling back to manual WebSession storage" "WARN"
+            }
+            
+            # Store in our global variable for backward compatibility
             $global:CACSession = $sessionObject
             $global:CACSessionToken = $CyberArkLogonResult
             
-            # Try Use-PASSession to properly initialize psPAS module session
-            Write-Log "Attempting Use-PASSession..." "DEBUG"
-            $usePASSessionWorked = $false
-            try {
-                Use-PASSession -Session $sessionObject
-                Write-Log "Use-PASSession succeeded!" "SUCCESS"
-                $usePASSessionWorked = $true
-            }
-            catch {
-                Write-Log "Use-PASSession failed: $($_.Exception.Message)" "WARN"
-                Write-Log "This is expected - psPAS doesn't fully support external SAML sessions" "INFO"
-            }
-            
-            # Since Use-PASSession likely failed, inject session data via PSDefaultParameterValues
-            # This allows direct API calls to work even if psPAS cmdlets have issues
-            Write-Log "Setting up PSDefaultParameterValues for session injection..." "DEBUG"
-            
-            if ($null -eq $global:PSDefaultParameterValues) {
-                $global:PSDefaultParameterValues = @{}
-            }
-            
-            # Inject into multiple psPAS internal functions
-            $global:PSDefaultParameterValues["Invoke-PASRestMethod:WebSession"] = $authResult.WebSession
-            $global:PSDefaultParameterValues["Invoke-PASRestMethod:BaseURI"] = [System.Uri]$Uri
-            
-            # Also inject for Get-PAS* commands that might use BaseURI parameter directly
-            $global:PSDefaultParameterValues["Get-PAS*:BaseURI"] = [System.Uri]$Uri
-            
-            Write-Log "Session injection complete" "DEBUG"
+            Write-Log "Session setup complete" "DEBUG"
             
             # Verify session with direct API call (most reliable test)
             Write-Log "Verifying session with direct API call..." "DEBUG"

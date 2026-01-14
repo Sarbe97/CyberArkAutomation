@@ -167,37 +167,63 @@ function Invoke-CACLogin {
             
             # Try Use-PASSession to properly initialize psPAS module session
             Write-Log "Attempting Use-PASSession..." "DEBUG"
+            $usePASSessionWorked = $false
             try {
                 Use-PASSession -Session $sessionObject
                 Write-Log "Use-PASSession succeeded!" "SUCCESS"
+                $usePASSessionWorked = $true
             }
             catch {
                 Write-Log "Use-PASSession failed: $($_.Exception.Message)" "WARN"
-                Write-Log "Falling back to PSDefaultParameterValues injection..." "DEBUG"
-                
-                # Fallback: Inject WebSession and BaseURI into all psPAS internal calls
-                if ($null -eq $global:PSDefaultParameterValues) {
-                    $global:PSDefaultParameterValues = @{}
-                }
-                $global:PSDefaultParameterValues["Invoke-PASRestMethod:WebSession"] = $authResult.WebSession
-                $global:PSDefaultParameterValues["Invoke-PASRestMethod:BaseURI"] = [System.Uri]$Uri
-                
-                Write-Log "Fallback injection complete" "DEBUG"
+                Write-Log "This is expected - psPAS doesn't fully support external SAML sessions" "INFO"
             }
             
-            # Verify session with direct API call (most reliable)
+            # Since Use-PASSession likely failed, inject session data via PSDefaultParameterValues
+            # This allows direct API calls to work even if psPAS cmdlets have issues
+            Write-Log "Setting up PSDefaultParameterValues for session injection..." "DEBUG"
+            
+            if ($null -eq $global:PSDefaultParameterValues) {
+                $global:PSDefaultParameterValues = @{}
+            }
+            
+            # Inject into multiple psPAS internal functions
+            $global:PSDefaultParameterValues["Invoke-PASRestMethod:WebSession"] = $authResult.WebSession
+            $global:PSDefaultParameterValues["Invoke-PASRestMethod:BaseURI"] = [System.Uri]$Uri
+            
+            # Also inject for Get-PAS* commands that might use BaseURI parameter directly
+            $global:PSDefaultParameterValues["Get-PAS*:BaseURI"] = [System.Uri]$Uri
+            
+            Write-Log "Session injection complete" "DEBUG"
+            
+            # Verify session with direct API call (most reliable test)
             Write-Log "Verifying session with direct API call..." "DEBUG"
             try {
+                # Legacy API endpoint - returns XML, not JSON
                 $verifyUrl = "$Uri/WebServices/PIMServices.svc/User"
-                Write-Log "Direct API URL: $verifyUrl" "DEBUG"
+                Write-Log "Verification URL: $verifyUrl" "DEBUG"
+                
                 $verifyResponse = Invoke-WebRequest -Uri $verifyUrl -Method Get -WebSession $authResult.WebSession -UseBasicParsing
-                $userData = $verifyResponse.Content | ConvertFrom-Json
-                Write-Log "Session verified! Logged in as: $($userData.UserName)" "SUCCESS"
-                $global:CACSession.User = $userData.UserName
+                
+                if ($verifyResponse.StatusCode -eq 200) {
+                    Write-Log "Session verified via direct API call! HTTP $($verifyResponse.StatusCode)" "SUCCESS"
+                    
+                    # Try to extract username from XML response
+                    try {
+                        $xmlContent = [xml]$verifyResponse.Content
+                        $userName = $xmlContent.User.UserName
+                        if ($userName) {
+                            Write-Log "Logged in as: $userName" "SUCCESS"
+                            $global:CACSession.User = $userName
+                        }
+                    }
+                    catch {
+                        Write-Log "Could not parse user info from response (non-critical)" "DEBUG"
+                    }
+                }
             }
             catch {
                 Write-Log "Direct API verification failed: $($_.Exception.Message)" "WARN"
-                Write-Log "Session may still be valid for some operations" "WARN"
+                Write-Log "Session token may still be valid - some features will work" "WARN"
             }
             
             Write-Log "SAML Login Complete." "SUCCESS"

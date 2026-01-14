@@ -6,11 +6,6 @@ if ([Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls12') {
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 }
 
-# Import Utils for Write-Log
-$utilsPath = Join-Path $PSScriptRoot "Utils.psm1"
-if (Test-Path $utilsPath) {
-    Import-Module $utilsPath -Force
-}
 
 $loginFormScript = Join-Path $PSScriptRoot "LoginForm.ps1"
 if (-not (Test-Path $loginFormScript)) {
@@ -18,12 +13,7 @@ if (-not (Test-Path $loginFormScript)) {
 }
 . $loginFormScript   # <-- dot-source the UI function
 
-# Import SAMLHelper
-$samlHelper = Join-Path $PSScriptRoot "SAMLHelper.psm1"
-if (Test-Path $samlHelper) {
-    Import-Module $samlHelper -Force
-}
-
+ 
 
 function Invoke-CACLogin {
     [CmdletBinding()]
@@ -114,6 +104,17 @@ function Invoke-CACLogin {
             
             $baseUrl = $authResult.BaseUrl
             $token = $authResult.SessionToken
+
+            # Ensure BaseURI is a valid System.Uri object for psPAS
+            if ($baseUrl -is [string]) {
+                try {
+                    $baseUrl = [System.Uri]$baseUrl
+                }
+                catch {
+                    Write-Log "Failed to convert BaseUrl '$baseUrl' to Uri: $($_.Exception.Message)" "ERROR"
+                    throw "Invalid BaseUrl format encountered."
+                }
+            }
 
             # Manual Session Construction
             # This mirrors the structure psPAS expects

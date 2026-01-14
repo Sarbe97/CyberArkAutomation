@@ -105,44 +105,106 @@ function Invoke-CACLogin {
         }
         Write-Log "==========================================" "DEBUG"
 
-        # Use psPAS native SAML authentication
-        # This properly establishes the PASSession so all psPAS commands work
+        # Since psPAS New-PASSession doesn't support passing a WebSession with the CA88888 cookie,
+        # we need to complete the SAML authentication manually and then set up the psPAS session
         try {
-            Write-Log "Calling New-PASSession with following parameters:" "INFO"
-            Write-Log "  -SAMLResponse: [Base64 string, length $($authResult.SAMLResponse.Length)]" "INFO"
-            Write-Log "  -BaseURI: $($authResult.BaseUrl)" "INFO"
-            Write-Log "  -concurrentSession: `$true" "INFO"
-            if ($authResult.WebSession) {
-                Write-Log "  -WebSession: [WebRequestSession with cookies]" "INFO"
+            Write-Log "Completing SAML authentication with CyberArk..." "INFO"
+            
+            $baseUrl = $authResult.BaseUrl
+            $apiLogonUrl = "$baseUrl/PasswordVault/api/auth/saml/logon"
+            
+            # Build form data for the final authentication
+            $body = @{
+                SAMLResponse      = $authResult.SAMLResponse
+                concurrentSession = "true"
+                apiUse            = "true"
             }
             
-            # Call New-PASSession with WebSession if available
-            if ($authResult.WebSession) {
-                $global:CACSession = New-PASSession `
-                    -SAMLResponse $authResult.SAMLResponse `
-                    -BaseURI $authResult.BaseUrl `
-                    -concurrentSession $true `
-                    -WebSession $authResult.WebSession
+            Write-Log "Sending SAMLResponse to: $apiLogonUrl" "DEBUG"
+            Write-Log "Using WebSession with CA88888 cookie" "DEBUG"
+            
+            # Complete authentication using the WebSession (which has the CA88888 cookie)
+            $authResponse = Invoke-WebRequest `
+                -Uri $apiLogonUrl `
+                -Method Post `
+                -ContentType "application/x-www-form-urlencoded" `
+                -Body $body `
+                -WebSession $authResult.WebSession `
+                -UseBasicParsing
+            
+            Write-Log "Auth response status: $($authResponse.StatusCode)" "DEBUG"
+            
+            # Extract session token
+            $sessionToken = $authResponse.Content.Trim('"')
+            
+            if ([string]::IsNullOrWhiteSpace($sessionToken)) {
+                throw "No session token received from CyberArk"
             }
-            else {
-                $global:CACSession = New-PASSession `
-                    -SAMLResponse $authResult.SAMLResponse `
-                    -BaseURI $authResult.BaseUrl `
-                    -concurrentSession $true
+            
+            Write-Log "Session token received. Length: $($sessionToken.Length)" "SUCCESS"
+            
+            # Now set up psPAS session using Use-PASSession
+            Write-Log "Initializing psPAS session with Use-PASSession..." "INFO"
+            
+            # Create session object that psPAS expects
+            $sessionObject = [PSCustomObject]@{
+                BaseURI            = [System.Uri]$baseUrl
+                User               = $null  # Will be populated by psPAS
+                ExternalVersion    = $null
+                WebSession         = $authResult.WebSession
+                StartTime          = Get-Date
+                ElapsedTime        = $null
+                LastCommand        = $null
+                LastCommandTime    = $null
+                LastCommandResults = $null
             }
-
-            Write-Log "psPAS SAML session established successfully!" "SUCCESS"
+            
+            # Add the Authorization header to the WebSession
+            $authResult.WebSession.Headers["Authorization"] = $sessionToken
+            
+            # Try Use-PASSession first (modern psPAS)
+            try {
+                Use-PASSession -Session $sessionObject
+                Write-Log "psPAS session established via Use-PASSession" "SUCCESS"
+            }
+            catch {
+                Write-Log "Use-PASSession failed, trying alternative approach..." "WARN"
+                
+                # Alternative: Set the session variables that psPAS uses internally
+                $Script:psPASSession = $sessionObject
+                
+                # Also set global defaults so psPAS cmdlets work
+                if ($null -eq $global:PSDefaultParameterValues) {
+                    $global:PSDefaultParameterValues = @{}
+                }
+                $global:PSDefaultParameterValues["*-PAS*:WebSession"] = $authResult.WebSession
+            }
+            
+            # Store in our global variable too
+            $global:CACSession = $sessionObject
+            $global:CACSessionToken = $sessionToken
             
             # Verify session by attempting a lightweight call
             try {
                 Write-Log "Verifying session..." "DEBUG"
-                $loggedInUser = Get-PASLoggedOnUser -ErrorAction SilentlyContinue
+                $loggedInUser = Get-PASLoggedOnUser -ErrorAction Stop
                 if ($loggedInUser) {
                     Write-Log "Session verified. Logged in as: $($loggedInUser.UserName)" "SUCCESS"
                 }
             }
             catch {
-                Write-Log "Session verification call failed (non-fatal): $($_.Exception.Message)" "WARN"
+                Write-Log "Session verification with Get-PASLoggedOnUser failed: $($_.Exception.Message)" "WARN"
+                
+                # Try alternative verification
+                try {
+                    Write-Log "Trying alternative verification with Get-PASSafe..." "DEBUG"
+                    $testSafe = Get-PASSafe -limit 1 -ErrorAction Stop
+                    Write-Log "Session verified via Get-PASSafe" "SUCCESS"
+                }
+                catch {
+                    Write-Log "Alternative verification also failed: $($_.Exception.Message)" "WARN"
+                    Write-Log "Session may still be valid - attempting to continue" "WARN"
+                }
             }
             
             Write-Log "SAML Login Complete." "SUCCESS"
@@ -150,26 +212,25 @@ function Invoke-CACLogin {
         }
         catch {
             Write-Log "==========================================" "ERROR"
-            Write-Log "FAILED TO ESTABLISH psPAS SESSION" "ERROR"
+            Write-Log "FAILED TO ESTABLISH SESSION" "ERROR"
             Write-Log "==========================================" "ERROR"
             Write-Log "Error Message: $($_.Exception.Message)" "ERROR"
             Write-Log "Error Type: $($_.Exception.GetType().FullName)" "ERROR"
             Write-Log "Stack Trace: $($_.ScriptStackTrace)" "ERROR"
             
-            # Try to get more details from web exception
-            if ($_.Exception.InnerException) {
-                Write-Log "Inner Exception: $($_.Exception.InnerException.Message)" "ERROR"
+            # Try to get response body for web exceptions
+            if ($_.Exception.Response) {
+                try {
+                    $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+                    $responseBody = $reader.ReadToEnd()
+                    Write-Log "Response Body: $responseBody" "ERROR"
+                    $reader.Close()
+                }
+                catch {}
             }
             
-            # Check for common issues
-            if ($_.Exception.Message -match "401|Unauthorized") {
-                Write-Log "HINT: The SAMLResponse may have expired or is invalid. Please try again." "WARN"
-            }
-            elseif ($_.Exception.Message -match "hostname|URL") {
-                Write-Log "HINT: Base URL issue. Please verify your PVWA URL is correct." "WARN"
-            }
-            elseif ($_.Exception.Message -match "parameter") {
-                Write-Log "HINT: Parameter issue with New-PASSession. Check psPAS version supports -SAMLResponse." "WARN"
+            if ($_.Exception.InnerException) {
+                Write-Log "Inner Exception: $($_.Exception.InnerException.Message)" "ERROR"
             }
             
             Write-Log "==========================================" "ERROR"

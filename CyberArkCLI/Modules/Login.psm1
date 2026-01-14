@@ -1,4 +1,4 @@
-# Login.psm1
+﻿# Login.psm1
 Import-Module psPAS -ErrorAction Stop
 
 # Force TLS 1.2
@@ -99,7 +99,7 @@ function Invoke-CACLogin {
         Write-Log "==========================================" "DEBUG"
 
         # Since psPAS New-PASSession -SAMLResponse doesn't accept an external WebSession with the CA88888 cookie,
-        # we complete the SAML authentication manually and then set up the psPAS session exactly like psPAS does internally
+        # we complete the SAML authentication manually and then set up the psPAS session
         try {
             Write-Log "Completing SAML authentication with CyberArk..." "INFO"
             
@@ -119,7 +119,6 @@ function Invoke-CACLogin {
             Write-Log "Using WebSession with CA88888 cookie" "DEBUG"
             
             # Complete authentication using the WebSession (which has the CA88888 cookie)
-            # This mirrors what Invoke-PASRestMethod does internally
             $authResponse = Invoke-WebRequest `
                 -Uri $apiLogonUrl `
                 -Method Post `
@@ -130,7 +129,7 @@ function Invoke-CACLogin {
             
             Write-Log "Auth response status: $($authResponse.StatusCode)" "DEBUG"
             
-            # Extract session token (CyberArkLogonResult)
+            # Extract session token
             $CyberArkLogonResult = $authResponse.Content.Trim('"')
             
             if ([string]::IsNullOrWhiteSpace($CyberArkLogonResult)) {
@@ -139,96 +138,66 @@ function Invoke-CACLogin {
             
             Write-Log "Session token received. Length: $($CyberArkLogonResult.Length)" "SUCCESS"
             
-            # Now set up psPAS session EXACTLY like New-PASSession.ps1 does
-            # Reference: https://github.com/pspete/psPAS/blob/master/psPAS/Functions/Authentication/New-PASSession.ps1
-            Write-Log "Initializing psPAS session (matching internal psPAS structure)..." "INFO"
-            
-            # Get the psPAS module-scoped session object
-            # psPAS stores session in a script-scoped variable that Get-PASSession retrieves
-            try {
-                $psPASSession = Get-PASSession
-                Write-Log "Retrieved existing psPAS session object" "DEBUG"
-            }
-            catch {
-                Write-Log "Get-PASSession failed, creating new session structure..." "DEBUG"
-                # If Get-PASSession fails, we need to initialize the session differently
-                $psPASSession = $null
-            }
-            
-            if ($null -eq $psPASSession) {
-                # psPAS isn't initialized yet, we need to set module variables directly
-                # This is a workaround - we'll use the WebSession from our auth
-                Write-Log "Creating new psPAS-compatible session..." "DEBUG"
-            }
-            
-            # Add the Authorization header to the WebSession (this is how psPAS stores the token)
+            # Add Authorization header to WebSession (this is how psPAS stores the token)
             $authResult.WebSession.Headers["Authorization"] = [string]$CyberArkLogonResult
             
-            # Set up the session using the psPAS pattern
-            # psPAS uses: $psPASSession.BaseURI, $psPASSession.WebSession, $psPASSession.User, etc.
+            Write-Log "==========================================" "DEBUG"
+            Write-Log "Setting up psPAS session:" "DEBUG"
+            Write-Log "  BaseURI: $Uri" "DEBUG"
+            Write-Log "  Token Length: $($CyberArkLogonResult.Length)" "DEBUG"
+            Write-Log "==========================================" "DEBUG"
             
-            # Try to use the psPAS internal session by calling a simple command first
-            # This is a workaround to get psPAS to accept our session
-            
-            # Create a minimal session and try Set-Variable in psPAS scope
-            $sessionData = @{
-                BaseURI         = [System.Uri]$Uri
-                WebSession      = $authResult.WebSession
-                StartTime       = Get-Date
-                User            = $null
-                ExternalVersion = [System.Version]"0.0"
+            # Create session object that matches psPAS internal structure (must be PSCustomObject)
+            $sessionObject = [PSCustomObject]@{
+                BaseURI            = [System.Uri]$Uri
+                ApiURI             = $null
+                WebSession         = $authResult.WebSession
+                StartTime          = Get-Date
+                ElapsedTime        = $null
+                LastCommand        = $null
+                LastCommandTime    = $null
+                LastCommandResults = $null
+                User               = $null
+                ExternalVersion    = [System.Version]"0.0"
             }
             
-            # Store in our global variables for compatibility
-            $global:CACSession = $sessionData
+            # Store in our global variables
+            $global:CACSession = $sessionObject
             $global:CACSessionToken = $CyberArkLogonResult
             
-            # Now verify if psPAS commands work by using the WebSession directly
-            # We'll set PSDefaultParameterValues to inject our WebSession into psPAS calls
-            if ($null -eq $global:PSDefaultParameterValues) {
-                $global:PSDefaultParameterValues = @{}
-            }
-            
-            # Inject our authenticated WebSession into all psPAS commands
-            $global:PSDefaultParameterValues["Invoke-PASRestMethod:WebSession"] = $authResult.WebSession
-            
-            Write-Log "Session configured. Testing with Get-PASLoggedOnUser..." "DEBUG"
-            
-            # Verify session by attempting a lightweight call
+            # Try Use-PASSession to properly initialize psPAS module session
+            Write-Log "Attempting Use-PASSession..." "DEBUG"
             try {
-                $loggedInUser = Get-PASLoggedOnUser -ErrorAction Stop
-                if ($loggedInUser) {
-                    Write-Log "Session verified. Logged in as: $($loggedInUser.UserName)" "SUCCESS"
-                    
-                    # Update session with user info
-                    $global:CACSession.User = $loggedInUser.UserName
-                }
+                Use-PASSession -Session $sessionObject
+                Write-Log "Use-PASSession succeeded!" "SUCCESS"
             }
             catch {
-                Write-Log "Get-PASLoggedOnUser failed: $($_.Exception.Message)" "WARN"
+                Write-Log "Use-PASSession failed: $($_.Exception.Message)" "WARN"
+                Write-Log "Falling back to PSDefaultParameterValues injection..." "DEBUG"
                 
-                # Try alternative verification
-                try {
-                    Write-Log "Trying alternative verification with Get-PASSafe..." "DEBUG"
-                    $testSafe = Get-PASSafe -limit 1 -ErrorAction Stop
-                    if ($testSafe) {
-                        Write-Log "Session verified via Get-PASSafe" "SUCCESS"
-                    }
+                # Fallback: Inject WebSession and BaseURI into all psPAS internal calls
+                if ($null -eq $global:PSDefaultParameterValues) {
+                    $global:PSDefaultParameterValues = @{}
                 }
-                catch {
-                    Write-Log "Alternative verification also failed: $($_.Exception.Message)" "WARN"
-                    Write-Log "Attempting direct API call to verify connectivity..." "DEBUG"
-                    
-                    # Direct API call to verify the token works
-                    try {
-                        $verifyUrl = "$Uri/api/Users/MyDetails"
-                        $verifyResponse = Invoke-WebRequest -Uri $verifyUrl -Method Get -WebSession $authResult.WebSession -UseBasicParsing
-                        Write-Log "Direct API verification successful. Status: $($verifyResponse.StatusCode)" "SUCCESS"
-                    }
-                    catch {
-                        Write-Log "Direct API verification failed: $($_.Exception.Message)" "ERROR"
-                    }
-                }
+                $global:PSDefaultParameterValues["Invoke-PASRestMethod:WebSession"] = $authResult.WebSession
+                $global:PSDefaultParameterValues["Invoke-PASRestMethod:BaseURI"] = [System.Uri]$Uri
+                
+                Write-Log "Fallback injection complete" "DEBUG"
+            }
+            
+            # Verify session with direct API call (most reliable)
+            Write-Log "Verifying session with direct API call..." "DEBUG"
+            try {
+                $verifyUrl = "$Uri/api/LoggedOnUser"
+                Write-Log "Direct API URL: $verifyUrl" "DEBUG"
+                $verifyResponse = Invoke-WebRequest -Uri $verifyUrl -Method Get -WebSession $authResult.WebSession -UseBasicParsing
+                $userData = $verifyResponse.Content | ConvertFrom-Json
+                Write-Log "Session verified! Logged in as: $($userData.UserName)" "SUCCESS"
+                $global:CACSession.User = $userData.UserName
+            }
+            catch {
+                Write-Log "Direct API verification failed: $($_.Exception.Message)" "WARN"
+                Write-Log "Session may still be valid for some operations" "WARN"
             }
             
             Write-Log "SAML Login Complete." "SUCCESS"
@@ -242,7 +211,6 @@ function Invoke-CACLogin {
             Write-Log "Error Type: $($_.Exception.GetType().FullName)" "ERROR"
             Write-Log "Stack Trace: $($_.ScriptStackTrace)" "ERROR"
             
-            # Try to get response body for web exceptions
             if ($_.Exception.Response) {
                 try {
                     $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())

@@ -920,6 +920,9 @@ function Invoke-CACBatchAccountDeletion {
     [CmdletBinding()]
     param()
 
+    # Auto-repair psPAS session for SAML
+    if (Get-Command Repair-CACPASSession -ErrorAction SilentlyContinue) { Repair-CACPASSession }
+
     $OutputCsvPath = Join-Path (Resolve-Path "$PSScriptRoot\..").Path "BatchDeletion_Result_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
 
     Write-Log "Started Invoke-CACBatchAccountDeletion()" "DEBUG"
@@ -1002,8 +1005,9 @@ function Invoke-CACBatchAccountDeletion {
         Write-Host "[$current/$total] Deleting Account ID: $idVal ... " -NoNewline
 
         try {
-            # --- Deletion ---
-            Remove-PASAccount -id $idVal -ErrorAction Stop
+            # --- Deletion using direct API call ---
+            $deleteEndpoint = "/API/Accounts/$idVal"
+            Invoke-CACAPIRequest -Method DELETE -Endpoint $deleteEndpoint -ErrorAction Stop
             
             Write-Host "Success" -ForegroundColor Green
             $resObj | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "Success" -Force

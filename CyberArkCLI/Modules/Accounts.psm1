@@ -16,6 +16,9 @@ function Get-CACAccounts {
         [int]$LimitPerPage = 1000
     )
 
+    # Auto-repair psPAS session for SAML
+    if (Get-Command Repair-CACPASSession -ErrorAction SilentlyContinue) { Repair-CACPASSession }
+    
     # Ensure dependencies exist (or mock them for this run if missing)
     if (-not (Get-Command Write-Log -ErrorAction SilentlyContinue)) { function Write-Log ($msg, $level) { Write-Host "[$level] $msg" } }
     
@@ -256,6 +259,9 @@ function Get-CACAccountById {
         [string]$AccountID
     )
 
+    # Auto-repair psPAS session for SAML
+    if (Get-Command Repair-CACPASSession -ErrorAction SilentlyContinue) { Repair-CACPASSession }
+    
     Write-Log "Started Get-CACAccountById()" "DEBUG"
 
     try {
@@ -317,6 +323,9 @@ function Get-CACAccountActivity {
         [switch]$AutoExport
     )
 
+    # Auto-repair psPAS session for SAML
+    if (Get-Command Repair-CACPASSession -ErrorAction SilentlyContinue) { Repair-CACPASSession }
+    
     Write-Log "Started Get-CACAccountActivity()" "DEBUG"
 
     try {
@@ -393,6 +402,9 @@ function Invoke-CACAccountReconcile {
         [string]$AccountID
     )
 
+    # Auto-repair psPAS session for SAML
+    if (Get-Command Repair-CACPASSession -ErrorAction SilentlyContinue) { Repair-CACPASSession }
+    
     Write-Log "Started Invoke-CACAccountReconcile()" "DEBUG"
 
     try {
@@ -492,6 +504,9 @@ function New-CACPSMConnection {
         [string]$Reason
     )
 
+    # Auto-repair psPAS session for SAML
+    if (Get-Command Repair-CACPASSession -ErrorAction SilentlyContinue) { Repair-CACPASSession }
+    
     Write-Log "Started New-CACPSMConnection()" "DEBUG"
 
     try {
@@ -624,6 +639,9 @@ function New-CACAccountsFromCsv {
         [string]$CsvPath
     )
 
+    # Auto-repair psPAS session for SAML
+    if (Get-Command Repair-CACPASSession -ErrorAction SilentlyContinue) { Repair-CACPASSession }
+    
     Write-Log "Started New-CACAccountsFromCsv()" "DEBUG"
 
     try {

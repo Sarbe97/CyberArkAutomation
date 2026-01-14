@@ -88,9 +88,16 @@ function Invoke-CACLogin {
         # Use the complete SAML authentication flow
         $authResult = Invoke-SAMLAuthentication -PVWAURL $url
 
+        Write-Host "[DEBUG] Invoke-SAMLAuthentication returned: $(if ($authResult) { 'Object with keys: ' + ($authResult.Keys -join ', ') } else { 'NULL' })" -ForegroundColor Magenta
+
         if ($null -eq $authResult) {
+            Write-Host "[DEBUG] authResult is null, returning false" -ForegroundColor Red
             return $false
         }
+
+        Write-Host "[DEBUG] authResult.BaseUrl: $($authResult.BaseUrl)" -ForegroundColor Magenta
+        Write-Host "[DEBUG] authResult.SessionToken: $($authResult.SessionToken)" -ForegroundColor Magenta
+        Write-Host "[DEBUG] authResult.SessionToken length: $($authResult.SessionToken.Length)" -ForegroundColor Magenta
 
         # Establish psPAS session with the obtained token
         try {
@@ -101,15 +108,25 @@ function Invoke-CACLogin {
             $baseUrl = $authResult.BaseUrl
             $token = $authResult.SessionToken
             
+            Write-Host "[DEBUG] Attempting to set up session with baseUrl: $baseUrl" -ForegroundColor Magenta
+            Write-Host "[DEBUG] Token to use: $token" -ForegroundColor Magenta
+            
             # Try to create a psPAS session by setting the auth header manually
             # This uses the internal psPAS session management
             $headers = @{
                 "Authorization" = $token
             }
             
+            Write-Host "[DEBUG] Headers created: $($headers | ConvertTo-Json -Compress)" -ForegroundColor Magenta
+            
             # Test the session by making a simple API call
             $testUrl = "$baseUrl/PasswordVault/API/Users"
+            Write-Host "[DEBUG] Testing session with API call to: $testUrl" -ForegroundColor Magenta
+            
             $testResponse = Invoke-RestMethod -Uri $testUrl -Headers $headers -Method Get -ErrorAction Stop
+            
+            Write-Host "[DEBUG] Test API call succeeded!" -ForegroundColor Green
+            Write-Host "[DEBUG] Test response type: $($testResponse.GetType().Name)" -ForegroundColor Magenta
             
             # If we get here, the session is valid
             # Store session info for use by other modules
@@ -120,10 +137,18 @@ function Invoke-CACLogin {
             }
             $global:CACSessionToken = $token
             
+            Write-Host "[DEBUG] global:CACSession set:" -ForegroundColor Magenta
+            Write-Host "[DEBUG]   BaseURI: $($global:CACSession.BaseURI)" -ForegroundColor Magenta
+            Write-Host "[DEBUG]   sessionToken: $($global:CACSession.sessionToken)" -ForegroundColor Magenta
+            Write-Host "[DEBUG] global:CACSessionToken: $global:CACSessionToken" -ForegroundColor Magenta
+            
             Write-Host "Session established successfully!" -ForegroundColor Green
             return $true
         }
         catch {
+            Write-Host "[DEBUG] Session test failed with error: $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "[DEBUG] Exception type: $($_.Exception.GetType().FullName)" -ForegroundColor Magenta
+            
             Write-Host "Warning: Session token obtained but psPAS session setup failed." -ForegroundColor Yellow
             Write-Host "Error: $($_.Exception.Message)" -ForegroundColor DarkYellow
             
@@ -134,6 +159,8 @@ function Invoke-CACLogin {
                 Headers      = @{ "Authorization" = $authResult.SessionToken }
             }
             $global:CACSessionToken = $authResult.SessionToken
+            
+            Write-Host "[DEBUG] Fallback session stored in global:CACSession" -ForegroundColor Magenta
             
             Write-Host "Session token stored. Some psPAS commands may not work." -ForegroundColor Yellow
             return $true

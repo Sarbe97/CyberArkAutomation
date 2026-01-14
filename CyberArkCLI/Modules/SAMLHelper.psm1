@@ -23,6 +23,8 @@ function New-SAMLInteractive {
     $Script:SAMLResponse = $null
     $Script:FormClosed = $false
 
+    Write-Host "[DEBUG] New-SAMLInteractive called with IdP: $LoginIDP" -ForegroundColor Magenta
+
     # Create the form
     $form = New-Object System.Windows.Forms.Form
     $form.Text = "SAML Authentication - Please Login"
@@ -50,17 +52,25 @@ function New-SAMLInteractive {
             if ($Script:FormClosed) { return }
         
             try {
+                $currentUrl = $e.Url.ToString()
+                Write-Host "[DEBUG] Navigating to: $currentUrl" -ForegroundColor DarkMagenta
+            
                 $documentText = $web.DocumentText
             
                 # Check if SAMLResponse is in the document
                 if ($documentText -match 'name="SAMLResponse"') {
+                    Write-Host "[DEBUG] SAMLResponse found in document!" -ForegroundColor Green
+                    Write-Host "[DEBUG] Document length: $($documentText.Length) chars" -ForegroundColor DarkMagenta
                 
                     # Try to extract from DOM first (most reliable)
                     if ($web.Document) {
                         $inputs = $web.Document.GetElementsByTagName("input")
+                        Write-Host "[DEBUG] Found $($inputs.Count) input elements in DOM" -ForegroundColor DarkMagenta
                         foreach ($inp in $inputs) {
-                            if ($inp.GetAttribute("name") -eq "SAMLResponse") {
+                            $inputName = $inp.GetAttribute("name")
+                            if ($inputName -eq "SAMLResponse") {
                                 $Script:SAMLResponse = $inp.GetAttribute("value")
+                                Write-Host "[DEBUG] Extracted SAMLResponse from DOM, length: $($Script:SAMLResponse.Length)" -ForegroundColor Green
                                 break
                             }
                         }
@@ -68,33 +78,41 @@ function New-SAMLInteractive {
                 
                     # Fallback: Extract via regex if DOM failed
                     if ([string]::IsNullOrEmpty($Script:SAMLResponse)) {
+                        Write-Host "[DEBUG] DOM extraction failed, trying regex..." -ForegroundColor Yellow
                         # Pattern: name="SAMLResponse" ... value="..."
                         if ($documentText -match 'name="SAMLResponse"[^>]*value="([^"]+)"') {
                             $Script:SAMLResponse = $Matches[1]
+                            Write-Host "[DEBUG] Extracted SAMLResponse via regex pattern 1, length: $($Script:SAMLResponse.Length)" -ForegroundColor Green
                         }
                         elseif ($documentText -match 'value="([^"]+)"[^>]*name="SAMLResponse"') {
                             $Script:SAMLResponse = $Matches[1]
+                            Write-Host "[DEBUG] Extracted SAMLResponse via regex pattern 2, length: $($Script:SAMLResponse.Length)" -ForegroundColor Green
                         }
                     }
                 
                     if (-not [string]::IsNullOrEmpty($Script:SAMLResponse)) {
                         # Decode HTML entities
                         $Script:SAMLResponse = $Script:SAMLResponse -replace '&#x2b;', '+' -replace '&#x3d;', '='
+                        Write-Host "[DEBUG] SAMLResponse after decoding, length: $($Script:SAMLResponse.Length)" -ForegroundColor Green
+                        Write-Host "[DEBUG] SAMLResponse preview: $($Script:SAMLResponse.Substring(0, [Math]::Min(100, $Script:SAMLResponse.Length)))..." -ForegroundColor DarkGray
                     
                         # Cancel navigation and close form
                         $e.Cancel = $true
                         $Script:FormClosed = $true
                         $form.Close()
                     }
+                    else {
+                        Write-Host "[DEBUG] SAMLResponse pattern found but extraction failed!" -ForegroundColor Red
+                    }
                 }
             }
             catch {
-                # Silently continue - document might not be ready
+                Write-Host "[DEBUG] Error in Navigating event: $($_.Exception.Message)" -ForegroundColor Red
             }
         })
 
     # Navigate to IdP
-    Write-Host "Opening SAML authentication window..." -ForegroundColor Cyan
+    Write-Host "[DEBUG] Opening SAML authentication window..." -ForegroundColor Cyan
     $web.Navigate($LoginIDP)
 
     # Show dialog (blocks until closed)
@@ -105,10 +123,11 @@ function New-SAMLInteractive {
     $form.Dispose()
 
     if (-not [string]::IsNullOrEmpty($Script:SAMLResponse)) {
-        Write-Host "SAML Response captured successfully." -ForegroundColor Green
+        Write-Host "[DEBUG] Returning SAMLResponse (length: $($Script:SAMLResponse.Length))" -ForegroundColor Green
         return $Script:SAMLResponse
     }
     else {
+        Write-Host "[DEBUG] No SAMLResponse captured!" -ForegroundColor Red
         Write-Warning "SAML Authentication window closed without capturing a response."
         return $null
     }
@@ -145,6 +164,8 @@ function Invoke-SAMLAuthentication {
     Write-Host "      SAML Authentication     " -ForegroundColor Cyan
     Write-Host "==============================" -ForegroundColor Cyan
     Write-Host ""
+    Write-Host "[DEBUG] Base URL: $baseUrl" -ForegroundColor Magenta
+    Write-Host "[DEBUG] API Logon URL: $apiLogonUrl" -ForegroundColor Magenta
 
     try {
         # ========================================
@@ -154,7 +175,15 @@ function Invoke-SAMLAuthentication {
         Write-Host "  API: $apiLogonUrl" -ForegroundColor DarkGray
 
         # Use Invoke-WebRequest to capture cookies
+        Write-Host "[DEBUG] Sending initial POST to get IdP URL..." -ForegroundColor Magenta
         $response = Invoke-WebRequest -Uri $apiLogonUrl -Method Post -ContentType "application/json" -Body "" -SessionVariable webSession -UseBasicParsing
+
+        Write-Host "[DEBUG] Response Status: $($response.StatusCode)" -ForegroundColor Magenta
+        Write-Host "[DEBUG] Response Content: $($response.Content)" -ForegroundColor Magenta
+        Write-Host "[DEBUG] Response Headers:" -ForegroundColor Magenta
+        foreach ($header in $response.Headers.Keys) {
+            Write-Host "[DEBUG]   $header : $($response.Headers[$header])" -ForegroundColor DarkMagenta
+        }
 
         # Extract IdP URL from response
         $idpUrl = $response.Content.Trim('"')
@@ -163,20 +192,26 @@ function Invoke-SAMLAuthentication {
             throw "Could not extract Identity Provider URL from response"
         }
         
-        Write-Host "  IdP URL received" -ForegroundColor Green
+        Write-Host "  IdP URL received: $idpUrl" -ForegroundColor Green
 
         # Extract CA88888 cookie from response headers
         $ca88888 = $null
         $setCookieHeader = $response.Headers["Set-Cookie"]
+        Write-Host "[DEBUG] Set-Cookie header: $setCookieHeader" -ForegroundColor Magenta
+        
         if ($setCookieHeader) {
-            if ($setCookieHeader -match 'CA88888=([^;]+)') {
+            # Handle both string and string[] types
+            $cookieString = if ($setCookieHeader -is [array]) { $setCookieHeader -join "; " } else { $setCookieHeader }
+            Write-Host "[DEBUG] Cookie string: $cookieString" -ForegroundColor DarkMagenta
+            
+            if ($cookieString -match 'CA88888=([^;]+)') {
                 $ca88888 = $Matches[1]
-                Write-Host "  CA88888 cookie captured" -ForegroundColor Green
+                Write-Host "[DEBUG] CA88888 cookie extracted: $ca88888" -ForegroundColor Green
             }
         }
 
         if ([string]::IsNullOrEmpty($ca88888)) {
-            Write-Warning "CA88888 cookie not found - authentication may fail"
+            Write-Host "[DEBUG] CA88888 cookie NOT found - this may cause authentication to fail!" -ForegroundColor Yellow
         }
 
         # ========================================
@@ -188,6 +223,8 @@ function Invoke-SAMLAuthentication {
         Write-Host ""
 
         $samlResponse = New-SAMLInteractive -LoginIDP $idpUrl
+
+        Write-Host "[DEBUG] SAMLResponse returned: $(if ($samlResponse) { 'YES (length: ' + $samlResponse.Length + ')' } else { 'NULL' })" -ForegroundColor Magenta
 
         if ([string]::IsNullOrWhiteSpace($samlResponse)) {
             throw "No SAML response received from IdP"
@@ -205,9 +242,14 @@ function Invoke-SAMLAuthentication {
             apiUse            = "true"
             SAMLResponse      = $samlResponse
         }
+        
+        Write-Host "[DEBUG] Form data keys: $($formData.Keys -join ', ')" -ForegroundColor Magenta
+        Write-Host "[DEBUG] SAMLResponse in form data length: $($formData.SAMLResponse.Length)" -ForegroundColor Magenta
 
         # Create web request session with CA88888 cookie
         $domain = ([System.Uri]$baseUrl).Host
+        Write-Host "[DEBUG] Domain for cookie: $domain" -ForegroundColor Magenta
+        
         $cookieContainer = New-Object System.Net.CookieContainer
         
         if ($ca88888) {
@@ -215,9 +257,11 @@ function Invoke-SAMLAuthentication {
             $cookie.HttpOnly = $true
             $cookie.Secure = $true
             $cookieContainer.Add($cookie)
+            Write-Host "[DEBUG] Added CA88888 cookie to container" -ForegroundColor Green
         }
 
         # Create HttpWebRequest for the final auth call
+        Write-Host "[DEBUG] Creating final auth request to: $apiLogonUrl" -ForegroundColor Magenta
         $authRequest = [System.Net.HttpWebRequest]::Create($apiLogonUrl)
         $authRequest.Method = "POST"
         $authRequest.ContentType = "application/x-www-form-urlencoded"
@@ -231,6 +275,8 @@ function Invoke-SAMLAuthentication {
             $bodyParts += "$encodedKey=$encodedValue"
         }
         $bodyString = $bodyParts -join "&"
+        Write-Host "[DEBUG] Request body length: $($bodyString.Length) chars" -ForegroundColor Magenta
+        
         $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($bodyString)
         
         $authRequest.ContentLength = $bodyBytes.Length
@@ -239,12 +285,21 @@ function Invoke-SAMLAuthentication {
         $requestStream.Close()
 
         # Get response
+        Write-Host "[DEBUG] Sending final auth request..." -ForegroundColor Magenta
         $authResponse = $authRequest.GetResponse()
+        Write-Host "[DEBUG] Response status: $($authResponse.StatusCode)" -ForegroundColor Magenta
+        
         $responseStream = $authResponse.GetResponseStream()
         $reader = New-Object System.IO.StreamReader($responseStream)
-        $sessionToken = $reader.ReadToEnd().Trim('"')
+        $rawToken = $reader.ReadToEnd()
         $reader.Close()
         $authResponse.Close()
+        
+        Write-Host "[DEBUG] Raw token response: $rawToken" -ForegroundColor Magenta
+        
+        $sessionToken = $rawToken.Trim('"')
+        Write-Host "[DEBUG] Session token (after trim): $sessionToken" -ForegroundColor Magenta
+        Write-Host "[DEBUG] Session token length: $($sessionToken.Length)" -ForegroundColor Magenta
 
         if ([string]::IsNullOrWhiteSpace($sessionToken)) {
             throw "No session token received from CyberArk"
@@ -252,6 +307,7 @@ function Invoke-SAMLAuthentication {
 
         Write-Host ""
         Write-Host "SAML AUTHENTICATION SUCCESSFUL!" -ForegroundColor Green
+        Write-Host "[DEBUG] Returning auth result with BaseUrl: $baseUrl" -ForegroundColor Magenta
         Write-Host ""
 
         return @{
@@ -263,16 +319,19 @@ function Invoke-SAMLAuthentication {
         Write-Host ""
         Write-Host "SAML AUTHENTICATION FAILED" -ForegroundColor Red
         Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "[DEBUG] Exception type: $($_.Exception.GetType().FullName)" -ForegroundColor Magenta
+        Write-Host "[DEBUG] Stack trace: $($_.ScriptStackTrace)" -ForegroundColor DarkMagenta
         
         # Try to get more details from web exception
         if ($_.Exception -is [System.Net.WebException]) {
             $webEx = $_.Exception
+            Write-Host "[DEBUG] WebException Status: $($webEx.Status)" -ForegroundColor Magenta
             if ($webEx.Response) {
                 try {
                     $errStream = $webEx.Response.GetResponseStream()
                     $errReader = New-Object System.IO.StreamReader($errStream)
                     $errBody = $errReader.ReadToEnd()
-                    Write-Host "Server response: $errBody" -ForegroundColor DarkRed
+                    Write-Host "[DEBUG] Server error response: $errBody" -ForegroundColor Red
                     $errReader.Close()
                 }
                 catch {}

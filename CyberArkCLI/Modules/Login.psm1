@@ -161,21 +161,42 @@ function Invoke-CACLogin {
                 ExternalVersion    = [System.Version]"0.0"
             }
             
-            # Use Set-PASSession to properly inject the session into psPAS's internal state
-            # This ensures Get-PASSession will return our SAML session
-            Write-Log "Injecting SAML session into psPAS using Set-PASSession..." "DEBUG"
-            try {
-                Set-PASSession -Session $sessionObject
-                Write-Log "Set-PASSession succeeded - psPAS session initialized!" "SUCCESS"
-            }
-            catch {
-                Write-Log "Set-PASSession failed: $($_.Exception.Message)" "ERROR"
-                Write-Log "Falling back to manual WebSession storage" "WARN"
-            }
-            
             # Store in our global variable for backward compatibility
             $global:CACSession = $sessionObject
             $global:CACSessionToken = $CyberArkLogonResult
+            
+            # Inject session directly into psPAS module's Script scope using reflection
+            # This is necessary because psPAS 7.x doesn't have Set-PASSession
+            Write-Log "Injecting SAML session into psPAS internal variable..." "DEBUG"
+            try {
+                # Get the psPAS module
+                $psPASModule = Get-Module psPAS
+                
+                if ($null -eq $psPASModule) {
+                    throw "psPAS module not loaded"
+                }
+                
+                # Use reflection to set Script:PASSession variable in psPAS module scope
+                $psPASModule.Invoke({
+                        param($session)
+                        $Script:PASSession = $session
+                    }, $sessionObject)
+                
+                Write-Log "Successfully injected session into psPAS module scope!" "SUCCESS"
+                
+                # Verify injection worked
+                $testSession = Get-PASSession -ErrorAction SilentlyContinue
+                if ($null -ne $testSession -and $testSession.BaseURI) {
+                    Write-Log "Verification: Get-PASSession now returns session with BaseURI: $($testSession.BaseURI)" "SUCCESS"
+                }
+                else {
+                    Write-Log "Warning: Get-PASSession still returns null or invalid session" "WARN"
+                }
+            }
+            catch {
+                Write-Log "Session injection failed: $($_.Exception.Message)" "ERROR"
+                Write-Log "psPAS cmdlets may not work, but direct API calls via WebSession will still function" "WARN"
+            }
             
             Write-Log "Session setup complete" "DEBUG"
             

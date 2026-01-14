@@ -184,14 +184,39 @@ function Invoke-CACLogin {
                 
                 Write-Log "Successfully injected session into psPAS module scope!" "SUCCESS"
                 
-                # Verify injection worked
+                # Verify injection worked - read back the session
+                Write-Log "=================== SESSION VERIFICATION ===================" "DEBUG"
                 $testSession = Get-PASSession -ErrorAction SilentlyContinue
-                if ($null -ne $testSession -and $testSession.BaseURI) {
-                    Write-Log "Verification: Get-PASSession now returns session with BaseURI: $($testSession.BaseURI)" "SUCCESS"
+                
+                if ($null -eq $testSession) {
+                    Write-Log "CRITICAL ERROR: Get-PASSession returned NULL after injection!" "ERROR"
                 }
                 else {
-                    Write-Log "Warning: Get-PASSession still returns null or invalid session" "WARN"
+                    Write-Log "Get-PASSession returned a session object" "SUCCESS"
+                    Write-Log "  Type: $($testSession.GetType().FullName)" "DEBUG"
+                    
+                    # Log each property
+                    $properties = @('BaseURI', 'ApiURI', 'WebSession', 'StartTime', 'User', 'ExternalVersion')
+                    foreach ($prop in $properties) {
+                        $value = $testSession.$prop
+                        if ($null -eq $value) {
+                            Write-Log "  $prop = NULL" "WARN"
+                        }
+                        elseif ($prop -eq 'WebSession') {
+                            Write-Log "  $prop = [WebRequestSession] (Exists)" "DEBUG"
+                            if ($value.Headers -and $value.Headers['Authorization']) {
+                                Write-Log "    Authorization Header: Present (Length: $($value.Headers['Authorization'].Length))" "DEBUG"
+                            }
+                            else {
+                                Write-Log "    Authorization Header: MISSING" "WARN"
+                            }
+                        }
+                        else {
+                            Write-Log "  $prop = $value" "DEBUG"
+                        }
+                    }
                 }
+                Write-Log "=========================================================" "DEBUG"
             }
             catch {
                 Write-Log "Session injection failed: $($_.Exception.Message)" "ERROR"

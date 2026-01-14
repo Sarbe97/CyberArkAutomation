@@ -14,16 +14,32 @@ function Invoke-CACAPIRequest {
     Write-Log "Started Invoke-CACAPIRequest() - Method: $Method, Endpoint: $Endpoint" "DEBUG"
 
     try {
+        Write-Log "=================== API CLIENT DEBUG ===================" "DEBUG"
         $session = Get-PASSession
+        
+        Write-Log "Get-PASSession returned: $(if ($session) { 'Object' } else { 'NULL' })" "DEBUG"
 
         if (-not $session) {
             Write-Log "PAS session not available. Not logged in." "ERROR"
             throw "Not logged in. Please login first."
         }
-
-        Write-Log "PAS session found. BaseURI: $($session.BaseURI)" "DEBUG"
-
-        $baseURI = $session.BaseURI.TrimEnd('/')
+        
+        Write-Log "Session Type: $($session.GetType().FullName)" "DEBUG"
+        Write-Log "Session Properties:" "DEBUG"
+        Write-Log "  BaseURI: $($session.BaseURI) (Type: $($session.BaseURI.GetType().FullName))" "DEBUG"
+        Write-Log "  WebSession: $(if ($session.WebSession) { 'Present' } else { 'NULL' })" "DEBUG"
+        
+        # Handle BaseURI whether it's a string or Uri object
+        if ($null -eq $session.BaseURI) {
+            Write-Log "CRITICAL: BaseURI is NULL!" "ERROR"
+            throw "Session BaseURI is null. Session may not be properly initialized."
+        }
+        
+        # Convert Uri to string if needed and trim
+        $baseURI = $session.BaseURI.ToString().TrimEnd('/')
+        
+        Write-Log "Converted BaseURI: $baseURI" "DEBUG"
+        Write-Log "=========================================================" "DEBUG"
         
         # Ensure Endpoint has a leading slash if not present
         if (-not $Endpoint.StartsWith("/")) {

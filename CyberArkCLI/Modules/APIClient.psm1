@@ -15,40 +15,59 @@ function Invoke-CACAPIRequest {
 
     try {
         Write-Log "=================== API CLIENT DEBUG ===================" "DEBUG"
-        $session = Get-PASSession
+        
+        # Try to get psPAS session first
+        $session = Get-PASSession -ErrorAction SilentlyContinue
         
         Write-Log "Get-PASSession returned: $(if ($session) { 'Object' } else { 'NULL' })" "DEBUG"
-
-        if (-not $session) {
-            Write-Log "PAS session not available. Not logged in." "ERROR"
-            throw "Not logged in. Please login first."
-        }
-        
-        Write-Log "Session Type: $($session.GetType().FullName)" "DEBUG"
         
         # Handle both OrderedDictionary (psPAS 7.x) and PSCustomObject
         $baseURIValue = $null
         $webSessionValue = $null
+        $usingFallback = $false
         
-        if ($session -is [System.Collections.IDictionary]) {
-            Write-Log "Session is Dictionary type - using key access" "DEBUG"
-            $baseURIValue = $session['BaseURI']
-            $webSessionValue = $session['WebSession']
-        }
-        else {
-            Write-Log "Session is Object type - using property access" "DEBUG"
-            $baseURIValue = $session.BaseURI
-            $webSessionValue = $session.WebSession
+        if ($session) {
+            Write-Log "Session Type: $($session.GetType().FullName)" "DEBUG"
+            
+            if ($session -is [System.Collections.IDictionary]) {
+                Write-Log "Session is Dictionary type - using key access" "DEBUG"
+                $baseURIValue = $session['BaseURI']
+                $webSessionValue = $session['WebSession']
+            }
+            else {
+                Write-Log "Session is Object type - using property access" "DEBUG"
+                $baseURIValue = $session.BaseURI
+                $webSessionValue = $session.WebSession
+            }
         }
         
-        Write-Log "  BaseURI: $baseURIValue" "DEBUG"
+        # FALLBACK: If psPAS session is null or BaseURI is null, use global:CACSession
+        if ($null -eq $session -or $null -eq $baseURIValue -or [string]::IsNullOrWhiteSpace($baseURIValue)) {
+            Write-Log "psPAS session invalid - falling back to global:CACSession" "WARN"
+            
+            if ($null -eq $global:CACSession) {
+                Write-Log "CRITICAL: Both psPAS session and global:CACSession are null!" "ERROR"
+                throw "Not logged in. Please login first."
+            }
+            
+            Write-Log "Using global:CACSession for API call" "INFO"
+            $baseURIValue = $global:CACSession.BaseURI
+            $webSessionValue = $global:CACSession.WebSession
+            $usingFallback = $true
+        }
+
+        Write-Log "  BaseURI: $baseURIValue (Source: $(if ($usingFallback) { 'global:CACSession' } else { 'psPAS' }))" "DEBUG"
         Write-Log "  WebSession: $(if ($webSessionValue) { 'Present' } else { 'NULL' })" "DEBUG"
         
-        # Validate BaseURI
+        # Final validation
         if ($null -eq $baseURIValue -or [string]::IsNullOrWhiteSpace($baseURIValue)) {
-            Write-Log "CRITICAL: BaseURI is NULL or empty!" "ERROR"
-            Write-Log "Session may not be properly initialized. Try logging in again." "ERROR"
-            throw "Session BaseURI is null. Session may not be properly initialized."
+            Write-Log "CRITICAL: BaseURI is NULL or empty even after fallback!" "ERROR"
+            throw "Session BaseURI is null. Please login again."
+        }
+        
+        if ($null -eq $webSessionValue) {
+            Write-Log "CRITICAL: WebSession is NULL!" "ERROR"
+            throw "WebSession is null. Please login again."
         }
         
         # Convert Uri to string if needed and trim

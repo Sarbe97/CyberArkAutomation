@@ -6,6 +6,12 @@ if ([Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls12') {
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 }
 
+# Import Utils for Write-Log
+$utilsPath = Join-Path $PSScriptRoot "Utils.psm1"
+if (Test-Path $utilsPath) {
+    Import-Module $utilsPath -Force
+}
+
 $loginFormScript = Join-Path $PSScriptRoot "LoginForm.ps1"
 if (-not (Test-Path $loginFormScript)) {
     throw "LoginForm.ps1 not found: $loginFormScript"
@@ -64,19 +70,27 @@ function Invoke-CACLogin {
     }
     else {
         # --- SAML FLOW ---
+        
+        # Configure Log Redirection for this scope
+        $PSDefaultParameterValues = $PSDefaultParameterValues.Clone()
+        $PSDefaultParameterValues["Write-Log:LogName"] = "SAML_Debug"
+        $PSDefaultParameterValues["Write-Log:ShowOnScreen"] = $true
+
+        Write-Log "Starting SAML Authentication Flow" "INFO"
+
         # Get PVWA URL
         $url = $null
         if (-not [string]::IsNullOrWhiteSpace($cfg.PVWAURL)) {
             $url = $cfg.PVWAURL
-            Write-Host "Using configured PVWA URL: $url" -ForegroundColor Gray
+            Write-Log "Using configured PVWA URL: $url" "INFO"
         }
         else {
-            Write-Host "Enter your CyberArk PVWA URL" -ForegroundColor Yellow
-            $url = Read-Host "Example: https://cyberark.example.com"
+            Write-Log "Please enter your CyberArk PVWA URL (e.g., https://cyberark.example.com)" "WARN"
+            $url = Read-Host "PVWA URL"
         }
 
         if ([string]::IsNullOrWhiteSpace($url)) {
-            Write-Host "PVWA URL cannot be empty." -ForegroundColor Red
+            Write-Log "PVWA URL cannot be empty." "ERROR"
             return $false
         }
 
@@ -86,73 +100,52 @@ function Invoke-CACLogin {
         }
 
         # Use the complete SAML authentication flow
+        # This function handles its own internal logging redirection too
         $authResult = Invoke-SAMLAuthentication -PVWAURL $url
 
-        Write-Host "[DEBUG] Invoke-SAMLAuthentication returned: $(if ($authResult) { 'Object with keys: ' + ($authResult.Keys -join ', ') } else { 'NULL' })" -ForegroundColor Magenta
-
         if ($null -eq $authResult) {
-            Write-Host "[DEBUG] authResult is null, returning false" -ForegroundColor Red
+            Write-Log "SAML Authentication returned null result." "ERROR"
             return $false
         }
 
-        Write-Host "[DEBUG] authResult.BaseUrl: $($authResult.BaseUrl)" -ForegroundColor Magenta
-        Write-Host "[DEBUG] authResult.SessionToken: $($authResult.SessionToken)" -ForegroundColor Magenta
-        Write-Host "[DEBUG] authResult.SessionToken length: $($authResult.SessionToken.Length)" -ForegroundColor Magenta
+        Write-Log "Authentication successful. Token length: $($authResult.SessionToken.Length)" "DEBUG"
+        Write-Log "Base URL: $($authResult.BaseUrl)" "DEBUG"
 
         # Establish psPAS session with the obtained token
         try {
-            Write-Host "Establishing psPAS session..." -ForegroundColor Cyan
+            Write-Log "Initializing psPAS session with token..." "INFO"
             
             # Set the session token for psPAS
-            # psPAS stores session info in module-scoped variables
             $baseUrl = $authResult.BaseUrl
             $token = $authResult.SessionToken
             
-            Write-Host "[DEBUG] Attempting to set up session with baseUrl: $baseUrl" -ForegroundColor Magenta
-            Write-Host "[DEBUG] Token to use: $token" -ForegroundColor Magenta
+            # Try to create a psPAS session using the token (modern psPAS support)
+            # This is critical for subsequent psPAS commands (Get-PASSafe etc) to work
+            $session = New-PASSession -BaseURI $baseUrl -Token $token -ErrorAction Stop
             
-            # Try to create a psPAS session by setting the auth header manually
-            # This uses the internal psPAS session management
-            $headers = @{
-                "Authorization" = $token
-            }
-            
-            Write-Host "[DEBUG] Headers created: $($headers | ConvertTo-Json -Compress)" -ForegroundColor Magenta
-            
-            # Test the session by making a simple API call
-            $testUrl = "$baseUrl/PasswordVault/API/Users"
-            Write-Host "[DEBUG] Testing session with API call to: $testUrl" -ForegroundColor Magenta
-            
-            $testResponse = Invoke-RestMethod -Uri $testUrl -Headers $headers -Method Get -ErrorAction Stop
-            
-            Write-Host "[DEBUG] Test API call succeeded!" -ForegroundColor Green
-            Write-Host "[DEBUG] Test response type: $($testResponse.GetType().Name)" -ForegroundColor Magenta
-            
-            # If we get here, the session is valid
-            # Store session info for use by other modules
-            $global:CACSession = @{
-                BaseURI      = $baseUrl
-                sessionToken = $token
-                Headers      = $headers
-            }
+            # Update globals
+            $global:CACSession = $session
             $global:CACSessionToken = $token
             
-            Write-Host "[DEBUG] global:CACSession set:" -ForegroundColor Magenta
-            Write-Host "[DEBUG]   BaseURI: $($global:CACSession.BaseURI)" -ForegroundColor Magenta
-            Write-Host "[DEBUG]   sessionToken: $($global:CACSession.sessionToken)" -ForegroundColor Magenta
-            Write-Host "[DEBUG] global:CACSessionToken: $global:CACSessionToken" -ForegroundColor Magenta
+            # Verify session object
+            if ($session) {
+                Write-Log "psPAS session established successfully." "SUCCESS"
+            }
+            else {
+                Write-Log "New-PASSession returned null but no error thrown." "WARN"
+            }
             
-            Write-Host "Session established successfully!" -ForegroundColor Green
+            Write-Log "SAML Login Complete." "SUCCESS"
             return $true
         }
         catch {
-            Write-Host "[DEBUG] Session test failed with error: $($_.Exception.Message)" -ForegroundColor Yellow
-            Write-Host "[DEBUG] Exception type: $($_.Exception.GetType().FullName)" -ForegroundColor Magenta
+            Write-Log "Failed to initialize psPAS session using token." "ERROR"
+            Write-Log "Error: $($_.Exception.Message)" "ERROR"
+            Write-Log "Exception Type: $($_.Exception.GetType().FullName)" "ERROR"
             
-            Write-Host "Warning: Session token obtained but psPAS session setup failed." -ForegroundColor Yellow
-            Write-Host "Error: $($_.Exception.Message)" -ForegroundColor DarkYellow
+            Write-Log "Falling back to manual session construction (some psPAS commands may fail)." "WARN"
             
-            # Still consider this a success since we have a valid token
+            # Manual fallback
             $global:CACSession = @{
                 BaseURI      = $authResult.BaseUrl
                 sessionToken = $authResult.SessionToken
@@ -160,9 +153,6 @@ function Invoke-CACLogin {
             }
             $global:CACSessionToken = $authResult.SessionToken
             
-            Write-Host "[DEBUG] Fallback session stored in global:CACSession" -ForegroundColor Magenta
-            
-            Write-Host "Session token stored. Some psPAS commands may not work." -ForegroundColor Yellow
             return $true
         }
     }

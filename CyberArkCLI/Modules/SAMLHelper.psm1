@@ -2,12 +2,6 @@
 # SAML Authentication Helper for CyberArk
 # Follows the PSMEasyConnect pattern for reliable SAML auth
 
-# Import Utils for Write-Log
-$utilsPath = Join-Path $PSScriptRoot "Utils.psm1"
-if (Test-Path $utilsPath) {
-    Import-Module $utilsPath -Force
-}
-
 function New-SAMLInteractive {
     <#
     .SYNOPSIS
@@ -113,38 +107,38 @@ function New-SAMLInteractive {
 
     # Event: Navigating (BEFORE page loads)
     $web.add_Navigating({
-        param($sender, $e)
+            param($sender, $e)
         
-        if ($Script:FormClosed) { return }
+            if ($Script:FormClosed) { return }
         
-        Write-Log "[Navigating] Target: $($e.Url)" "DEBUG"
+            Write-Log "[Navigating] Target: $($e.Url)" "DEBUG"
         
-        if (& $checkForSAML "Navigating") {
-            # Decode HTML entities
-            $Script:SAMLResponse = $Script:SAMLResponse -replace '&#x2b;', '+' -replace '&#x3d;', '=' -replace '&amp;', '&'
-            Write-Log "[Navigating] SAMLResponse decoded. Closing form." "SUCCESS"
-            $e.Cancel = $true
-            $Script:FormClosed = $true
-            $form.Close()
-        }
-    })
+            if (& $checkForSAML "Navigating") {
+                # Decode HTML entities
+                $Script:SAMLResponse = $Script:SAMLResponse -replace '&#x2b;', '+' -replace '&#x3d;', '=' -replace '&amp;', '&'
+                Write-Log "[Navigating] SAMLResponse decoded. Closing form." "SUCCESS"
+                $e.Cancel = $true
+                $Script:FormClosed = $true
+                $form.Close()
+            }
+        })
 
     # Event: DocumentCompleted (AFTER page loads) - backup check
     $web.add_DocumentCompleted({
-        param($sender, $e)
+            param($sender, $e)
         
-        if ($Script:FormClosed) { return }
+            if ($Script:FormClosed) { return }
         
-        Write-Log "[DocumentCompleted] URL: $($e.Url)" "DEBUG"
+            Write-Log "[DocumentCompleted] URL: $($e.Url)" "DEBUG"
         
-        if (& $checkForSAML "DocumentCompleted") {
-            # Decode HTML entities
-            $Script:SAMLResponse = $Script:SAMLResponse -replace '&#x2b;', '+' -replace '&#x3d;', '=' -replace '&amp;', '&'
-            Write-Log "[DocumentCompleted] SAMLResponse decoded. Closing form." "SUCCESS"
-            $Script:FormClosed = $true
-            $form.Close()
-        }
-    })
+            if (& $checkForSAML "DocumentCompleted") {
+                # Decode HTML entities
+                $Script:SAMLResponse = $Script:SAMLResponse -replace '&#x2b;', '+' -replace '&#x3d;', '=' -replace '&amp;', '&'
+                Write-Log "[DocumentCompleted] SAMLResponse decoded. Closing form." "SUCCESS"
+                $Script:FormClosed = $true
+                $form.Close()
+            }
+        })
 
     # Navigate to IdP
     Write-Log "Opening browser and navigating to IdP..." "INFO"
@@ -263,8 +257,8 @@ function Invoke-SAMLAuthentication {
         # Build form data
         $formData = @{
             concurrentSession = if ($ConcurrentSession) { "true" } else { "false" }
-            apiUse = "true"
-            SAMLResponse = $samlResponse
+            apiUse            = "true"
+            SAMLResponse      = $samlResponse
         }
         
         Write-Log "Form data: concurrentSession=$($formData.concurrentSession), apiUse=$($formData.apiUse)" "DEBUG"
@@ -333,7 +327,7 @@ function Invoke-SAMLAuthentication {
 
         return @{
             SessionToken = $sessionToken
-            BaseUrl = $baseUrl
+            BaseUrl      = $baseUrl
         }
     }
     catch {

@@ -1,6 +1,9 @@
 Import-Module psPAS -ErrorAction Stop
 
-
+# Auto-repair psPAS session for SAML compatibility
+if (Get-Command Repair-CACPASSession -ErrorAction SilentlyContinue) {
+    Repair-CACPASSession
+}
 
 # ============================================================
 # 1. Get Accounts by Search/Safe or Batch CSV with Pagination

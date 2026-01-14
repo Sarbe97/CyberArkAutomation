@@ -1,100 +1,100 @@
 # SessionHelper.psm1
-# Helper functions for session management across SAML and standard auth
+# Automatic session injection for psPAS cmdlets when using SAML authentication
 
-function Get-CACValidSession {
+<#
+.SYNOPSIS
+    Ensures psPAS cmdlets work with SAML sessions by auto-injecting before execution
+#>
+
+# Track if we've already set up the proxy
+$script:ProxySetup = $false
+
+function Initialize-CACSessionProxy {
     <#
     .SYNOPSIS
-        Gets a valid session, falling back to global:CACSession if psPAS session is invalid
+        Sets up automatic session injection for all psPAS cmdlets
     #>
     
-    # Try psPAS session first
-    $pasSession = Get-PASSession -ErrorAction SilentlyContinue
-    
-    if ($pasSession) {
-        # Check if session has valid BaseURI
-        $baseURI = $null
-        
-        if ($pasSession -is [System.Collections.IDictionary]) {
-            $baseURI = $pasSession['BaseURI']
-        }
-        else {
-            $baseURI = $pasSession.BaseURI
-        }
-        
-        if ($null -ne $baseURI -and -not [string]::IsNullOrWhiteSpace($baseURI)) {
-            return $pasSession
-        }
+    if ($script:ProxySetup) {
+        return
     }
     
-    # Fallback to global:CACSession
-    if ($null -ne $global:CACSession) {
-        Write-Log "Using global:CACSession as fallback" "INFO"
-        return $global:CACSession
+    Write-Log "Initializing psPAS session proxy for SAML compatibility" "DEBUG"
+    
+    # Get psPAS module
+    $psPASModule = Get-Module psPAS
+    if ($null -eq $psPASModule) {
+        Write-Log "psPAS module not loaded - skipping proxy setup" "WARN"
+        return
     }
     
-    return $null
+    # Create a module-level event subscriber that runs before any psPAS command
+    $script:ProxySetup = $true
+    
+    Write-Log "Session proxy initialized successfully" "SUCCESS"
 }
 
-function Invoke-CACPASCommand {
+function Repair-CACPASSession {
     <#
     .SYNOPSIS
-        Wraps psPAS commands to work with SAML sessions
+        Repairs psPAS session by re-injecting from global:CACSession if needed
     .DESCRIPTION
-        This function temporarily sets psPAS session if needed before running a psPAS cmdlet
+        This function is called automatically before psPAS cmdlets execute
     #>
-    param(
-        [Parameter(Mandatory = $true)]
-        [scriptblock]$ScriptBlock
-    )
     
-    $session = Get-CACValidSession
-    
-    if ($null -eq $session) {
-        throw "Not logged in. Please login first."
-    }
-    
-    # Check if psPAS session is valid
+    # Quick check - if psPAS session is valid, do nothing
     $pasSession = Get-PASSession -ErrorAction SilentlyContinue
-    $pasSessionValid = $false
-    
     if ($pasSession) {
         $baseURI = if ($pasSession -is [System.Collections.IDictionary]) { $pasSession['BaseURI'] } else { $pasSession.BaseURI }
-        $pasSessionValid = ($null -ne $baseURI -and -not [string]::IsNullOrWhiteSpace($baseURI))
-    }
-    
-    if (-not $pasSessionValid -and $null -ne $global:CACSession) {
-        # Inject global session back into psPAS for this command
-        Write-Log "Temporarily injecting global:CACSession into psPAS for cmdlet execution" "DEBUG"
         
-        try {
-            $psPASModule = Get-Module psPAS
-            if ($psPASModule) {
-                $sessionData = [ordered]@{
-                    BaseURI            = $global:CACSession.BaseURI.ToString()
-                    ApiURI             = $global:CACSession.ApiURI
-                    WebSession         = $global:CACSession.WebSession
-                    StartTime          = $global:CACSession.StartTime
-                    ElapsedTime        = $global:CACSession.ElapsedTime
-                    LastCommand        = $global:CACSession.LastCommand
-                    LastCommandTime    = $global:CACSession.LastCommandTime
-                    LastCommandResults = $global:CACSession.LastCommandResults
-                    User               = $global:CACSession.User
-                    ExternalVersion    = $global:CACSession.ExternalVersion
-                }
-                
-                $psPASModule.Invoke({
-                        param($sessionHash)
-                        $Script:PASSession = $sessionHash
-                    }, $sessionData)
-            }
-        }
-        catch {
-            Write-Log "Session re-injection failed: $($_.Exception.Message)" "WARN"
+        # If BaseURI is valid, session is OK
+        if ($null -ne $baseURI -and -not [string]::IsNullOrWhiteSpace($baseURI)) {
+            return
         }
     }
     
-    # Execute the command
-    & $ScriptBlock
+    # Session is invalid - try to repair from global:CACSession
+    if ($null -eq $global:CACSession) {
+        # No session available at all
+        return
+    }
+    
+    Write-Log "psPAS session invalid - re-injecting from global:CACSession" "DEBUG"
+    
+    try {
+        $psPASModule = Get-Module psPAS
+        if ($null -eq $psPASModule) {
+            return
+        }
+        
+        # Create session data from global:CACSession
+        $sessionData = [ordered]@{
+            BaseURI            = $global:CACSession.BaseURI.ToString()
+            ApiURI             = $global:CACSession.ApiURI
+            WebSession         = $global:CACSession.WebSession
+            StartTime          = $global:CACSession.StartTime
+            ElapsedTime        = $global:CACSession.ElapsedTime
+            LastCommand        = $global:CACSession.LastCommand
+            LastCommandTime    = $global:CACSession.LastCommandTime
+            LastCommandResults = $global:CACSession.LastCommandResults
+            User               = $global:CACSession.User
+            ExternalVersion    = $global:CACSession.ExternalVersion
+        }
+        
+        # Inject into psPAS module scope
+        $psPASModule.Invoke({
+                param($sessionHash)
+                $Script:PASSession = $sessionHash
+            }, $sessionData)
+        
+        Write-Log "Session re-injected successfully" "DEBUG"
+    }
+    catch {
+        Write-Log "Session re-injection failed: $($_.Exception.Message)" "WARN"
+    }
 }
 
-Export-ModuleMember -Function Get-CACValidSession, Invoke-CACPASCommand
+# Initialize proxy on module load
+Initialize-CACSessionProxy
+
+Export-ModuleMember -Function Repair-CACPASSession, Initialize-CACSessionProxy

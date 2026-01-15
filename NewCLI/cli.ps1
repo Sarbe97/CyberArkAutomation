@@ -27,7 +27,9 @@ function Reload-CACModules {
         "Login.psm1",
         "Accounts.psm1",
         "SystemHealth.psm1",
-        "Users.psm1"
+        "Users.psm1",
+        "Safes.psm1",
+        "Session.psm1"
     )
 
     $modulePaths = $moduleFiles | ForEach-Object { Join-Path "$PSScriptRoot/Modules" $_ }
@@ -168,8 +170,10 @@ function Show-MainMenu {
         }
         Write-Host ""
         Write-Host "1. Account Operations"
-        Write-Host "2. System Health"
-        Write-Host "3. User Utilities"
+        Write-Host "2. Safe Operations"
+        Write-Host "3. System Health"
+        Write-Host "4. User Utilities"
+        Write-Host "5. Session Info"
         Write-Host "9. Logout"
         Write-Host "0. Exit"
         Write-Host "============================================="
@@ -178,8 +182,10 @@ function Show-MainMenu {
 
         switch ($choice) {
             '1' { Show-AccountMenu }
-            '2' { Show-SystemHealthMenu }
-            '3' { Show-UserMenu }
+            '2' { Show-SafeMenu }
+            '3' { Show-SystemHealthMenu }
+            '4' { Show-UserMenu }
+            '5' { Show-SessionMenu }
 
             '9' {
                 Invoke-CACLogout
@@ -281,6 +287,72 @@ function Show-UserMenu {
         switch ($choice) {
             '1' { Get-CACAllGroups; Pause }
             '2' { Get-CACGroupMembers; Pause }
+            '0' { return }
+
+            default {
+                Write-Host "Invalid option." -ForegroundColor Yellow
+                Start-Sleep 1
+            }
+        }
+    }
+}
+
+# ============================================================
+# SAFE OPERATIONS MENU
+# ============================================================
+function Show-SafeMenu {
+    while ($true) {
+        Clear-Host
+        Write-Host "=========== SAFE OPERATIONS MENU ===========" -ForegroundColor Cyan
+        Write-Host "1. Export All Safes to CSV"
+        Write-Host "2. Search Safe By Name"
+        Write-Host "3. Get Safe Details"
+        Write-Host "4. Create New Safe"
+        Write-Host "5. Get Safe Members"
+        Write-Host "6. Add Safe Member"
+        Write-Host "7. Safe Account Counts"
+        Write-Host "8. Export Safe Members Report"
+        Write-Host "0. Back"
+        Write-Host "============================================="
+
+        $choice = Read-Host "Enter Choice"
+
+        switch ($choice) {
+            '1' { Export-CACAllSafes; Pause }
+            '2' { Search-CACSafeByName; Pause }
+            '3' { Get-CACSafeDetails; Pause }
+            '4' { New-CACSafe; Pause }
+            '5' { Get-CACSafeMembers; Pause }
+            '6' { Add-CACSafeMember; Pause }
+            '7' { Export-CACSafeAccountCounts; Pause }
+            '8' { Export-CACSafeMembersReport; Pause }
+            '0' { return }
+
+            default {
+                Write-Host "Invalid option." -ForegroundColor Yellow
+                Start-Sleep 1
+            }
+        }
+    }
+}
+
+# ============================================================
+# SESSION INFO MENU
+# ============================================================
+function Show-SessionMenu {
+    while ($true) {
+        Clear-Host
+        Write-Host "=========== SESSION INFO MENU ===========" -ForegroundColor Cyan
+        Write-Host "1. View Current User Details"
+        Write-Host "2. View Session Info"
+        Write-Host "0. Back"
+        Write-Host "=========================================="
+
+        $choice = Read-Host "Enter Choice"
+
+        switch ($choice) {
+            '1' { Get-CACCurrentUser; Pause }
+            '2' { Get-CACSessionInfo; Pause }
             '0' { return }
 
             default {

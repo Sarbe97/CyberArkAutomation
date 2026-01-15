@@ -30,7 +30,8 @@ function Reload-CACModules {
         "Users.psm1",
         "Safes.psm1",
         "Session.psm1",
-        "SafeActions.psm1"
+        "SafeActions.psm1",
+        "DiscoveryAndOnboarding.psm1"
     )
 
     $modulePaths = $moduleFiles | ForEach-Object { Join-Path "$PSScriptRoot/Modules" $_ }
@@ -172,9 +173,10 @@ function Show-MainMenu {
         Write-Host "1. Account Operations"
         Write-Host "2. Safe Operations"
         Write-Host "3. Safe Activities"
-        Write-Host "4. System Health"
-        Write-Host "5. User Utilities"
-        Write-Host "6. Session Info"
+        Write-Host "4. Discovery & Onboarding"
+        Write-Host "5. System Health"
+        Write-Host "6. User Utilities"
+        Write-Host "7. Session Info"
         Write-Host "9. Logout"
         Write-Host "0. Exit"
 
@@ -184,9 +186,10 @@ function Show-MainMenu {
             '1' { Show-AccountMenu }
             '2' { Show-SafeMenu }
             '3' { Show-SafeActivitiesMenu }
-            '4' { Show-SystemHealthMenu }
-            '5' { Show-UserMenu }
-            '6' { Show-SessionMenu }
+            '4' { Show-DiscoveryMenu }
+            '5' { Show-SystemHealthMenu }
+            '6' { Show-UserMenu }
+            '7' { Show-SessionMenu }
 
             '9' {
                 Invoke-CACLogout
@@ -415,6 +418,38 @@ function Show-SafeActivitiesMenu {
             '2' { Invoke-CACBatchSafeRename; Pause }
             '3' { New-CACSafeCreationTemplate; Pause }
             '4' { New-CACSafeRenameTemplate; Pause }
+            '0' { return }
+
+            default {
+                Write-Host "Invalid option." -ForegroundColor Yellow
+                Start-Sleep 1
+            }
+        }
+    }
+}
+
+# ============================================================
+# DISCOVERY & ONBOARDING MENU
+# ============================================================
+function Show-DiscoveryMenu {
+    while ($true) {
+        Clear-Host
+        Write-Host "=============== CyberArk CLI ===============" -ForegroundColor Cyan
+        Show-CACSessionHeader
+        Write-Host "============================================="
+        Write-Host ""
+        Write-Host "--- DISCOVERY & ONBOARDING ---" -ForegroundColor Yellow
+        Write-Host "1. Search Discovered Accounts"
+        Write-Host "2. Get Discovered Account Details"
+        Write-Host "3. View All Onboarding Rules"
+        Write-Host "0. Back"
+
+        $choice = Read-Host "Enter Choice"
+
+        switch ($choice) {
+            '1' { Get-CACDiscoveredAccounts; Pause }
+            '2' { Get-CACDiscoveredAccountDetails; Pause }
+            '3' { Get-CACOnboardingRules; Pause }
             '0' { return }
 
             default {

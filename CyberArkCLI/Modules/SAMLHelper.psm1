@@ -149,6 +149,16 @@ function New-SAMLInteractive {
 
     if (-not [string]::IsNullOrEmpty($Script:SAMLResponse)) {
         Write-Log "=== New-SAMLInteractive SUCCESS ===" "SUCCESS"
+        
+        # ========================================
+        # DETAILED LOGGING FOR MANUAL TESTING
+        # ========================================
+        Write-Log "==========================================" "INFO"
+        Write-Log "SAML RESPONSE DETAIL" "INFO"
+        Write-Log "SAMLResponse (Base64):" "INFO"
+        Write-Log $Script:SAMLResponse "INFO"
+        Write-Log "==========================================" "INFO"
+
         Write-Log "Returning SAMLResponse (length: $($Script:SAMLResponse.Length))" "DEBUG"
         return $Script:SAMLResponse
     }
@@ -208,6 +218,24 @@ function Invoke-SAMLAuthentication {
         }
         
         Write-Log "IdP URL received successfully" "SUCCESS"
+
+        # ========================================
+        # DETAILED LOGGING FOR MANUAL TESTING
+        # ========================================
+        Write-Log "==========================================" "INFO"
+        Write-Log "SAML REQUEST / IDP URL DETAIL" "INFO"
+        Write-Log "Full IdP URL: $idpUrl" "INFO"
+        try {
+            $uri = [System.Uri]$idpUrl
+            $query = [System.Web.HttpUtility]::ParseQueryString($uri.Query)
+            if ($query['SAMLRequest']) {
+                Write-Log "SAMLRequest (Base64 decoded from URL): $($query['SAMLRequest'])" "INFO"
+            }
+        }
+        catch {
+            Write-Log "Could not parse SAMLRequest from URL: $($_.Exception.Message)" "WARN"
+        }
+        Write-Log "==========================================" "INFO"
 
         # Log cookie information for debugging
         Write-Log "WebSession cookies captured: $($webSession.Cookies.Count)" "DEBUG"

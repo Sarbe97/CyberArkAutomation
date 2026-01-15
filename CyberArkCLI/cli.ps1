@@ -27,7 +27,6 @@ function Reload-CACModules {
         "Utils.psm1",
         "Config.psm1",
         "Models.psm1",
-        "SessionHelper.psm1",
         "APIClient.psm1",
         "Login.psm1",
         "Users.psm1",

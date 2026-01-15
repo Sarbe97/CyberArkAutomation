@@ -1,9 +1,6 @@
 Import-Module psPAS -ErrorAction Stop
 
-# Auto-repair psPAS session for SAML compatibility
-if (Get-Command Repair-CACPASSession -ErrorAction SilentlyContinue) {
-    Repair-CACPASSession
-}
+
 
 # ============================================================
 # 1. Get Accounts by Search/Safe or Batch CSV with Pagination
@@ -16,9 +13,6 @@ function Get-CACAccounts {
         [int]$LimitPerPage = 1000
     )
 
-    # Auto-repair psPAS session for SAML
-    if (Get-Command Repair-CACPASSession -ErrorAction SilentlyContinue) { Repair-CACPASSession }
-    
     # Ensure dependencies exist (or mock them for this run if missing)
     if (-not (Get-Command Write-Log -ErrorAction SilentlyContinue)) { function Write-Log ($msg, $level) { Write-Host "[$level] $msg" } }
     
@@ -259,9 +253,6 @@ function Get-CACAccountById {
         [string]$AccountID
     )
 
-    # Auto-repair psPAS session for SAML
-    if (Get-Command Repair-CACPASSession -ErrorAction SilentlyContinue) { Repair-CACPASSession }
-    
     Write-Log "Started Get-CACAccountById()" "DEBUG"
 
     try {
@@ -277,9 +268,8 @@ function Get-CACAccountById {
 
         Write-Log "Fetching account details for ID: $AccountID" "INFO"
 
-        # Use direct API call instead of psPAS cmdlet
-        $endpoint = "/API/Accounts/$AccountID"
-        $account = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint -ErrorAction Stop
+        # Fetch from psPAS
+        $account = Get-PASAccount -id $AccountID -ErrorAction Stop
 
         if (-not $account) {
             Write-Log "Account not found for ID: $AccountID" "WARN"
@@ -324,9 +314,6 @@ function Get-CACAccountActivity {
         [switch]$AutoExport
     )
 
-    # Auto-repair psPAS session for SAML
-    if (Get-Command Repair-CACPASSession -ErrorAction SilentlyContinue) { Repair-CACPASSession }
-    
     Write-Log "Started Get-CACAccountActivity()" "DEBUG"
 
     try {
@@ -403,9 +390,6 @@ function Invoke-CACAccountReconcile {
         [string]$AccountID
     )
 
-    # Auto-repair psPAS session for SAML
-    if (Get-Command Repair-CACPASSession -ErrorAction SilentlyContinue) { Repair-CACPASSession }
-    
     Write-Log "Started Invoke-CACAccountReconcile()" "DEBUG"
 
     try {
@@ -505,9 +489,6 @@ function New-CACPSMConnection {
         [string]$Reason
     )
 
-    # Auto-repair psPAS session for SAML
-    if (Get-Command Repair-CACPASSession -ErrorAction SilentlyContinue) { Repair-CACPASSession }
-    
     Write-Log "Started New-CACPSMConnection()" "DEBUG"
 
     try {
@@ -640,9 +621,6 @@ function New-CACAccountsFromCsv {
         [string]$CsvPath
     )
 
-    # Auto-repair psPAS session for SAML
-    if (Get-Command Repair-CACPASSession -ErrorAction SilentlyContinue) { Repair-CACPASSession }
-    
     Write-Log "Started New-CACAccountsFromCsv()" "DEBUG"
 
     try {
@@ -838,9 +816,6 @@ function Remove-CACAccount {
         [string]$AccountID
     )
 
-    # Auto-repair psPAS session for SAML
-    if (Get-Command Repair-CACPASSession -ErrorAction SilentlyContinue) { Repair-CACPASSession }
-    
     Write-Log "Started Remove-CACAccount()" "DEBUG"
 
     try {
@@ -856,13 +831,9 @@ function Remove-CACAccount {
 
         Write-Log "Preparing to delete account: $AccountID" "INFO"
 
-        # Get account details for confirmation using direct API call
+        # Get account details for confirmation
         try {
-            Write-Log "STEP 1: About to call GET /API/Accounts/$AccountID" "DEBUG"
-            $endpoint = "/API/Accounts/$AccountID"
-            $account = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint -ErrorAction Stop
-            Write-Log "STEP 1: GET request successful" "DEBUG"
-            
+            $account = Get-PASAccount -id $AccountID -ErrorAction Stop
             if (-not $account) {
                 Write-Log "Account not found for ID: $AccountID" "WARN"
                 Write-Host "Account not found." -ForegroundColor Yellow
@@ -870,8 +841,7 @@ function Remove-CACAccount {
             }
         }
         catch {
-            Write-Log "STEP 1 FAILED: Error retrieving account details: $($_.Exception.Message)" "ERROR"
-            Write-Log "Stack trace: $($_.ScriptStackTrace)" "ERROR"
+            Write-Log "Error retrieving account details: $($_.Exception.Message)" "ERROR"
             Write-Host "Error retrieving account: $($_.Exception.Message)" -ForegroundColor Red
             return
         }
@@ -894,18 +864,14 @@ function Remove-CACAccount {
 
         Write-Log "User confirmed; deleting account: $AccountID" "WARN"
 
-        # Remove Account using direct API call
-        Write-Log "STEP 2: About to call DELETE /API/Accounts/$AccountID" "DEBUG"
-        $deleteEndpoint = "/API/Accounts/$AccountID"
-        Invoke-CACAPIRequest -Method DELETE -Endpoint $deleteEndpoint -ErrorAction Stop
-        Write-Log "STEP 2: DELETE request successful" "DEBUG"
+        # Remove Account
+        Remove-PASAccount -id $AccountID -ErrorAction Stop
 
         Write-Log "Account deleted successfully: $AccountID" "SUCCESS"
         Write-Host "Account deleted successfully." -ForegroundColor Green
     }
     catch {
-        Write-Log "FINAL CATCH: Error in Remove-CACAccount(): $($_.Exception.Message)" "ERROR"
-        Write-Log "Stack trace: $($_.ScriptStackTrace)" "ERROR"
+        Write-Log "Error in Remove-CACAccount(): $($_.Exception.Message)" "ERROR"
         Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
@@ -919,9 +885,6 @@ function Remove-CACAccount {
 function Invoke-CACBatchAccountDeletion {
     [CmdletBinding()]
     param()
-
-    # Auto-repair psPAS session for SAML
-    if (Get-Command Repair-CACPASSession -ErrorAction SilentlyContinue) { Repair-CACPASSession }
 
     $OutputCsvPath = Join-Path (Resolve-Path "$PSScriptRoot\..").Path "BatchDeletion_Result_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
 
@@ -1005,9 +968,8 @@ function Invoke-CACBatchAccountDeletion {
         Write-Host "[$current/$total] Deleting Account ID: $idVal ... " -NoNewline
 
         try {
-            # --- Deletion using direct API call ---
-            $deleteEndpoint = "/API/Accounts/$idVal"
-            Invoke-CACAPIRequest -Method DELETE -Endpoint $deleteEndpoint -ErrorAction Stop
+            # --- Deletion ---
+            Remove-PASAccount -id $idVal -ErrorAction Stop
             
             Write-Host "Success" -ForegroundColor Green
             $resObj | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "Success" -Force

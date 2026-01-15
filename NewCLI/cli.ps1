@@ -166,6 +166,7 @@ function Show-MainMenu {
         Show-CACSessionHeader
         Write-Host "============================================="
         Write-Host ""
+        Write-Host "--- MAIN MENU ---" -ForegroundColor Yellow
         Write-Host "1. Account Operations"
         Write-Host "2. Safe Operations"
         Write-Host "3. Batch Operations"
@@ -208,8 +209,11 @@ function Show-MainMenu {
 function Show-AccountMenu {
     while ($true) {
         Clear-Host
+        Write-Host "=============== CyberArk CLI ===============" -ForegroundColor Cyan
         Show-CACSessionHeader
-        Write-Host "=========== ACCOUNT MENU ===========" -ForegroundColor Cyan
+        Write-Host "============================================="
+        Write-Host ""
+        Write-Host "--- ACCOUNT MENU ---" -ForegroundColor Yellow
         Write-Host "1. Search Accounts (Keyword or Safe)"
         Write-Host "2. Get Account Details by ID"
         Write-Host "3. View Account Activity by ID"
@@ -250,11 +254,13 @@ function Show-AccountMenu {
 function Show-SystemHealthMenu {
     while ($true) {
         Clear-Host
+        Write-Host "=============== CyberArk CLI ===============" -ForegroundColor Cyan
         Show-CACSessionHeader
-        Write-Host "=========== SYSTEM HEALTH MENU ===========" -ForegroundColor Cyan
+        Write-Host "============================================="
+        Write-Host ""
+        Write-Host "--- SYSTEM HEALTH ---" -ForegroundColor Yellow
         Write-Host "1. System Health Summary"
         Write-Host "0. Back"
-        Write-Host "==========================================="
 
         $choice = Read-Host "Enter Choice"
 
@@ -276,12 +282,14 @@ function Show-SystemHealthMenu {
 function Show-UserMenu {
     while ($true) {
         Clear-Host
+        Write-Host "=============== CyberArk CLI ===============" -ForegroundColor Cyan
         Show-CACSessionHeader
-        Write-Host "=========== USER UTILITIES MENU ===========" -ForegroundColor Cyan
+        Write-Host "============================================="
+        Write-Host ""
+        Write-Host "--- USER UTILITIES ---" -ForegroundColor Yellow
         Write-Host "1. Get All Groups (Vault + LDAP)"
         Write-Host "2. Get Group Members"
         Write-Host "0. Back"
-        Write-Host "============================================"
 
         $choice = Read-Host "Enter Choice"
 
@@ -304,8 +312,11 @@ function Show-UserMenu {
 function Show-SafeMenu {
     while ($true) {
         Clear-Host
+        Write-Host "=============== CyberArk CLI ===============" -ForegroundColor Cyan
         Show-CACSessionHeader
-        Write-Host "=========== SAFE OPERATIONS MENU ===========" -ForegroundColor Cyan
+        Write-Host "============================================="
+        Write-Host ""
+        Write-Host "--- SAFE OPERATIONS ---" -ForegroundColor Yellow
         Write-Host "1. Export All Safes to CSV"
         Write-Host "2. Search Safe By Name"
         Write-Host "3. Get Safe Details"
@@ -315,7 +326,6 @@ function Show-SafeMenu {
         Write-Host "7. Safe Account Counts"
         Write-Host "8. Export Safe Members Report"
         Write-Host "0. Back"
-        Write-Host "============================================="
 
         $choice = Read-Host "Enter Choice"
 
@@ -344,12 +354,14 @@ function Show-SafeMenu {
 function Show-SessionMenu {
     while ($true) {
         Clear-Host
+        Write-Host "=============== CyberArk CLI ===============" -ForegroundColor Cyan
         Show-CACSessionHeader
-        Write-Host "=========== SESSION INFO MENU ===========" -ForegroundColor Cyan
+        Write-Host "============================================="
+        Write-Host ""
+        Write-Host "--- SESSION INFO ---" -ForegroundColor Yellow
         Write-Host "1. View Current User Details"
         Write-Host "2. View Session Info"
         Write-Host "0. Back"
-        Write-Host "=========================================="
 
         $choice = Read-Host "Enter Choice"
 
@@ -372,12 +384,14 @@ function Show-SessionMenu {
 function Show-BatchMenu {
     while ($true) {
         Clear-Host
+        Write-Host "=============== CyberArk CLI ===============" -ForegroundColor Cyan
         Show-CACSessionHeader
-        Write-Host "=========== BATCH OPERATIONS MENU ===========" -ForegroundColor Cyan
+        Write-Host "============================================="
+        Write-Host ""
+        Write-Host "--- BATCH OPERATIONS ---" -ForegroundColor Yellow
         Write-Host "1. Run Batch Onboarding (Safes CSV)"
         Write-Host "2. Create Onboarding Template"
         Write-Host "0. Back"
-        Write-Host "=============================================="
 
         $choice = Read-Host "Enter Choice"
 

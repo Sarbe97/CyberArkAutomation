@@ -93,12 +93,11 @@ function Get-CACSessionInfo {
 function Show-CACSessionHeader {
     $session = Get-CACSession
     if ($session) {
-        Write-Host "URL: $($session.BaseURI)" -ForegroundColor DarkCyan -NoNewline
-        Write-Host " | " -ForegroundColor DarkGray -NoNewline
-        Write-Host "User: $($session.User)" -ForegroundColor DarkCyan -NoNewline
-        Write-Host " | " -ForegroundColor DarkGray -NoNewline
-        Write-Host "Since: $($session.StartTime.ToString('HH:mm'))" -ForegroundColor DarkCyan
-        Write-Host ("=" * 60) -ForegroundColor DarkGray
+        Write-Host "URL:    $($session.BaseURI)" -ForegroundColor DarkCyan
+        Write-Host "User:   $($session.User)" -ForegroundColor DarkCyan
+        if ($session.StartTime) {
+            Write-Host "Since:  $($session.StartTime.ToString('yyyy-MM-dd HH:mm:ss'))" -ForegroundColor DarkCyan
+        }
     }
 }
 

@@ -29,7 +29,8 @@ function Reload-CACModules {
         "SystemHealth.psm1",
         "Users.psm1",
         "Safes.psm1",
-        "Session.psm1"
+        "Session.psm1",
+        "BatchOnboarding.psm1"
     )
 
     $modulePaths = $moduleFiles | ForEach-Object { Join-Path "$PSScriptRoot/Modules" $_ }
@@ -103,8 +104,7 @@ $Script:IsLoggedIn = $false
 function Show-LoginMenu {
     while (-not $Script:IsLoggedIn) {
         Clear-Host
-        Write-Host "=========== CyberArk CLI (NewCLI) ===========" -ForegroundColor Cyan
-        Write-Host "Pure REST API - No psPAS Dependency" -ForegroundColor DarkGray
+        Write-Host "=============== CyberArk CLI ===============" -ForegroundColor Cyan
         Write-Host ""
         Write-Host "1. Login (Standard)"
         Write-Host "2. Login (SAML)"
@@ -162,26 +162,28 @@ function Show-MainMenu {
         }
 
         Clear-Host
-        Write-Host "=========== CyberArk CLI (NewCLI) ===========" -ForegroundColor Cyan
+        Write-Host "=============== CyberArk CLI ===============" -ForegroundColor Cyan
         Show-CACSessionHeader
+        Write-Host "============================================="
         Write-Host ""
         Write-Host "1. Account Operations"
         Write-Host "2. Safe Operations"
-        Write-Host "3. System Health"
-        Write-Host "4. User Utilities"
-        Write-Host "5. Session Info"
+        Write-Host "3. Batch Operations"
+        Write-Host "4. System Health"
+        Write-Host "5. User Utilities"
+        Write-Host "6. Session Info"
         Write-Host "9. Logout"
         Write-Host "0. Exit"
-        Write-Host "============================================="
 
         $choice = Read-Host "Select an option"
 
         switch ($choice) {
             '1' { Show-AccountMenu }
             '2' { Show-SafeMenu }
-            '3' { Show-SystemHealthMenu }
-            '4' { Show-UserMenu }
-            '5' { Show-SessionMenu }
+            '3' { Show-BatchMenu }
+            '4' { Show-SystemHealthMenu }
+            '5' { Show-UserMenu }
+            '6' { Show-SessionMenu }
 
             '9' {
                 Invoke-CACLogout
@@ -354,6 +356,43 @@ function Show-SessionMenu {
         switch ($choice) {
             '1' { Get-CACCurrentUser; Pause }
             '2' { Get-CACSessionInfo; Pause }
+            '0' { return }
+
+            default {
+                Write-Host "Invalid option." -ForegroundColor Yellow
+                Start-Sleep 1
+            }
+        }
+    }
+}
+
+# ============================================================
+# BATCH OPERATIONS MENU
+# ============================================================
+function Show-BatchMenu {
+    while ($true) {
+        Clear-Host
+        Show-CACSessionHeader
+        Write-Host "=========== BATCH OPERATIONS MENU ===========" -ForegroundColor Cyan
+        Write-Host "1. Run Batch Onboarding (Safes CSV)"
+        Write-Host "2. Create Onboarding Template"
+        Write-Host "0. Back"
+        Write-Host "=============================================="
+
+        $choice = Read-Host "Enter Choice"
+
+        switch ($choice) {
+            '1' {
+                $csvPath = Read-Host "Enter CSV Path"
+                if (Test-Path $csvPath) {
+                    Invoke-CACBatchOnboarding -CsvPath $csvPath
+                }
+                else {
+                    Write-Host "File not found: $csvPath" -ForegroundColor Red
+                }
+                Pause
+            }
+            '2' { New-CACOnboardingTemplate; Pause }
             '0' { return }
 
             default {

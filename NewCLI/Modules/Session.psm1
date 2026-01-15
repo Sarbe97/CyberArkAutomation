@@ -4,12 +4,6 @@
 # ============================================================================
 
 function Get-CACCurrentUser {
-    <#
-    .SYNOPSIS
-        Get details of the currently logged in user.
-    .DESCRIPTION
-        Calls the /API/LoggedOnUser endpoint to retrieve current session user information.
-    #>
     [CmdletBinding()]
     param()
 
@@ -23,8 +17,8 @@ function Get-CACCurrentUser {
 
         Write-Host "Fetching current user details..." -ForegroundColor Cyan
 
-        # Get logged on user details
-        $user = Invoke-CACAPIRequest -Method GET -Endpoint "/API/LoggedOnUser"
+        # Use the legacy PIM Services API for user info
+        $user = Invoke-CACAPIRequest -Method GET -Endpoint "/WebServices/PIMServices.svc/User"
 
         if (-not $user) {
             Write-Host "Could not retrieve user details." -ForegroundColor Yellow
@@ -35,34 +29,28 @@ function Get-CACCurrentUser {
         $session = Get-CACSession
 
         Write-Host ""
-        Write-Host "===== Current Session Details =====" -ForegroundColor Cyan
+        Write-Host "===== Current User Details =====" -ForegroundColor Cyan
         Write-Host ""
-        Write-Host "  User Name:        $($user.Username)" -ForegroundColor White
-        Write-Host "  User Source:      $($user.Source)" -ForegroundColor White
-        Write-Host "  User Type:        $($user.UserType)" -ForegroundColor White
-        Write-Host "  Component User:   $($user.ComponentUser)" -ForegroundColor White
+        Write-Host "  User Name:        $($user.UserName)" -ForegroundColor White
+        Write-Host "  First Name:       $($user.FirstName)" -ForegroundColor White
+        Write-Host "  Last Name:        $($user.LastName)" -ForegroundColor White
+        Write-Host "  Email:            $($user.Email)" -ForegroundColor White
+        Write-Host "  Location:         $($user.Location)" -ForegroundColor White
+        Write-Host "  User Type:        $($user.UserTypeName)" -ForegroundColor White
+        Write-Host "  Vault Auth:       $($user.VaultAuthorization -join ', ')" -ForegroundColor White
         Write-Host ""
         Write-Host "===== Connection Details =====" -ForegroundColor Cyan
         Write-Host ""
         Write-Host "  PVWA URL:         $($session.BaseURI)" -ForegroundColor White
         Write-Host "  Session Started:  $($session.StartTime)" -ForegroundColor White
         
-        # Calculate session duration
         if ($session.StartTime) {
             $duration = (Get-Date) - $session.StartTime
             Write-Host "  Session Duration: $([Math]::Floor($duration.TotalMinutes)) minutes" -ForegroundColor White
         }
         Write-Host ""
 
-        # Return user object for programmatic use
-        return [PSCustomObject]@{
-            Username      = $user.Username
-            Source        = $user.Source
-            UserType      = $user.UserType
-            ComponentUser = $user.ComponentUser
-            BaseURI       = $session.BaseURI
-            SessionStart  = $session.StartTime
-        }
+        return $user
     }
     catch {
         Write-Log "Error in Get-CACCurrentUser(): $($_.Exception.Message)" "ERROR"
@@ -71,10 +59,6 @@ function Get-CACCurrentUser {
 }
 
 function Get-CACSessionInfo {
-    <#
-    .SYNOPSIS
-        Display current session information.
-    #>
     [CmdletBinding()]
     param()
 
@@ -92,6 +76,7 @@ function Get-CACSessionInfo {
     Write-Host ""
     Write-Host "  Connected:        Yes" -ForegroundColor Green
     Write-Host "  PVWA URL:         $($session.BaseURI)" -ForegroundColor White
+    Write-Host "  User:             $($session.User)" -ForegroundColor White
     Write-Host "  Session Started:  $($session.StartTime)" -ForegroundColor White
     
     if ($session.StartTime) {
@@ -105,4 +90,16 @@ function Get-CACSessionInfo {
     return $session
 }
 
-Export-ModuleMember -Function Get-CACCurrentUser, Get-CACSessionInfo
+function Show-CACSessionHeader {
+    $session = Get-CACSession
+    if ($session) {
+        Write-Host "URL: $($session.BaseURI)" -ForegroundColor DarkCyan -NoNewline
+        Write-Host " | " -ForegroundColor DarkGray -NoNewline
+        Write-Host "User: $($session.User)" -ForegroundColor DarkCyan -NoNewline
+        Write-Host " | " -ForegroundColor DarkGray -NoNewline
+        Write-Host "Since: $($session.StartTime.ToString('HH:mm'))" -ForegroundColor DarkCyan
+        Write-Host ("=" * 60) -ForegroundColor DarkGray
+    }
+}
+
+Export-ModuleMember -Function Get-CACCurrentUser, Get-CACSessionInfo, Show-CACSessionHeader

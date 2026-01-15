@@ -163,11 +163,7 @@ function Show-MainMenu {
 
         Clear-Host
         Write-Host "=========== CyberArk CLI (NewCLI) ===========" -ForegroundColor Cyan
-        $session = Get-CACSession
-        if ($session) {
-            Write-Host "Connected to: $($session.BaseURI)" -ForegroundColor DarkGray
-            Write-Host "Session started: $($session.StartTime)" -ForegroundColor DarkGray
-        }
+        Show-CACSessionHeader
         Write-Host ""
         Write-Host "1. Account Operations"
         Write-Host "2. Safe Operations"
@@ -210,6 +206,7 @@ function Show-MainMenu {
 function Show-AccountMenu {
     while ($true) {
         Clear-Host
+        Show-CACSessionHeader
         Write-Host "=========== ACCOUNT MENU ===========" -ForegroundColor Cyan
         Write-Host "1. Search Accounts (Keyword or Safe)"
         Write-Host "2. Get Account Details by ID"
@@ -251,6 +248,7 @@ function Show-AccountMenu {
 function Show-SystemHealthMenu {
     while ($true) {
         Clear-Host
+        Show-CACSessionHeader
         Write-Host "=========== SYSTEM HEALTH MENU ===========" -ForegroundColor Cyan
         Write-Host "1. System Health Summary"
         Write-Host "0. Back"
@@ -276,6 +274,7 @@ function Show-SystemHealthMenu {
 function Show-UserMenu {
     while ($true) {
         Clear-Host
+        Show-CACSessionHeader
         Write-Host "=========== USER UTILITIES MENU ===========" -ForegroundColor Cyan
         Write-Host "1. Get All Groups (Vault + LDAP)"
         Write-Host "2. Get Group Members"
@@ -303,6 +302,7 @@ function Show-UserMenu {
 function Show-SafeMenu {
     while ($true) {
         Clear-Host
+        Show-CACSessionHeader
         Write-Host "=========== SAFE OPERATIONS MENU ===========" -ForegroundColor Cyan
         Write-Host "1. Export All Safes to CSV"
         Write-Host "2. Search Safe By Name"
@@ -342,6 +342,7 @@ function Show-SafeMenu {
 function Show-SessionMenu {
     while ($true) {
         Clear-Host
+        Show-CACSessionHeader
         Write-Host "=========== SESSION INFO MENU ===========" -ForegroundColor Cyan
         Write-Host "1. View Current User Details"
         Write-Host "2. View Session Info"

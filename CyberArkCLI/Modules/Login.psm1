@@ -1,6 +1,4 @@
-﻿# Login.psm1
-Import-Module psPAS -ErrorAction Stop
-
+﻿
 # Force TLS 1.2
 if ([Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls12') {
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12

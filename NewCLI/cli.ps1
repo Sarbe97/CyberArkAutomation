@@ -31,7 +31,9 @@ function Reload-CACModules {
         "Safes.psm1",
         "Session.psm1",
         "SafeActions.psm1",
-        "DiscoveryAndOnboarding.psm1"
+        "DiscoveryAndOnboarding.psm1",
+        "Platforms.psm1",
+        "Applications.psm1"
     )
 
     $modulePaths = $moduleFiles | ForEach-Object { Join-Path "$PSScriptRoot/Modules" $_ }
@@ -174,10 +176,12 @@ function Show-MainMenu {
         Write-Host "2. Safe Operations"
         Write-Host "3. Safe Activities"
         Write-Host "4. Discovery & Onboarding"
-        Write-Host "5. System Health"
-        Write-Host "6. User Utilities"
-        Write-Host "7. Session Info"
-        Write-Host "9. Logout"
+        Write-Host "5. Platform Management"
+        Write-Host "6. Application Management"
+        Write-Host "7. System Health"
+        Write-Host "8. User Utilities"
+        Write-Host "9. Session Info"
+        Write-Host "10. Logout"
         Write-Host "0. Exit"
 
         $choice = Read-Host "Select an option"
@@ -187,11 +191,13 @@ function Show-MainMenu {
             '2' { Show-SafeMenu }
             '3' { Show-SafeActivitiesMenu }
             '4' { Show-DiscoveryMenu }
-            '5' { Show-SystemHealthMenu }
-            '6' { Show-UserMenu }
-            '7' { Show-SessionMenu }
+            '5' { Show-PlatformMenu }
+            '6' { Show-ApplicationMenu }
+            '7' { Show-SystemHealthMenu }
+            '8' { Show-UserMenu }
+            '9' { Show-SessionMenu }
 
-            '9' {
+            '10' {
                 Invoke-CACLogout
                 $Script:IsLoggedIn = $false
                 Pause
@@ -228,6 +234,7 @@ function Show-AccountMenu {
         Write-Host "7. Add New Account"
         Write-Host "8. Delete Account"
         Write-Host "9. Batch Delete Accounts"
+        Write-Host "10. Connect via PSM"
         Write-Host "0. Back"
         Write-Host "===================================="
 
@@ -243,6 +250,7 @@ function Show-AccountMenu {
             '7' { New-CACAccount; Pause }
             '8' { Remove-CACAccount; Pause }
             '9' { Invoke-CACBatchAccountDeletion; Pause }
+            '10' { Invoke-CACPSMConnect; Pause }
             '0' { return }
 
             default {
@@ -450,6 +458,74 @@ function Show-DiscoveryMenu {
             '1' { Get-CACDiscoveredAccounts; Pause }
             '2' { Get-CACDiscoveredAccountDetails; Pause }
             '3' { Get-CACOnboardingRules; Pause }
+            '0' { return }
+
+            default {
+                Write-Host "Invalid option." -ForegroundColor Yellow
+                Start-Sleep 1
+            }
+        }
+    }
+}
+
+# ============================================================
+# PLATFORM MANAGEMENT MENU
+# ============================================================
+function Show-PlatformMenu {
+    while ($true) {
+        Clear-Host
+        Write-Host "=============== CyberArk CLI ===============" -ForegroundColor Cyan
+        Show-CACSessionHeader
+        Write-Host "============================================="
+        Write-Host ""
+        Write-Host "--- PLATFORM MANAGEMENT ---" -ForegroundColor Yellow
+        Write-Host "1. View All Platforms"
+        Write-Host "2. Get Platform Details"
+        Write-Host "3. Search Platforms"
+        Write-Host "4. Export Platform Package (ZIP)"
+        Write-Host "0. Back"
+
+        $choice = Read-Host "Enter Choice"
+
+        switch ($choice) {
+            '1' { Get-CACAllPlatforms; Pause }
+            '2' { Get-CACPlatformDetails; Pause }
+            '3' { Search-CACPlatform; Pause }
+            '4' { Export-CACPlatform; Pause }
+            '0' { return }
+
+            default {
+                Write-Host "Invalid option." -ForegroundColor Yellow
+                Start-Sleep 1
+            }
+        }
+    }
+}
+
+# ============================================================
+# APPLICATION MANAGEMENT MENU
+# ============================================================
+function Show-ApplicationMenu {
+    while ($true) {
+        Clear-Host
+        Write-Host "=============== CyberArk CLI ===============" -ForegroundColor Cyan
+        Show-CACSessionHeader
+        Write-Host "============================================="
+        Write-Host ""
+        Write-Host "--- APPLICATION MANAGEMENT ---" -ForegroundColor Yellow
+        Write-Host "1. View All Applications"
+        Write-Host "2. Get Application Details"
+        Write-Host "3. View Application Auth Methods"
+        Write-Host "4. Search Applications"
+        Write-Host "0. Back"
+
+        $choice = Read-Host "Enter Choice"
+
+        switch ($choice) {
+            '1' { Get-CACAllApplications; Pause }
+            '2' { Get-CACApplicationDetails; Pause }
+            '3' { Get-CACAppAuthMethods; Pause }
+            '4' { Search-CACApplications; Pause }
             '0' { return }
 
             default {

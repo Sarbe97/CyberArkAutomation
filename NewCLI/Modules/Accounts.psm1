@@ -828,6 +828,134 @@ function Invoke-CACBatchAccountDeletion {
 }
 
 # ============================================================
+# 10. PSM Connect
+# ============================================================
+function Invoke-CACPSMConnect {
+    <#
+    .SYNOPSIS
+        Connect to an account via PSM (Privileged Session Manager).
+    .DESCRIPTION
+        Initiates a PSM connection to the specified account.
+        Returns an RDP file that can be launched for connection.
+    #>
+    [CmdletBinding()]
+    param()
+
+    Write-Log "Started Invoke-CACPSMConnect()" "DEBUG"
+
+    try {
+        $accountId = Read-Host "Enter Account ID"
+        if ([string]::IsNullOrWhiteSpace($accountId)) {
+            Write-Host "Account ID cannot be empty." -ForegroundColor Yellow
+            return
+        }
+
+        # Get account details for confirmation
+        Write-Host "Fetching account details..." -ForegroundColor Cyan
+        $account = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Accounts/$accountId"
+        
+        if (-not $account) {
+            Write-Host "Account not found." -ForegroundColor Yellow
+            return
+        }
+
+        Write-Host ""
+        Write-Host "===== PSM Connect =====" -ForegroundColor Cyan
+        Write-Host "Account ID:   $accountId"
+        Write-Host "Account Name: $($account.name)"
+        Write-Host "User Name:    $($account.userName)"
+        Write-Host "Address:      $($account.address)"
+        Write-Host "Platform:     $($account.platformId)"
+        Write-Host ""
+
+        # Optional parameters
+        $reason = Read-Host "Enter reason for connection (optional)"
+        $connectionComponent = Read-Host "Enter Connection Component ID (optional, press Enter for default)"
+
+        # Build body
+        $body = @{}
+        
+        if (-not [string]::IsNullOrWhiteSpace($reason)) {
+            $body["reason"] = $reason
+        }
+        if (-not [string]::IsNullOrWhiteSpace($connectionComponent)) {
+            $body["ConnectionComponent"] = $connectionComponent
+        }
+
+        Write-Host ""
+        $confirm = Read-Host "Initiate PSM connection? (Y/N)"
+        if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+            Write-Host "Connection cancelled." -ForegroundColor Yellow
+            return
+        }
+
+        Write-Host "Initiating PSM connection..." -ForegroundColor Cyan
+
+        # Call PSM Connect API
+        $session = Get-CACSession
+        $endpoint = "/API/Accounts/$accountId/PSMConnect/"
+        $connectUrl = "$($session.BaseURI)$endpoint"
+
+        # Request RDP file
+        $headers = @{
+            "Authorization" = $session.Token
+            "Content-Type"  = "application/json"
+            "Accept"        = "* / *"
+        }
+
+        $response = Invoke-WebRequest -Uri $connectUrl -Method POST -Headers $headers -Body ($body | ConvertTo-Json) -UseBasicParsing
+
+        # Check response type
+        $contentType = $response.Headers["Content-Type"]
+        
+        if ($contentType -like "*application/octet-stream*" -or $contentType -like "*application/rdp*") {
+            # Save as RDP file
+            $outputDir = Get-CACOutputDir
+            $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+            $rdpFile = "$outputDir/PSMConnect_${accountId}_$timestamp.rdp"
+            
+            [System.IO.File]::WriteAllBytes($rdpFile, $response.Content)
+            
+            Write-Log "RDP file saved: $rdpFile" "SUCCESS"
+            Write-Host ""
+            Write-Host "RDP file saved: $rdpFile" -ForegroundColor Green
+            Write-Host ""
+            
+            $launchChoice = Read-Host "Launch RDP connection now? (Y/N)"
+            if ($launchChoice -eq 'Y' -or $launchChoice -eq 'y') {
+                Start-Process $rdpFile
+                Write-Host "RDP connection launched." -ForegroundColor Green
+            }
+        }
+        else {
+            # JSON response (possibly HTML5 gateway)
+            $jsonResponse = $response.Content | ConvertFrom-Json
+            
+            if ($jsonResponse.PSMGWURL) {
+                Write-Host ""
+                Write-Host "HTML5 Gateway URL: $($jsonResponse.PSMGWURL)" -ForegroundColor Cyan
+                Write-Host ""
+                
+                $openChoice = Read-Host "Open in browser? (Y/N)"
+                if ($openChoice -eq 'Y' -or $openChoice -eq 'y') {
+                    Start-Process $jsonResponse.PSMGWURL
+                }
+            }
+            else {
+                Write-Host "Connection response received." -ForegroundColor Green
+                $jsonResponse | ConvertTo-Json | Write-Host
+            }
+        }
+
+        Write-Log "PSM Connect completed for account: $accountId" "SUCCESS"
+    }
+    catch {
+        Write-Log "Error in Invoke-CACPSMConnect(): $($_.Exception.Message)" "ERROR"
+        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+# ============================================================
 # EXPORT ALL FUNCTIONS
 # ============================================================
 Export-ModuleMember -Function `
@@ -839,4 +967,5 @@ Export-ModuleMember -Function `
     Invoke-CACAccountVerify, `
     New-CACAccount, `
     Remove-CACAccount, `
-    Invoke-CACBatchAccountDeletion
+    Invoke-CACBatchAccountDeletion, `
+    Invoke-CACPSMConnect

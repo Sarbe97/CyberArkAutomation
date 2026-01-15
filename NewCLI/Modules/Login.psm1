@@ -167,6 +167,18 @@ function Invoke-CACLogin {
             # Initialize session with WebSession (for cookies)
             Initialize-CACSession -BaseURI $pvwaBase -Token $token -WebSession $authResult.WebSession
             
+            # Fetch username from API (SAML doesn't provide it directly)
+            try {
+                $userInfo = Invoke-CACAPIRequest -Method GET -Endpoint "/API/LoggedOnUser"
+                if ($userInfo -and $userInfo.UserName) {
+                    $global:CACApiSession.User = $userInfo.UserName
+                    Write-Log "Logged in as: $($userInfo.UserName)" "SUCCESS"
+                }
+            }
+            catch {
+                Write-Log "Could not fetch username: $($_.Exception.Message)" "WARN"
+            }
+            
             Write-Log "SAML Login Complete!" "SUCCESS"
             return $true
         }

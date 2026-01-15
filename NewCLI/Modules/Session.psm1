@@ -17,27 +17,51 @@ function Get-CACCurrentUser {
 
         Write-Host "Fetching current user details..." -ForegroundColor Cyan
 
-        # Use the legacy PIM Services API for user info
-        $user = Invoke-CACAPIRequest -Method GET -Endpoint "/WebServices/PIMServices.svc/User"
+        $user = $null
+        
+        # Try modern API first
+        try {
+            $user = Invoke-CACAPIRequest -Method GET -Endpoint "/API/LoggedOnUser"
+        }
+        catch {
+            Write-Log "LoggedOnUser API failed, trying legacy endpoint" "DEBUG"
+        }
+        
+        # Fallback to legacy PIM Services API
+        if (-not $user) {
+            try {
+                $user = Invoke-CACAPIRequest -Method GET -Endpoint "/WebServices/PIMServices.svc/User"
+            }
+            catch {
+                Write-Log "PIMServices API also failed: $($_.Exception.Message)" "WARN"
+            }
+        }
 
         if (-not $user) {
             Write-Host "Could not retrieve user details." -ForegroundColor Yellow
             return
         }
 
-        # Get session info
         $session = Get-CACSession
 
         Write-Host ""
         Write-Host "===== Current User Details =====" -ForegroundColor Cyan
         Write-Host ""
-        Write-Host "  User Name:        $($user.UserName)" -ForegroundColor White
-        Write-Host "  First Name:       $($user.FirstName)" -ForegroundColor White
-        Write-Host "  Last Name:        $($user.LastName)" -ForegroundColor White
-        Write-Host "  Email:            $($user.Email)" -ForegroundColor White
-        Write-Host "  Location:         $($user.Location)" -ForegroundColor White
-        Write-Host "  User Type:        $($user.UserTypeName)" -ForegroundColor White
-        Write-Host "  Vault Auth:       $($user.VaultAuthorization -join ', ')" -ForegroundColor White
+        
+        # Handle different response structures
+        $userName = if ($user.UserName) { $user.UserName } elseif ($user.username) { $user.username } else { $session.User }
+        $firstName = if ($user.FirstName) { $user.FirstName } elseif ($user.firstName) { $user.firstName } else { "" }
+        $lastName = if ($user.LastName) { $user.LastName } elseif ($user.lastName) { $user.lastName } else { "" }
+        $email = if ($user.Email) { $user.Email } elseif ($user.email) { $user.email } else { "" }
+        $location = if ($user.Location) { $user.Location } elseif ($user.location) { $user.location } else { "" }
+        $userType = if ($user.UserTypeName) { $user.UserTypeName } elseif ($user.userType) { $user.userType } else { "" }
+        
+        Write-Host "  User Name:        $userName" -ForegroundColor White
+        Write-Host "  First Name:       $firstName" -ForegroundColor White
+        Write-Host "  Last Name:        $lastName" -ForegroundColor White
+        Write-Host "  Email:            $email" -ForegroundColor White
+        Write-Host "  Location:         $location" -ForegroundColor White
+        Write-Host "  User Type:        $userType" -ForegroundColor White
         Write-Host ""
         Write-Host "===== Connection Details =====" -ForegroundColor Cyan
         Write-Host ""

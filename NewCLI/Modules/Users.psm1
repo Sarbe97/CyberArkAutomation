@@ -3,24 +3,205 @@
 # DESCRIPTION: User and Group operations using raw CyberArk REST API
 # ============================================================================
 
+$Script:UserCachePath = "$PSScriptRoot/../Data/users.csv"
+$Script:UserCache = $null
+$Script:UserCacheLoadTime = $null
+
 # ============================================================
-# 1. Get All Groups (Vault + LDAP)
+# USER CACHE - Initialize
+# ============================================================
+function Initialize-CACUserCache {
+    param([bool]$Force = $false)
+
+    Write-Log "Initializing user cache (Force: $Force)" "DEBUG"
+
+    $config = Get-CACConfig
+    $cacheExpireMinutes = if ($config.UserCacheTTL) { [int]$config.UserCacheTTL } else { 30 }
+
+    # Check if cache is still valid
+    if (-not $Force -and $Script:UserCache -and $Script:UserCacheLoadTime) {
+        $elapsed = (Get-Date) - $Script:UserCacheLoadTime
+        if ($elapsed.TotalMinutes -lt $cacheExpireMinutes) {
+            Write-Log "User cache valid (Loaded $([Math]::Round($elapsed.TotalMinutes, 2)) mins ago)" "DEBUG"
+            return
+        }
+    }
+
+    # Load from CSV file
+    if (-not (Test-Path $Script:UserCachePath)) {
+        Write-Log "Cache file missing: $Script:UserCachePath" "WARN"
+        $Script:UserCache = $null
+        return
+    }
+
+    try {
+        $Script:UserCache = Import-Csv $Script:UserCachePath
+        $Script:UserCacheLoadTime = Get-Date
+        Write-Log "User cache loaded. Total Records: $($Script:UserCache.Count)" "INFO"
+    }
+    catch {
+        Write-Log "Failed to load user cache: $($_.Exception.Message)" "ERROR"
+        $Script:UserCache = $null
+    }
+}
+
+# ============================================================
+# USER CACHE - Refresh from CyberArk
+# ============================================================
+function New-CACUserStore {
+    [CmdletBinding()]
+    param()
+
+    Write-Log "Starting User Cache Refresh (Querying Vault...)" "INFO"
+    Write-Host "Refreshing user cache from CyberArk..." -ForegroundColor Cyan
+
+    try {
+        Write-Progress -Activity "User Cache Refresh" -Status "Fetching user list..." -PercentComplete 0
+        
+        $allUsers = @()
+        $offset = 0
+        $limit = 100
+
+        # Paginate through all users
+        do {
+            $endpoint = "/API/Users?limit=$limit&offset=$offset"
+            $response = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint
+            
+            $users = @()
+            if ($response.Users) { $users = @($response.Users) }
+            elseif ($response.value) { $users = @($response.value) }
+            
+            if ($users.Count -eq 0) { break }
+            
+            $allUsers += $users
+            $offset += $limit
+            
+            Write-Progress -Activity "User Cache Refresh" -Status "Fetched $($allUsers.Count) users..." -PercentComplete 50
+        } while ($users.Count -ge $limit)
+
+        if ($allUsers.Count -eq 0) {
+            Write-Log "No users returned from Vault" "WARN"
+            Write-Progress -Activity "User Cache Refresh" -Completed
+            return
+        }
+
+        Write-Log "Found $($allUsers.Count) users. Processing..." "INFO"
+    }
+    catch {
+        Write-Log "Failed fetching users: $($_.Exception.Message)" "ERROR"
+        Write-Host "Error fetching users: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Progress -Activity "User Cache Refresh" -Completed
+        return
+    }
+
+    $finalUsers = @()
+    $counter = 0
+    $total = $allUsers.Count
+
+    foreach ($u in $allUsers) {
+        $counter++
+        $percent = ($counter / $total) * 100
+        Write-Progress -Activity "User Cache Refresh" -Status "Processing $counter of $total : $($u.username)" -PercentComplete $percent
+
+        # Build flattened user object
+        $fullName = ""
+        if ($u.personalDetails) {
+            $first = $u.personalDetails.firstName
+            $last = $u.personalDetails.lastName
+            $fullName = "$first $last".Trim()
+        }
+        if (-not $fullName) { $fullName = $u.username }
+
+        $statusStr = if ($u.suspended -eq $true) { "Suspended" } else { "Active" }
+
+        $userObj = New-CACUserObject `
+            -Id $u.id `
+            -UserName $u.username `
+            -FullName $fullName `
+            -Email $(if ($u.internet) { $u.internet.businessEmail } else { "" }) `
+            -Phone $(if ($u.phones) { $u.phones.cellularNumber } else { "" }) `
+            -Department $(if ($u.personalDetails) { $u.personalDetails.department } else { "" }) `
+            -Title $(if ($u.personalDetails) { $u.personalDetails.title } else { "" }) `
+            -Organization $(if ($u.personalDetails) { $u.personalDetails.organization } else { "" }) `
+            -Source $u.source `
+            -UserType $u.userType `
+            -Status $statusStr
+
+        $finalUsers += $userObj
+    }
+
+    Write-Progress -Activity "User Cache Refresh" -Completed
+
+    # Save to disk
+    $dataFolder = "$PSScriptRoot/../Data"
+    if (-not (Test-Path $dataFolder)) { New-Item -ItemType Directory -Path $dataFolder | Out-Null }
+    
+    $Script:UserCachePath = "$dataFolder/users_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+
+    try {
+        $finalUsers | Export-Csv -Path $Script:UserCachePath -NoTypeInformation -Encoding UTF8
+        Write-Log "User cache saved: $Script:UserCachePath" "SUCCESS"
+        Write-Host "Cache saved: $Script:UserCachePath ($($finalUsers.Count) users)" -ForegroundColor Green
+    }
+    catch {
+        Write-Log "Failed to write cache: $($_.Exception.Message)" "ERROR"
+    }
+
+    # Reload into memory
+    Initialize-CACUserCache -Force $true
+}
+
+# ============================================================
+# USER CACHE - Get User Details
+# ============================================================
+function Get-CACUserDetailsFromStore {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InputValue
+    )
+
+    Write-Log "Looking up user in cache: $InputValue" "DEBUG"
+
+    Initialize-CACUserCache
+
+    if (-not $Script:UserCache) {
+        Write-Log "User cache empty/missing" "WARN"
+        return New-CACUserObject -UserName $InputValue -FullName "Unknown"
+    }
+
+    # Search by ID or Name
+    $searchById = $InputValue -match '^\d+$'
+    $match = $null
+
+    if ($searchById) {
+        $match = $Script:UserCache | Where-Object { $_.Id -eq $InputValue }
+    }
+    else {
+        $match = $Script:UserCache | Where-Object { 
+            $_.UserName -eq $InputValue -or $_.FullName -like "*$InputValue*" 
+        } | Select-Object -First 1
+    }
+
+    if (-not $match) {
+        Write-Log "User not found in cache: $InputValue" "WARN"
+        return New-CACUserObject -Id "N/A" -UserName $InputValue -FullName "Not Found"
+    }
+
+    return New-CACUserObject `
+        -Id $match.Id `
+        -UserName $match.UserName `
+        -FullName $match.FullName `
+        -Email $match.Email `
+        -Phone $match.Phone `
+        -Department $match.Department `
+        -Title $match.Title `
+        -Status $match.Status
+}
+
+# ============================================================
+# GROUPS - Get All Groups
 # ============================================================
 function Get-CACAllGroups {
-    <#
-    .SYNOPSIS
-        Retrieves all groups from CyberArk (Vault internal and LDAP/Directory groups).
-    .DESCRIPTION
-        Calls the /API/UserGroups/ endpoint to fetch all groups.
-        Optionally filters by group type (Vault or Directory).
-        Exports results to CSV in NewCLI/Output folder.
-    .PARAMETER GroupType
-        Filter by group type: "All", "Vault", or "Directory" (LDAP)
-    .PARAMETER IncludeMembers
-        If set, includes member list for each group (slower performance)
-    .PARAMETER ExportToCSV
-        Export results to CSV file (default: true)
-    #>
     [CmdletBinding()]
     param(
         [ValidateSet("All", "Vault", "Directory")]
@@ -32,10 +213,8 @@ function Get-CACAllGroups {
     )
 
     Write-Log "Started Get-CACAllGroups()" "DEBUG"
-    Write-Log "GroupType filter: $GroupType, IncludeMembers: $IncludeMembers" "INFO"
 
     try {
-        # Build endpoint with query parameters
         $queryParams = @()
         
         if ($GroupType -ne "All") {
@@ -51,33 +230,22 @@ function Get-CACAllGroups {
             $endpoint += "?" + ($queryParams -join "&")
         }
 
-        Write-Log "Calling endpoint: $endpoint" "DEBUG"
         Write-Host "Fetching groups from CyberArk..." -ForegroundColor Cyan
 
         $response = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint
 
-        # Parse groups from response
         $groups = @()
-        if ($response.value) {
-            $groups = @($response.value)
-        }
-        elseif ($response -is [array]) {
-            $groups = @($response)
-        }
-        else {
-            # Single group or direct response
-            $groups = @($response)
-        }
+        if ($response.value) { $groups = @($response.value) }
+        elseif ($response -is [array]) { $groups = @($response) }
+        else { $groups = @($response) }
 
         if ($groups.Count -eq 0) {
-            Write-Log "No groups found" "WARN"
-            Write-Host "No groups found in CyberArk." -ForegroundColor Yellow
+            Write-Host "No groups found." -ForegroundColor Yellow
             return
         }
 
         Write-Log "Retrieved $($groups.Count) groups" "INFO"
 
-        # Format output
         $formattedGroups = @()
         $counter = 0
 
@@ -85,29 +253,20 @@ function Get-CACAllGroups {
             $counter++
             Write-Progress -Activity "Processing Groups" -Status "$counter of $($groups.Count)" -PercentComplete (($counter / $groups.Count) * 100)
 
-            $groupRecord = [PSCustomObject]@{
-                GroupID     = $group.id
-                GroupName   = $group.groupName
-                GroupType   = $group.groupType
-                Description = $group.description
-                Location    = $group.location
-                Directory   = $group.directory
-                DN          = $group.dn
-                MemberCount = if ($group.members) { $group.members.Count } else { "N/A" }
-            }
-
-            # If members were included, add member names
-            if ($IncludeMembers -and $group.members) {
-                $memberNames = ($group.members | ForEach-Object { $_.userName }) -join "; "
-                $groupRecord | Add-Member -MemberType NoteProperty -Name "Members" -Value $memberNames
-            }
+            $groupRecord = New-CACGroupObject `
+                -Id $group.id `
+                -GroupName $group.groupName `
+                -Description $group.description `
+                -GroupType $group.groupType `
+                -Directory $group.directory `
+                -MemberCount $(if ($group.members) { $group.members.Count } else { 0 })
 
             $formattedGroups += $groupRecord
         }
 
         Write-Progress -Activity "Processing Groups" -Completed
 
-        # Display results
+        # Display summary
         Write-Host ""
         Write-Host "===== Groups Summary =====" -ForegroundColor Cyan
         Write-Host "Total Groups: $($formattedGroups.Count)"
@@ -119,51 +278,31 @@ function Get-CACAllGroups {
         Write-Host "  Directory (LDAP): $directoryCount"
         Write-Host ""
 
-        # Display table
-        $formattedGroups | Format-Table -AutoSize @(
-            "GroupName",
-            "GroupType",
-            "Description",
-            "Location",
-            "MemberCount"
-        )
+        $formattedGroups | Format-Table GroupName, GroupType, Description, MemberCount -AutoSize
 
-        # Export to CSV
         if ($ExportToCSV) {
             $outputDir = Get-CACOutputDir
             $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
             $outputFile = "$outputDir/groups_$timestamp.csv"
 
-            Write-Log "Exporting $($formattedGroups.Count) groups to CSV: $outputFile" "INFO"
             $formattedGroups | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
-
-            Write-Log "CSV export successful: $outputFile" "SUCCESS"
             Write-Host "Export File: $outputFile" -ForegroundColor Green
         }
 
-        Write-Log "Completed Get-CACAllGroups()" "DEBUG"
         return $formattedGroups
     }
     catch {
         Write-Log "Error in Get-CACAllGroups(): $($_.Exception.Message)" "ERROR"
         Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
-        throw
     }
 }
 
 # ============================================================
-# 2. Get Group Members by Group Name
+# GROUPS - Get Group Members
 # ============================================================
 function Get-CACGroupMembers {
-    <#
-    .SYNOPSIS
-        Retrieves members of a specific group.
-    .PARAMETER GroupName
-        Name of the group to look up.
-    #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $false)]
         [string]$GroupName
     )
 
@@ -178,41 +317,28 @@ function Get-CACGroupMembers {
             }
         }
 
-        Write-Log "Fetching members for group: $GroupName" "INFO"
         Write-Host "Fetching members for group: $GroupName..." -ForegroundColor Cyan
 
-        # Search for the group with members included
         $endpoint = "/API/UserGroups/?search=$([System.Web.HttpUtility]::UrlEncode($GroupName))&includeMembers=true"
-        
         $response = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint
 
-        # Find matching group
         $groups = @()
-        if ($response.value) {
-            $groups = @($response.value)
-        }
-        elseif ($response -is [array]) {
-            $groups = @($response)
-        }
-        else {
-            $groups = @($response)
-        }
+        if ($response.value) { $groups = @($response.value) }
+        elseif ($response -is [array]) { $groups = @($response) }
+        else { $groups = @($response) }
 
         $matchingGroup = $groups | Where-Object { $_.groupName -eq $GroupName } | Select-Object -First 1
 
         if (-not $matchingGroup) {
-            Write-Log "Group not found: $GroupName" "WARN"
             Write-Host "Group '$GroupName' not found." -ForegroundColor Yellow
             return
         }
 
         if (-not $matchingGroup.members -or $matchingGroup.members.Count -eq 0) {
-            Write-Log "Group '$GroupName' has no members" "WARN"
             Write-Host "Group '$GroupName' has no members." -ForegroundColor Yellow
             return
         }
 
-        # Format members
         $members = $matchingGroup.members | ForEach-Object {
             [PSCustomObject]@{
                 UserID   = $_.id
@@ -227,7 +353,6 @@ function Get-CACGroupMembers {
 
         $members | Format-Table -AutoSize
 
-        Write-Log "Retrieved $($members.Count) members from $GroupName" "DEBUG"
         return $members
     }
     catch {
@@ -237,6 +362,56 @@ function Get-CACGroupMembers {
 }
 
 # ============================================================
-# EXPORT ALL FUNCTIONS
+# GROUPS - Get Group Users (Lightweight)
 # ============================================================
-Export-ModuleMember -Function Get-CACAllGroups, Get-CACGroupMembers
+function Get-CACGroupUsers {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$GroupName
+    )
+
+    Write-Log "Fetching members for group: $GroupName" "INFO"
+
+    try {
+        $endpoint = "/API/UserGroups/?search=$([System.Web.HttpUtility]::UrlEncode($GroupName))&includeMembers=true"
+        $response = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint
+
+        $groups = @()
+        if ($response.value) { $groups = @($response.value) }
+        elseif ($response -is [array]) { $groups = @($response) }
+
+        $group = $groups | Where-Object { $_.groupName -eq $GroupName } | Select-Object -First 1
+
+        if (-not $group -or -not $group.members) {
+            Write-Log "Group '$GroupName' has no members" "WARN"
+            return $null
+        }
+
+        # Return lightweight objects
+        $output = @()
+        foreach ($m in $group.members) {
+            $output += [PSCustomObject]@{
+                Id       = $m.id
+                UserName = $m.userName
+            }
+        }
+
+        Write-Log "Retrieved $($output.Count) members from $GroupName" "DEBUG"
+        return $output
+    }
+    catch {
+        Write-Log "Group fetch failed: $($_.Exception.Message)" "ERROR"
+        return $null
+    }
+}
+
+# ============================================================
+# EXPORT
+# ============================================================
+Export-ModuleMember -Function `
+    Initialize-CACUserCache, `
+    New-CACUserStore, `
+    Get-CACUserDetailsFromStore, `
+    Get-CACAllGroups, `
+    Get-CACGroupMembers, `
+    Get-CACGroupUsers

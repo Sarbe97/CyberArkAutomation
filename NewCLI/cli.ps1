@@ -2,7 +2,6 @@ Clear-Host
 
 # ============================================================================
 # CyberArk CLI - NewCLI Edition
-# Pure REST API implementation (no psPAS dependency)
 # ============================================================================
 
 # ------------------------------------------------------------
@@ -107,9 +106,8 @@ function Show-LoginMenu {
         Clear-Host
         Write-Host "=============== CyberArk CLI ===============" -ForegroundColor Cyan
         Write-Host ""
-        Write-Host "1. Login (Standard)"
-        Write-Host "2. Login (SAML)"
-        Write-Host "3. Reload Modules (Dev Only)"
+        Write-Host "1. Login"
+        Write-Host "2. Reload Modules (Dev Only)"
         Write-Host "0. Exit"
         Write-Host "============================================="
 
@@ -117,7 +115,21 @@ function Show-LoginMenu {
 
         switch ($choice) {
             '1' {
-                if (Invoke-CACLogin) {
+                Write-Host ""
+                Write-Host "Select Login Mode:" -ForegroundColor Cyan
+                Write-Host "  1. CyberArk (Username/Password)"
+                Write-Host "  2. SAML (SSO)"
+                $loginMode = Read-Host "Enter mode (1/2)"
+
+                $loginSuccess = $false
+                if ($loginMode -eq '2') {
+                    $loginSuccess = Invoke-CACLogin -SAML
+                }
+                else {
+                    $loginSuccess = Invoke-CACLogin
+                }
+
+                if ($loginSuccess) {
                     $Script:IsLoggedIn = $true
                     return
                 }
@@ -128,17 +140,6 @@ function Show-LoginMenu {
             }
 
             '2' {
-                if (Invoke-CACLogin -SAML) {
-                    $Script:IsLoggedIn = $true
-                    return
-                }
-                else {
-                    Write-Host "SAML Login failed. Try again." -ForegroundColor Red
-                    Pause
-                }
-            }
-
-            '3' {
                 Reload-CACModules
                 Pause
             }
@@ -290,6 +291,8 @@ function Show-UserMenu {
         Write-Host "--- USER UTILITIES ---" -ForegroundColor Yellow
         Write-Host "1. Get All Groups (Vault + LDAP)"
         Write-Host "2. Get Group Members"
+        Write-Host "3. Refresh User Cache"
+        Write-Host "4. Lookup User (from Cache)"
         Write-Host "0. Back"
 
         $choice = Read-Host "Enter Choice"
@@ -297,6 +300,15 @@ function Show-UserMenu {
         switch ($choice) {
             '1' { Get-CACAllGroups; Pause }
             '2' { Get-CACGroupMembers; Pause }
+            '3' { New-CACUserStore; Pause }
+            '4' {
+                $user = Read-Host "Enter Username or ID"
+                if (-not [string]::IsNullOrWhiteSpace($user)) {
+                    $result = Get-CACUserDetailsFromStore -InputValue $user
+                    $result | Format-List
+                }
+                Pause
+            }
             '0' { return }
 
             default {

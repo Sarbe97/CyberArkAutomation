@@ -30,7 +30,7 @@ function Reload-CACModules {
         "Users.psm1",
         "Safes.psm1",
         "Session.psm1",
-        "BatchOnboarding.psm1"
+        "SafeActions.psm1"
     )
 
     $modulePaths = $moduleFiles | ForEach-Object { Join-Path "$PSScriptRoot/Modules" $_ }
@@ -169,7 +169,7 @@ function Show-MainMenu {
         Write-Host "--- MAIN MENU ---" -ForegroundColor Yellow
         Write-Host "1. Account Operations"
         Write-Host "2. Safe Operations"
-        Write-Host "3. Batch Operations"
+        Write-Host "3. Safe Activities"
         Write-Host "4. System Health"
         Write-Host "5. User Utilities"
         Write-Host "6. Session Info"
@@ -181,7 +181,7 @@ function Show-MainMenu {
         switch ($choice) {
             '1' { Show-AccountMenu }
             '2' { Show-SafeMenu }
-            '3' { Show-BatchMenu }
+            '3' { Show-SafeActivitiesMenu }
             '4' { Show-SystemHealthMenu }
             '5' { Show-UserMenu }
             '6' { Show-SessionMenu }
@@ -379,34 +379,29 @@ function Show-SessionMenu {
 }
 
 # ============================================================
-# BATCH OPERATIONS MENU
+# SAFE ACTIVITIES MENU
 # ============================================================
-function Show-BatchMenu {
+function Show-SafeActivitiesMenu {
     while ($true) {
         Clear-Host
         Write-Host "=============== CyberArk CLI ===============" -ForegroundColor Cyan
         Show-CACSessionHeader
         Write-Host "============================================="
         Write-Host ""
-        Write-Host "--- BATCH OPERATIONS ---" -ForegroundColor Yellow
-        Write-Host "1. Run Batch Onboarding (Safes CSV)"
-        Write-Host "2. Create Onboarding Template"
+        Write-Host "--- SAFE ACTIVITIES ---" -ForegroundColor Yellow
+        Write-Host "1. Create Safes (from CSV)"
+        Write-Host "2. Rename Safes (from CSV)"
+        Write-Host "3. Download 'Create Safe' Template"
+        Write-Host "4. Download 'Rename Safe' Template"
         Write-Host "0. Back"
 
         $choice = Read-Host "Enter Choice"
 
         switch ($choice) {
-            '1' {
-                $csvPath = Read-Host "Enter CSV Path"
-                if (Test-Path $csvPath) {
-                    Invoke-CACBatchOnboarding -CsvPath $csvPath
-                }
-                else {
-                    Write-Host "File not found: $csvPath" -ForegroundColor Red
-                }
-                Pause
-            }
-            '2' { New-CACOnboardingTemplate; Pause }
+            '1' { Invoke-CACBatchSafeCreation; Pause }
+            '2' { Invoke-CACBatchSafeRename; Pause }
+            '3' { New-CACSafeCreationTemplate; Pause }
+            '4' { New-CACSafeRenameTemplate; Pause }
             '0' { return }
 
             default {

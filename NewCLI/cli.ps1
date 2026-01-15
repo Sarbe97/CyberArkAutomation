@@ -25,7 +25,9 @@ function Reload-CACModules {
         "APIClient.psm1",
         "SAMLHelper.psm1",
         "Login.psm1",
-        "Accounts.psm1"
+        "Accounts.psm1",
+        "SystemHealth.psm1",
+        "Users.psm1"
     )
 
     $modulePaths = $moduleFiles | ForEach-Object { Join-Path "$PSScriptRoot/Modules" $_ }
@@ -166,6 +168,8 @@ function Show-MainMenu {
         }
         Write-Host ""
         Write-Host "1. Account Operations"
+        Write-Host "2. System Health"
+        Write-Host "3. User Utilities"
         Write-Host "9. Logout"
         Write-Host "0. Exit"
         Write-Host "============================================="
@@ -174,6 +178,8 @@ function Show-MainMenu {
 
         switch ($choice) {
             '1' { Show-AccountMenu }
+            '2' { Show-SystemHealthMenu }
+            '3' { Show-UserMenu }
 
             '9' {
                 Invoke-CACLogout
@@ -223,6 +229,58 @@ function Show-AccountMenu {
             '7' { New-CACAccount; Pause }
             '8' { Remove-CACAccount; Pause }
             '9' { Invoke-CACBatchAccountDeletion; Pause }
+            '0' { return }
+
+            default {
+                Write-Host "Invalid option." -ForegroundColor Yellow
+                Start-Sleep 1
+            }
+        }
+    }
+}
+
+# ============================================================
+# SYSTEM HEALTH MENU
+# ============================================================
+function Show-SystemHealthMenu {
+    while ($true) {
+        Clear-Host
+        Write-Host "=========== SYSTEM HEALTH MENU ===========" -ForegroundColor Cyan
+        Write-Host "1. System Health Summary"
+        Write-Host "0. Back"
+        Write-Host "==========================================="
+
+        $choice = Read-Host "Enter Choice"
+
+        switch ($choice) {
+            '1' { Get-CACSystemHealth; Pause }
+            '0' { return }
+
+            default {
+                Write-Host "Invalid option." -ForegroundColor Yellow
+                Start-Sleep 1
+            }
+        }
+    }
+}
+
+# ============================================================
+# USER UTILITIES MENU
+# ============================================================
+function Show-UserMenu {
+    while ($true) {
+        Clear-Host
+        Write-Host "=========== USER UTILITIES MENU ===========" -ForegroundColor Cyan
+        Write-Host "1. Get All Groups (Vault + LDAP)"
+        Write-Host "2. Get Group Members"
+        Write-Host "0. Back"
+        Write-Host "============================================"
+
+        $choice = Read-Host "Enter Choice"
+
+        switch ($choice) {
+            '1' { Get-CACAllGroups; Pause }
+            '2' { Get-CACGroupMembers; Pause }
             '0' { return }
 
             default {

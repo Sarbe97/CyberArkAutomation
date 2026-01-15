@@ -1,0 +1,69 @@
+﻿{
+  "PVWAURL": "http://localhost:8080",
+  "UserCacheTTL": 30,
+  "LogLevel": "INFO",
+  "SafePermissionSets": {
+    "SAFE_READ": [
+      "UseAccounts",
+      "ListAccounts",
+      "RetrieveAccounts",
+      "ViewAuditLog",
+      "ViewSafeMembers"
+    ],
+    "SAFE_READ_WRITE": [
+      "UseAccounts",
+      "ListAccounts",
+      "RetrieveAccounts",
+      "ViewAuditLog",
+      "ViewSafeMembers",
+      "AddAccounts",
+      "UpdateAccountContent",
+      "UpdateAccountProperties",
+      "DeleteAccounts",
+      "ManageSafe"
+    ],
+    "VAULT_ADMIN": [
+      "ManageSafe",
+      "ManageSafeMembers",
+      "BackupSafe",
+      "ViewAuditLog",
+      "ViewSafeMembers",
+      "AccessWithoutConfirmation",
+      "UnlockAccounts",
+      "MoveAccountsAndFolders"
+    ],
+    "CCP_PROVIDER": [
+      "RetrieveAccounts",
+      "ListAccounts"
+    ],
+    "CCP_APPID": [
+      "RetrieveAccounts",
+      "ListAccounts"
+    ]
+  },
+  "_AvailablePermissions_Reference": [
+    "--- Account Usage ---",
+    "UseAccounts",
+    "RetrieveAccounts",
+    "ListAccounts",
+    "--- Account Management ---",
+    "AddAccounts",
+    "UpdateAccountContent",
+    "UpdateAccountProperties",
+    "DeleteAccounts",
+    "RenameAccounts",
+    "MoveAccountsAndFolders",
+    "UnlockAccounts",
+    "InitiateCPMAccountManagementOperations",
+    "SpecifyNextAccountContent",
+    "--- Safe Administration ---",
+    "ManageSafe",
+    "ManageSafeMembers",
+    "ViewSafeMembers",
+    "ViewAuditLog",
+    "BackupSafe",
+    "DeleteFolders",
+    "CreateFolders",
+    "AccessWithoutConfirmation"
+  ]
+}

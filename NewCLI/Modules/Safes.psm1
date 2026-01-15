@@ -1,93 +1,9 @@
 # ============================================================================
 # MODULE: Safes.psm1
 # DESCRIPTION: Safe Management using raw CyberArk REST API
+# NOTE: Uses Format-CACSafe and New-CACSafeMemberRow from Models.psm1
 # ============================================================================
 
-# ----------------------------------------------------------------------------
-# HELPER: Format Safe Object for Export
-# ----------------------------------------------------------------------------
-function Format-CACSafe {
-    param([object]$Safe)
-    
-    return [PSCustomObject]@{
-        SafeName     = $Safe.safeName
-        SafeNumber   = $Safe.safeNumber
-        Description  = $Safe.description
-        Location     = $Safe.location
-        ManagingCPM  = $Safe.managingCPM
-        NumberOfDays = $Safe.numberOfDaysRetention
-        CreationTime = Convert-CACTimestamp $Safe.creationTime
-        LastModified = Convert-CACTimestamp $Safe.lastModificationTime
-        OLACEnabled  = $Safe.olacEnabled
-        AutoPurge    = $Safe.autoPurgeEnabled
-    }
-}
-
-# ----------------------------------------------------------------------------
-# HELPER: Flatten Safe Member Permissions
-# ----------------------------------------------------------------------------
-function New-CACSafeMemberDetailedRow {
-    param (
-        [string]$SafeName,
-        [object]$MemberObj,
-        [hashtable]$SafeProps = @{} 
-    )
-
-    # Local Helper for permission lookup
-    function Get-Perm ($obj, $name) {
-        if ($null -eq $obj) { return $false }
-        if ($obj.PSObject.Properties.Match($name)) { return [bool]$obj.$name }
-        if ($obj -is [System.Collections.IDictionary] -and $obj.Contains($name)) { return [bool]$obj[$name] }
-        return $false
-    }
-
-    # Locate Permissions
-    $perms = $null
-    if ($MemberObj.PSObject.Properties.Match('permissions') -and $MemberObj.permissions) {
-        $perms = $MemberObj.permissions
-    }
-    else {
-        $perms = $MemberObj
-    }
-
-    # Base Object (Permissions)
-    $baseObj = [ordered]@{
-        MemberName                = $MemberObj.memberName
-        MemberType                = $MemberObj.memberType
-        MembershipExpiration      = $MemberObj.membershipExpirationDate
-        IsPredefined              = $MemberObj.isPredefinedUser
-        
-        # Permissions
-        UseAccounts               = Get-Perm $perms "useAccounts"
-        RetrieveAccounts          = Get-Perm $perms "retrieveAccounts"
-        ListAccounts              = Get-Perm $perms "listAccounts"
-        AddAccounts               = Get-Perm $perms "addAccounts"
-        UpdateAccountContent      = Get-Perm $perms "updateAccountContent"
-        UpdateAccountProperties   = Get-Perm $perms "updateAccountProperties"
-        InitiateCPMOps            = Get-Perm $perms "initiateCPMAccountManagementOperations"
-        SpecifyNextAccountContent = Get-Perm $perms "specifyNextAccountContent"
-        RenameAccounts            = Get-Perm $perms "renameAccounts"
-        DeleteAccounts            = Get-Perm $perms "deleteAccounts"
-        UnlockAccounts            = Get-Perm $perms "unlockAccounts"
-        ManageSafe                = Get-Perm $perms "manageSafe"
-        ManageSafeMembers         = Get-Perm $perms "manageSafeMembers"
-        ViewAuditLog              = Get-Perm $perms "viewAuditLog"
-        ViewSafeMembers           = Get-Perm $perms "viewSafeMembers"
-        AccessWithoutConfirmation = Get-Perm $perms "accessWithoutConfirmation"
-        CreateFolders             = Get-Perm $perms "createFolders"
-        DeleteFolders             = Get-Perm $perms "deleteFolders"
-        MoveAccountsAndFolders    = Get-Perm $perms "moveAccountsAndFolders"
-        BackupSafe                = Get-Perm $perms "backupSafe"
-    }
-
-    # Merge Safe Properties
-    $finalObj = [ordered]@{}
-    $finalObj["SafeName"] = $SafeName
-    foreach ($key in $SafeProps.Keys) { $finalObj[$key] = $SafeProps[$key] }
-    foreach ($key in $baseObj.Keys) { $finalObj[$key] = $baseObj[$key] }
-
-    return [PSCustomObject]$finalObj
-}
 
 # =========================================================
 # 1. Export ALL Safes
@@ -645,7 +561,7 @@ function Export-CACSafeMembersReport {
             }
 
             foreach ($member in $members) {
-                $results += New-CACSafeMemberDetailedRow -SafeName $safeName -MemberObj $member
+                $results += New-CACSafeMemberRow -SafeName $safeName -Member $member
             }
         }
         catch {

@@ -22,6 +22,7 @@ function Reload-CACModules {
     $moduleFiles = @(
         "Utils.psm1",
         "Config.psm1",
+        "Models.psm1",
         "APIClient.psm1",
         "SAMLHelper.psm1",
         "Login.psm1",

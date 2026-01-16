@@ -169,10 +169,22 @@ function Invoke-CACLogin {
             
             # Fetch username from API (SAML doesn't provide it directly)
             try {
-                $userInfo = Invoke-CACAPIRequest -Method GET -Endpoint "/API/LoggedOnUser"
-                if ($userInfo -and $userInfo.UserName) {
-                    $global:CACApiSession.User = $userInfo.UserName
-                    Write-Log "Logged in as: $($userInfo.UserName)" "SUCCESS"
+                $userInfo = Invoke-CACAPIRequest -Method GET -Endpoint "/WebServices/PIMServices.svc/User"
+                Write-Log "PIMServices User API response received" "DEBUG"
+                
+                # Extract username from response (handle different response structures)
+                if ($userInfo) {
+                    $userName = if ($userInfo.UserName) { $userInfo.UserName } 
+                    elseif ($userInfo.username) { $userInfo.username }
+                    else { $null }
+                    
+                    if ($userName) {
+                        $global:CACApiSession.User = $userName
+                        Write-Log "Logged in as: $userName" "SUCCESS"
+                    }
+                    else {
+                        Write-Log "User info retrieved but username field not found. Response: $($userInfo | ConvertTo-Json -Compress)" "WARN"
+                    }
                 }
             }
             catch {

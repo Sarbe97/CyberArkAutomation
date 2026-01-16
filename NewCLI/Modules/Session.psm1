@@ -19,22 +19,12 @@ function Get-CACCurrentUser {
 
         $user = $null
         
-        # Try modern API first
+        # Get logged-on user details using PIM Services API
         try {
-            $user = Invoke-CACAPIRequest -Method GET -Endpoint "/API/LoggedOnUser"
+            $user = Invoke-CACAPIRequest -Method GET -Endpoint "/WebServices/PIMServices.svc/User"
         }
         catch {
-            Write-Log "LoggedOnUser API failed, trying legacy endpoint" "DEBUG"
-        }
-        
-        # Fallback to legacy PIM Services API
-        if (-not $user) {
-            try {
-                $user = Invoke-CACAPIRequest -Method GET -Endpoint "/WebServices/PIMServices.svc/User"
-            }
-            catch {
-                Write-Log "PIMServices API also failed: $($_.Exception.Message)" "WARN"
-            }
+            Write-Log "PIMServices User API failed: $($_.Exception.Message)" "WARN"
         }
 
         if (-not $user) {

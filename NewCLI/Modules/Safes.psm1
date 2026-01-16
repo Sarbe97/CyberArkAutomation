@@ -634,21 +634,27 @@ function Export-CACSafeAccountCounts {
 }
 
 # =========================================================
-# 9. Export Safe Members with Permissions
+# 9. CONSOLIDATED EXPORT FUNCTION
+# Replaces Export-CACSafeMembersReport and Export-CACSafeUsers
 # =========================================================
-function Export-CACSafeMembersReport {
+function Export-CACConsolidatedReport {
     <#
     .SYNOPSIS
-        Export safe members with full permission details.
+        Comprehensive safe export wizard with multiple output options.
+    .DESCRIPTION
+        Interactive wizard that allows exporting:
+        - Safe attributes only
+        - Safe members with or without permissions
+        - Detailed user information (expands groups to users)
     #>
     [CmdletBinding()]
     param()
 
-    Write-Log "Started Export-CACSafeMembersReport()" "DEBUG"
+    Write-Log "Started Export-CACConsolidatedReport" "DEBUG"
 
-    # Input selection
-    Write-Host "=== Safe Members Report ===" -ForegroundColor Cyan
-    Write-Host "1. Single Safe"
+    # --- INPUT SELECTION ---
+    Write-Host "=== Safe Export Wizard ===" -ForegroundColor Cyan
+    Write-Host "1. Manual List (Comma separated)"
     Write-Host "2. CSV Input (Header: SafeName)"
     $mode = Read-Host "Select Input Mode"
 
@@ -656,15 +662,13 @@ function Export-CACSafeMembersReport {
     $outPathBase = Get-CACOutputDir
 
     if ($mode -eq '1') {
-        $safeName = Read-Host "Enter Safe Name"
-        if (-not [string]::IsNullOrWhiteSpace($safeName)) {
-            $safesInput = @($safeName)
-        }
+        $safesInput = (Read-Host "Enter Safe Names") -split "," | ForEach-Object { $_.Trim() }
     }
     elseif ($mode -eq '2') {
         $csvPath = Read-Host "Enter CSV Path"
         if (!(Test-Path $csvPath)) { Write-Host "File not found!" -ForegroundColor Red; return }
         $safesInput = (Import-Csv $csvPath).SafeName | ForEach-Object { $_.Trim() }
+        $outPathBase = Split-Path $csvPath -Parent
     }
     else { return }
 
@@ -673,48 +677,287 @@ function Export-CACSafeMembersReport {
         return
     }
 
-    $results = [System.Collections.Generic.List[PSObject]]::new()
-    $i = 0
-    $total = $safesInput.Count
+    # --- LOGIC PROMPTS ---
+    Write-Host ""
+    $reqMembers = Read-Host "1. Include Member Details? (y/n)"
+    
+    $reqSafeAttrs = 'n'
+    $reqPerms = 'n'
+    $reqDetailUsers = 'n'
 
+    if ($reqMembers -eq 'y') {
+        $reqSafeAttrs = Read-Host "2. Include Safe Attributes in Report? (y/n)"
+        $reqPerms = Read-Host "3. Include Permission Details? (y/n)"
+        
+        if ($reqPerms -ne 'y') {
+            $reqDetailUsers = Read-Host "4. Detailed User Information Required? (y/n)"
+        }
+    }
+    else {
+        # Safe Attributes forced if no members requested (otherwise report is empty)
+        $reqSafeAttrs = 'y' 
+    }
+
+    $results = [System.Collections.Generic.List[PSObject]]::new()
+    $total = $safesInput.Count
+    $i = 0
+
+    # --- PROCESSING LOOP ---
     foreach ($safeName in $safesInput) {
         $i++
-        Write-Progress -Activity "Generating Report" -Status "Processing $i/$total : $safeName" -PercentComplete (($i / $total) * 100)
+        Write-Progress -Activity "Generating Report" -Status "Processing Safe $i/$total : $safeName" -PercentComplete (($i / $total) * 100)
         Write-Log "Processing Safe: $safeName" "INFO"
 
         try {
-            # Fetch members with permissions
-            $response = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members"
+            # 1. Fetch Safe Object (Always needed for attributes or validation)
+            $safeObj = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))"
             
-            $members = @(Get-CACResponseData -Response $response -PropertyNames @("value", "members"))
+            # Prepare Safe Attributes Hashtable if requested
+            $safePropsHash = [ordered]@{}
+            if ($reqSafeAttrs -eq 'y') {
+                $safePropsHash["Description"] = $safeObj.description
+                $safePropsHash["Location"] = $safeObj.location
+                $safePropsHash["ManagingCPM"] = $safeObj.managingCPM
+                $safePropsHash["OLACEnabled"] = $safeObj.olacEnabled
+                $safePropsHash["NumberOfDaysRetention"] = $safeObj.numberOfDaysRetention
+                $safePropsHash["AutoPurgeEnabled"] = $safeObj.autoPurgeEnabled
+            }
 
-            if ($members.Count -eq 0) {
-                $results.Add([PSCustomObject]@{ SafeName = $safeName; MemberName = "NO MEMBERS"; MemberType = "" })
+            # --- BRANCH 1: Safe Attributes Only (No Members) ---
+            if ($reqMembers -ne 'y') {
+                $row = [ordered]@{ SafeName = $safeName }
+                foreach ($k in $safePropsHash.Keys) { $row[$k] = $safePropsHash[$k] }
+                $results.Add([PSCustomObject]$row)
                 continue
             }
 
-            foreach ($member in $members) {
-                $results.Add((New-CACSafeMemberRow -SafeName $safeName -Member $member))
+            # Fetch Members
+            $membersResponse = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members"
+            $members = @(Get-CACResponseData -Response $membersResponse -PropertyNames @("value", "members"))
+            
+            if ($members.Count -eq 0) { 
+                # Add a row indicating no members if safe attrs are requested
+                $row = [ordered]@{ SafeName = $safeName; MemberInfo = "NO MEMBERS FOUND" }
+                foreach ($k in $safePropsHash.Keys) { $row[$k] = $safePropsHash[$k] }
+                $results.Add([PSCustomObject]$row)
+                continue 
+            }
+
+            # --- BRANCH 2: Permissions Included ---
+            if ($reqPerms -eq 'y') {
+                foreach ($m in $members) {
+                    # Lookup Source for Permissions View
+                    $source = "Unknown"
+                    try {
+                        if ($m.memberType -eq "Group") {
+                            $gInfo = Invoke-CACAPIRequest -Method GET -Endpoint "/API/UserGroups?search=$([System.Web.HttpUtility]::UrlEncode($m.memberName))" -ErrorAction SilentlyContinue
+                            $groups = @(Get-CACResponseData -Response $gInfo -PropertyNames @("value", "groups"))
+                            $matchedGroup = $groups | Where-Object { $_.groupName -eq $m.memberName } | Select-Object -First 1
+                            if ($matchedGroup) { $source = $matchedGroup.directory }
+                        }
+                        elseif ($m.memberType -eq "User") {
+                            $uInfo = Get-CACUserDetailsFromStore -InputValue $m.memberName
+                            if ($uInfo -and $uInfo.Source) { $source = $uInfo.Source }
+                        }
+                    }
+                    catch { $source = "LookupFailed" }
+
+                    # Build detailed row with permissions
+                    $results.Add((New-CACSafeMemberDetailedRow -SafeName $safeName -MemberObj $m -MemberSource $source -SafeProps $safePropsHash))
+                }
+                continue
+            }
+
+            # --- BRANCH 3: Detailed User Info (Rows per user) ---
+            if ($reqDetailUsers -eq 'y') {
+                foreach ($m in $members) {
+                    # 1. Resolve Users for this member
+                    $usersToProcess = @()
+                    if ($m.memberType -eq "User") {
+                        $usersToProcess += $m.memberName
+                    }
+                    elseif ($m.memberType -eq "Group") {
+                        $gUsers = Get-CACGroupUsers -GroupName $m.memberName
+                        if ($gUsers) { $usersToProcess += $gUsers.UserName }
+                    }
+
+                    # 2. Handle Empty Groups
+                    if ($usersToProcess.Count -eq 0) {
+                        $row = [ordered]@{ SafeName = $safeName }
+                        foreach ($k in $safePropsHash.Keys) { $row[$k] = $safePropsHash[$k] }
+                         
+                        $row["SafeMemberName"] = $m.memberName
+                        $row["SafeMemberType"] = $m.memberType
+                        $row["UserName"] = "EMPTY/NO MEMBERS"
+                         
+                        $results.Add([PSCustomObject]$row)
+                        continue
+                    }
+
+                    # 3. Process Users
+                    foreach ($uName in $usersToProcess) {
+                        # Fetch User Details
+                        $uDetails = Get-CACUserDetailsFromStore -InputValue $uName
+                        
+                        # Build Row from Scratch
+                        $row = [ordered]@{ SafeName = $safeName }
+                        foreach ($k in $safePropsHash.Keys) { $row[$k] = $safePropsHash[$k] }
+                        
+                        $row["SafeMemberName"] = $m.memberName
+                        $row["SafeMemberType"] = $m.memberType
+                        
+                        if ($uDetails) {
+                            $row["UserName"] = $uDetails.UserName
+                            $row["FullName"] = $uDetails.FullName
+                            $row["Email"] = $uDetails.Email
+                            $row["Department"] = $uDetails.Department
+                        }
+                        else {
+                            $row["UserName"] = $uName
+                            $row["FullName"] = ""
+                            $row["Email"] = ""
+                            $row["Department"] = ""
+                        }
+                        
+                        $results.Add([PSCustomObject]$row)
+                    }
+                }
+                continue
+            }
+
+            # --- BRANCH 4: Group-wise User List (Row per Member/Group) ---
+            foreach ($m in $members) {
+                $row = [ordered]@{ SafeName = $safeName }
+                foreach ($k in $safePropsHash.Keys) { $row[$k] = $safePropsHash[$k] }
+                
+                $row["MemberName"] = $m.memberName
+                $row["MemberType"] = $m.memberType
+                $row["IsPredefined"] = $m.isPredefinedUser
+
+                # Lookup Source
+                $source = "Unknown"
+                try {
+                    if ($m.memberType -eq "Group") {
+                        # Fetch Group Details to get Source
+                        $gInfo = Invoke-CACAPIRequest -Method GET -Endpoint "/API/UserGroups?search=$([System.Web.HttpUtility]::UrlEncode($m.memberName))" -ErrorAction SilentlyContinue
+                        $groups = @(Get-CACResponseData -Response $gInfo -PropertyNames @("value", "groups"))
+                        $matchedGroup = $groups | Where-Object { $_.groupName -eq $m.memberName } | Select-Object -First 1
+                        if ($matchedGroup) { $source = $matchedGroup.directory }
+                    }
+                    elseif ($m.memberType -eq "User") {
+                        # Fetch User Details to get Source
+                        $uInfo = Get-CACUserDetailsFromStore -InputValue $m.memberName
+                        if ($uInfo -and $uInfo.Source) { $source = $uInfo.Source }
+                    }
+                }
+                catch { $source = "LookupFailed" }
+                
+                $row["MemberSource"] = $source
+
+                if ($m.memberType -eq "Group") {
+                    $gUsers = Get-CACGroupUsers -GroupName $m.memberName
+                    if ($gUsers) {
+                        $row["SafeUsers"] = ($gUsers.UserName -join ";")
+                    }
+                    else {
+                        $row["SafeUsers"] = "EMPTY_GROUP"
+                    }
+                }
+                else {
+                    # Singular User
+                    $row["SafeUsers"] = $m.memberName
+                }
+                
+                $results.Add([PSCustomObject]$row)
             }
         }
         catch {
             Write-Log "Error processing $safeName : $($_.Exception.Message)" "ERROR"
-            $results.Add([PSCustomObject]@{ SafeName = $safeName; MemberName = "ERROR"; MemberType = $_.Exception.Message })
+            $row = [ordered]@{ SafeName = $safeName; Error = $_.Exception.Message }
+            $results.Add([PSCustomObject]$row)
         }
     }
     Write-Progress -Activity "Generating Report" -Completed
 
+    # --- EXPORT ---
     if ($results.Count -gt 0) {
         $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-        $outFile = "$outPathBase/Safe_Members_Report_$timestamp.csv"
-        $results | Export-Csv $outFile -NoTypeInformation -Encoding UTF8
+        $outFile = "$outPathBase/Consolidated_SafeReport_$timestamp.csv"
         
+        $results | Export-Csv -Path $outFile -NoTypeInformation -Encoding UTF8
+        Write-Host ""
         Write-Host "Report Generated: $outFile" -ForegroundColor Green
         Write-Log "Exported $($results.Count) rows to $outFile" "SUCCESS"
     }
     else {
-        Write-Host "No data found." -ForegroundColor Yellow
+        Write-Host "No data found to export." -ForegroundColor Yellow
     }
+}
+
+# =========================================================
+# HELPER: Create detailed member row with permissions
+# =========================================================
+function New-CACSafeMemberDetailedRow {
+    param (
+        [string]$SafeName,
+        [object]$MemberObj,
+        [string]$MemberSource = "Unknown",
+        [hashtable]$SafeProps = @{} 
+    )
+
+    # Get permissions from member object
+    $perms = $MemberObj.permissions
+
+    # Helper to safely get permission value
+    function Get-Perm ($obj, $name) {
+        if ($null -eq $obj) { return $false }
+        if ($obj.PSObject.Properties.Match($name).Count -gt 0) { return [bool]$obj.$name }
+        return $false
+    }
+
+    # Build the row
+    $finalObj = [ordered]@{}
+    
+    # Always put SafeName first
+    $finalObj["SafeName"] = $SafeName
+
+    # Add optional Safe Attributes if provided
+    foreach ($key in $SafeProps.Keys) {
+        $finalObj[$key] = $SafeProps[$key]
+    }
+
+    # Add Member info
+    $finalObj["MemberName"] = $MemberObj.memberName
+    $finalObj["MemberType"] = $MemberObj.memberType
+    $finalObj["MemberSource"] = $MemberSource
+    $finalObj["IsPredefined"] = $MemberObj.isPredefinedUser
+    $finalObj["MembershipExpirationDate"] = $MemberObj.membershipExpirationDate
+
+    # Add Permissions
+    $finalObj["UseAccounts"] = Get-Perm $perms "useAccounts"
+    $finalObj["RetrieveAccounts"] = Get-Perm $perms "retrieveAccounts"
+    $finalObj["ListAccounts"] = Get-Perm $perms "listAccounts"
+    $finalObj["AddAccounts"] = Get-Perm $perms "addAccounts"
+    $finalObj["UpdateAccountContent"] = Get-Perm $perms "updateAccountContent"
+    $finalObj["UpdateAccountProperties"] = Get-Perm $perms "updateAccountProperties"
+    $finalObj["InitiateCPMOps"] = Get-Perm $perms "initiateCPMAccountManagementOperations"
+    $finalObj["SpecifyNextAccountContent"] = Get-Perm $perms "specifyNextAccountContent"
+    $finalObj["RenameAccounts"] = Get-Perm $perms "renameAccounts"
+    $finalObj["DeleteAccounts"] = Get-Perm $perms "deleteAccounts"
+    $finalObj["UnlockAccounts"] = Get-Perm $perms "unlockAccounts"
+    $finalObj["MoveAccountsAndFolders"] = Get-Perm $perms "moveAccountsAndFolders"
+    $finalObj["AccessWithoutConfirmation"] = Get-Perm $perms "accessWithoutConfirmation"
+    $finalObj["ManageSafe"] = Get-Perm $perms "manageSafe"
+    $finalObj["ManageSafeMembers"] = Get-Perm $perms "manageSafeMembers"
+    $finalObj["BackupSafe"] = Get-Perm $perms "backupSafe"
+    $finalObj["ViewAuditLog"] = Get-Perm $perms "viewAuditLog"
+    $finalObj["ViewSafeMembers"] = Get-Perm $perms "viewSafeMembers"
+    $finalObj["CreateFolders"] = Get-Perm $perms "createFolders"
+    $finalObj["DeleteFolders"] = Get-Perm $perms "deleteFolders"
+    $finalObj["RequestsAuthorizationLevel1"] = Get-Perm $perms "requestsAuthorizationLevel1"
+    $finalObj["RequestsAuthorizationLevel2"] = Get-Perm $perms "requestsAuthorizationLevel2"
+
+    return [PSCustomObject]$finalObj
 }
 
 # =========================================================
@@ -760,5 +1003,6 @@ Export-ModuleMember -Function `
     Add-CACSafeMember, `
     Import-CACSafeMembers, `
     Export-CACSafeAccountCounts, `
-    Export-CACSafeMembersReport, `
+    Export-CACConsolidatedReport, `
     Get-CACResponseData
+

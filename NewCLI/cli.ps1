@@ -348,7 +348,7 @@ function Show-SafeMenu {
         Write-Host "5. Get Safe Members"
         Write-Host "6. Add Safe Member"
         Write-Host "7. Safe Account Counts"
-        Write-Host "8. Export Safe Members Report"
+        Write-Host "8. Consolidated Safe Report"
         Write-Host "0. Back"
 
         $choice = Read-Host "Enter Choice"
@@ -361,7 +361,7 @@ function Show-SafeMenu {
             '5' { Get-CACSafeMembers; Pause }
             '6' { Add-CACSafeMember; Pause }
             '7' { Export-CACSafeAccountCounts; Pause }
-            '8' { Export-CACSafeMembersReport; Pause }
+            '8' { Export-CACConsolidatedReport; Pause }
             '0' { return }
 
             default {

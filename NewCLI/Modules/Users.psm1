@@ -77,7 +77,7 @@ function New-CACUserStore {
             $offset += $limit
             
             Write-Progress -Activity "User Cache Refresh" -Status "Fetched $($allUsers.Count) users..." -PercentComplete 50
-        } while ($users.Count -ge $limit)
+        } while ($users.Count -eq $limit)
 
         if ($allUsers.Count -eq 0) {
             Write-Log "No users returned from Vault" "WARN"
@@ -103,28 +103,37 @@ function New-CACUserStore {
         $percent = ($counter / $total) * 100
         Write-Progress -Activity "User Cache Refresh" -Status "Processing $counter of $total : $($u.username)" -PercentComplete $percent
 
+        # Fetch full details for specific user
+        $userDetails = $u
+        try { 
+            $userDetails = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Users/$($u.id)"
+        } 
+        catch { 
+            Write-Log "Could not fetch details for user $($u.username). Using basic info. Error: $($_.Exception.Message)" "WARN"
+        }
+
         # Build flattened user object
         $fullName = ""
-        if ($u.personalDetails) {
-            $first = $u.personalDetails.firstName
-            $last = $u.personalDetails.lastName
+        if ($userDetails.personalDetails) {
+            $first = $userDetails.personalDetails.firstName
+            $last = $userDetails.personalDetails.lastName
             $fullName = "$first $last".Trim()
         }
-        if (-not $fullName) { $fullName = $u.username }
+        if (-not $fullName) { $fullName = $userDetails.username }
 
-        $statusStr = if ($u.suspended -eq $true) { "Suspended" } else { "Active" }
+        $statusStr = if ($userDetails.suspended -eq $true) { "Suspended" } else { "Active" }
 
         $userObj = New-CACUserObject `
-            -Id $u.id `
-            -UserName $u.username `
+            -Id $userDetails.id `
+            -UserName $userDetails.username `
             -FullName $fullName `
-            -Email $(if ($u.internet) { $u.internet.businessEmail } else { "" }) `
-            -Phone $(if ($u.phones) { $u.phones.cellularNumber } else { "" }) `
-            -Department $(if ($u.personalDetails) { $u.personalDetails.department } else { "" }) `
-            -Title $(if ($u.personalDetails) { $u.personalDetails.title } else { "" }) `
-            -Organization $(if ($u.personalDetails) { $u.personalDetails.organization } else { "" }) `
-            -Source $u.source `
-            -UserType $u.userType `
+            -Email $(if ($userDetails.internet) { $userDetails.internet.businessEmail } else { "" }) `
+            -Phone $(if ($userDetails.phones) { $userDetails.phones.cellularNumber } else { "" }) `
+            -Department $(if ($userDetails.personalDetails) { $userDetails.personalDetails.department } else { "" }) `
+            -Title $(if ($userDetails.personalDetails) { $userDetails.personalDetails.title } else { "" }) `
+            -Organization $(if ($userDetails.personalDetails) { $userDetails.personalDetails.organization } else { "" }) `
+            -Source $userDetails.source `
+            -UserType $userDetails.userType `
             -Status $statusStr
 
         $finalUsers += $userObj

@@ -164,7 +164,7 @@ function Get-CACAppAuthMethods {
             
             foreach ($p in $props) {
                 if ($p -ne "AuthType") {
-                    Write-Host "  $p: $($method.$p)"
+                    Write-Host "  $p : $($method.$p)"
                 }
             }
             Write-Host "-------------------------" -ForegroundColor DarkGray

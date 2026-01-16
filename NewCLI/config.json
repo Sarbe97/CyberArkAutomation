@@ -2,6 +2,15 @@
   "PVWAURL": "http://localhost:8080",
   "UserCacheTTL": 30,
   "LogLevel": "INFO",
+  "DefaultGroups": [
+    "Vault Admins",
+    "PVWAMonitor",
+    "PasswordManager",
+    "DR Users",
+    "Auditors",
+    "Operators",
+    "Notification Engines"
+  ],
   "SafePermissionSets": {
     "SAFE_READ": [
       "UseAccounts",

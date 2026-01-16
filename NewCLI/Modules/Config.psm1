@@ -134,4 +134,27 @@ function Get-CACAvailablePermissionSets {
     return @($config.SafePermissionSets.PSObject.Properties.Name)
 }
 
-Export-ModuleMember -Function Get-CACConfig, Get-CACPermissionSet, Get-CACAvailablePermissionSets
+function Get-CACDefaultGroups {
+    <#
+    .SYNOPSIS
+        Gets the list of default groups from config.json.
+    .DESCRIPTION
+        Returns an array of group names that should be skipped when retrieving user details.
+        These are common groups that exist in most safes (e.g., Vault Admins, Auditors).
+    .OUTPUTS
+        Array of default group names.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $config = Get-CACConfig
+
+    if ($null -eq $config.DefaultGroups) {
+        return @()
+    }
+
+    return @($config.DefaultGroups)
+}
+
+Export-ModuleMember -Function Get-CACConfig, Get-CACPermissionSet, Get-CACAvailablePermissionSets, Get-CACDefaultGroups
+

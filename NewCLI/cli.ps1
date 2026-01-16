@@ -304,6 +304,8 @@ function Show-UserMenu {
         Write-Host "2. Get Group Members"
         Write-Host "3. Refresh User Cache"
         Write-Host "4. Lookup User (from Cache)"
+        Write-Host "5. Delete Group"
+        Write-Host "6. Batch Delete Groups"
         Write-Host "0. Back"
 
         $choice = Read-Host "Enter Choice"
@@ -320,6 +322,8 @@ function Show-UserMenu {
                 }
                 Pause
             }
+            '5' { Remove-CACGroup; Pause }
+            '6' { Invoke-CACBatchGroupDeletion; Pause }
             '0' { return }
 
             default {

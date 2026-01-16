@@ -675,6 +675,10 @@ function Export-CACConsolidatedReport {
     $reqSafeAttrs = 'n'
     $reqPerms = 'n'
     $reqDetailUsers = 'n'
+    $includeDefaultGroupUsers = 'n'
+
+    # Get default groups from config
+    $defaultGroups = Get-CACDefaultGroups
 
     if ($reqMembers -eq 'y') {
         $reqSafeAttrs = Read-Host "2. Include Safe Attributes in Report? (y/n)"
@@ -682,6 +686,17 @@ function Export-CACConsolidatedReport {
         
         if ($reqPerms -ne 'y') {
             $reqDetailUsers = Read-Host "4. Detailed User Information Required? (y/n)"
+        }
+
+        # Show default groups prompt if user details are being fetched
+        if ($reqDetailUsers -eq 'y' -or $reqPerms -ne 'y') {
+            if ($defaultGroups.Count -gt 0) {
+                Write-Host ""
+                Write-Host "--- Default Groups (from config.json) ---" -ForegroundColor Yellow
+                $defaultGroups | ForEach-Object { Write-Host "   - $_" -ForegroundColor Gray }
+                Write-Host ""
+                $includeDefaultGroupUsers = Read-Host "5. Include user details for default groups? (y/n)"
+            }
         }
     }
     else {
@@ -746,6 +761,21 @@ function Export-CACConsolidatedReport {
             # --- BRANCH 3: Detailed User Info (Rows per user) ---
             if ($reqDetailUsers -eq 'y') {
                 foreach ($m in $members) {
+                    # Check if this is a default group that should be skipped
+                    $isDefaultGroup = ($m.memberType -eq "Group") -and ($m.memberName -in $defaultGroups)
+                    
+                    if ($isDefaultGroup -and $includeDefaultGroupUsers -ne 'y') {
+                        # Just add the group name without fetching users
+                        $row = [ordered]@{ SafeName = $safeName }
+                        foreach ($k in $safePropsHash.Keys) { $row[$k] = $safePropsHash[$k] }
+                        $row["SafeMemberName"] = $m.memberName
+                        $row["SafeMemberType"] = $m.memberType
+                        $row["Status"] = "DefaultGroup"
+                        $row["UserName"] = "(Skipped - Default Group)"
+                        $results.Add([PSCustomObject]$row)
+                        continue
+                    }
+
                     # 1. Resolve Users for this member
                     $usersToProcess = @()
                     if ($m.memberType -eq "User") {
@@ -763,7 +793,8 @@ function Export-CACConsolidatedReport {
                          
                         $row["SafeMemberName"] = $m.memberName
                         $row["SafeMemberType"] = $m.memberType
-                        $row["UserName"] = "EMPTY/NO MEMBERS"
+                        $row["Status"] = "Empty"
+                        $row["UserName"] = "-"
                          
                         $results.Add([PSCustomObject]$row)
                         continue
@@ -780,6 +811,7 @@ function Export-CACConsolidatedReport {
                         
                         $row["SafeMemberName"] = $m.memberName
                         $row["SafeMemberType"] = $m.memberType
+                        $row["Status"] = "HasMembers"
                         
                         if ($uDetails) {
                             $row["UserName"] = $uDetails.UserName
@@ -809,16 +841,28 @@ function Export-CACConsolidatedReport {
                 $row["MemberType"] = $m.memberType
 
                 if ($m.memberType -eq "Group") {
-                    $gUsers = Get-CACGroupUsers -GroupName $m.memberName
-                    if ($gUsers) {
-                        $row["SafeUsers"] = ($gUsers.UserName -join ";")
+                    # Check if this is a default group that should be skipped
+                    $isDefaultGroup = $m.memberName -in $defaultGroups
+                    
+                    if ($isDefaultGroup -and $includeDefaultGroupUsers -ne 'y') {
+                        $row["Status"] = "DefaultGroup"
+                        $row["SafeUsers"] = "(Skipped - Default Group)"
                     }
                     else {
-                        $row["SafeUsers"] = "EMPTY_GROUP"
+                        $gUsers = Get-CACGroupUsers -GroupName $m.memberName
+                        if ($gUsers) {
+                            $row["Status"] = "HasMembers"
+                            $row["SafeUsers"] = ($gUsers.UserName -join ";")
+                        }
+                        else {
+                            $row["Status"] = "Empty"
+                            $row["SafeUsers"] = "-"
+                        }
                     }
                 }
                 else {
                     # Singular User
+                    $row["Status"] = "User"
                     $row["SafeUsers"] = $m.memberName
                 }
                 

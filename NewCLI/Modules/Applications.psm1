@@ -15,13 +15,14 @@ function Get-CACAllApplications {
     try {
         Write-Host "Fetching all applications..." -ForegroundColor Cyan
 
-        # Note: Applications often use the legacy PIM API
-        $endpoint = "/WebServices/PIMServices.svc/Applications/"
+        # Note: Applications use the legacy PIM API
+        $endpoint = "/WebServices/PIMServices.svc/Applications"
         
         $response = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint
 
         $apps = @()
-        if ($response.value) { $apps = @($response.value) }
+        if ($response.application) { $apps = @($response.application) }
+        elseif ($response.value) { $apps = @($response.value) }
         elseif ($response -is [array]) { $apps = @($response) }
         
         if ($apps.Count -eq 0) {
@@ -88,8 +89,11 @@ function Get-CACApplicationDetails {
 
         Write-Host "Fetching application details..." -ForegroundColor Cyan
 
-        $endpoint = "/WebServices/PIMServices.svc/Applications/$([System.Web.HttpUtility]::UrlEncode($appId))/"
-        $app = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint
+        $endpoint = "/WebServices/PIMServices.svc/Applications/$([System.Web.HttpUtility]::UrlEncode($appId))"
+        $response = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint
+        
+        # Response might be wrapped in 'application' property
+        $app = if ($response.application) { $response.application } else { $response }
 
         if (-not $app) {
             Write-Host "Application not found." -ForegroundColor Yellow
@@ -135,11 +139,12 @@ function Get-CACAppAuthMethods {
 
         Write-Host "Fetching authentication methods..." -ForegroundColor Cyan
 
-        $endpoint = "/WebServices/PIMServices.svc/Applications/$([System.Web.HttpUtility]::UrlEncode($appId))/Authentications/"
+        $endpoint = "/WebServices/PIMServices.svc/Applications/$([System.Web.HttpUtility]::UrlEncode($appId))/Authentications"
         $response = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint
 
         $methods = @()
-        if ($response.value) { $methods = @($response.value) }
+        if ($response.authentication) { $methods = @($response.authentication) }
+        elseif ($response.value) { $methods = @($response.value) }
         elseif ($response -is [array]) { $methods = @($response) }
 
         if ($methods.Count -eq 0) {
@@ -202,11 +207,12 @@ function Search-CACApplications {
 
         Write-Host "Searching applications..." -ForegroundColor Cyan
 
-        $endpoint = "/WebServices/PIMServices.svc/Applications/"
+        $endpoint = "/WebServices/PIMServices.svc/Applications"
         $response = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint
         
         $apps = @()
-        if ($response.value) { $apps = @($response.value) }
+        if ($response.application) { $apps = @($response.application) }
+        elseif ($response.value) { $apps = @($response.value) }
         elseif ($response -is [array]) { $apps = @($response) }
 
         $results = $apps | Where-Object { $_.AppID -like "*$search*" -or $_.Description -like "*$search*" }

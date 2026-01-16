@@ -172,30 +172,30 @@ function Show-MainMenu {
         Write-Host "============================================="
         Write-Host ""
         Write-Host "--- MAIN MENU ---" -ForegroundColor Yellow
-        Write-Host "1. Account Operations"
-        Write-Host "2. Safe Operations"
-        Write-Host "3. Safe Activities"
-        Write-Host "4. Discovery & Onboarding"
-        Write-Host "5. Platform Management"
-        Write-Host "6. Application Management"
-        Write-Host "7. System Health"
-        Write-Host "8. User Utilities"
-        Write-Host "9. Session Info"
+        Write-Host "1. Session Info"
+        Write-Host "2. User Utilities"
+        Write-Host "3. System Health"
+        Write-Host "4. Account Operations"
+        Write-Host "5. Safe Operations"
+        Write-Host "6. Safe Activities"
+        Write-Host "7. Platform Management"
+        Write-Host "8. Discovery & Onboarding"
+        Write-Host "9. Application Management"
         Write-Host "10. Logout"
         Write-Host "0. Exit"
 
         $choice = Read-Host "Select an option"
 
         switch ($choice) {
-            '1' { Show-AccountMenu }
-            '2' { Show-SafeMenu }
-            '3' { Show-SafeActivitiesMenu }
-            '4' { Show-DiscoveryMenu }
-            '5' { Show-PlatformMenu }
-            '6' { Show-ApplicationMenu }
-            '7' { Show-SystemHealthMenu }
-            '8' { Show-UserMenu }
-            '9' { Show-SessionMenu }
+            '1' { Show-SessionMenu }
+            '2' { Show-UserMenu }
+            '3' { Show-SystemHealthMenu }
+            '4' { Show-AccountMenu }
+            '5' { Show-SafeMenu }
+            '6' { Show-SafeActivitiesMenu }
+            '7' { Show-PlatformMenu }
+            '8' { Show-DiscoveryMenu }
+            '9' { Show-ApplicationMenu }
 
             '10' {
                 Invoke-CACLogout

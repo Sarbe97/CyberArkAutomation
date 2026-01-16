@@ -43,8 +43,7 @@ function Invoke-CACLogin {
             return $false
         }
 
-        # Save URL if new
-        Set-CACConfig -PVWAURL $result.Url
+        # NOTE: PVWAURL must be configured manually in config.json
 
         $baseUrl = $result.Url.TrimEnd('/')
         $pvwaBase = "$baseUrl/PasswordVault"
@@ -113,10 +112,7 @@ function Invoke-CACLogin {
             return $false
         }
 
-        # Save URL if new or changed
-        if ($url -ne $cfg.PVWAURL) {
-            Set-CACConfig -PVWAURL $url
-        }
+        # NOTE: PVWAURL must be configured manually in config.json
 
         # Get SAMLResponse from helper function
         $authResult = Invoke-SAMLAuthentication -PVWAURL $url

@@ -216,50 +216,62 @@ function Invoke-CACAPIRequest {
 # HELPER FUNCTIONS FOR COMMON OPERATIONS
 # ============================================================================
 
-function Invoke-CACGetRequest {
+function ConvertTo-CACResponseArray {
     <#
     .SYNOPSIS
-        Shorthand for GET requests.
+        Converts various API response formats to a consistent array.
+    .DESCRIPTION
+        CyberArk API responses can return data in different formats:
+        - { value: [...] } - Most list endpoints
+        - { Users: [...] } - Users endpoint
+        - [...] - Direct array
+        - { ... } - Single object
+        This function normalizes all these to a consistent array.
+    .PARAMETER Response
+        The API response object to convert.
+    .PARAMETER PropertyName
+        Optional property name to extract (e.g., "Users", "Accounts").
+        If not specified, tries "value" first, then checks if response is array.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Endpoint
-    )
-
-    return Invoke-CACAPIRequest -Method GET -Endpoint $Endpoint
-}
-
-function Invoke-CACPostRequest {
-    <#
-    .SYNOPSIS
-        Shorthand for POST requests.
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Endpoint,
+        [AllowNull()]
+        $Response,
 
         [Parameter(Mandatory = $false)]
-        [object]$Body
+        [string]$PropertyName
     )
 
-    return Invoke-CACAPIRequest -Method POST -Endpoint $Endpoint -Body $Body
-}
+    if ($null -eq $Response) {
+        return @()
+    }
 
-function Invoke-CACDeleteRequest {
-    <#
-    .SYNOPSIS
-        Shorthand for DELETE requests.
-    #>
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Endpoint
-    )
+    # If specific property name is provided, try that first
+    if ($PropertyName -and $Response.$PropertyName) {
+        return @($Response.$PropertyName)
+    }
 
-    return Invoke-CACAPIRequest -Method DELETE -Endpoint $Endpoint
+    # Try common property names
+    if ($Response.value) {
+        return @($Response.value)
+    }
+    if ($Response.Users) {
+        return @($Response.Users)
+    }
+    if ($Response.Accounts) {
+        return @($Response.Accounts)
+    }
+
+    # Check if response itself is an array
+    if ($Response -is [array]) {
+        return @($Response)
+    }
+
+    # Single object - wrap in array
+    return @($Response)
 }
 
 Export-ModuleMember -Function Initialize-CACSession, Get-CACSession, Test-CACSession, Clear-CACSession, 
-Invoke-CACAPIRequest, Invoke-CACGetRequest, Invoke-CACPostRequest, Invoke-CACDeleteRequest
+Invoke-CACAPIRequest, ConvertTo-CACResponseArray
+

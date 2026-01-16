@@ -169,8 +169,8 @@ function Invoke-CACBatchSafeCreation {
                 Log "Group check/create failed: $($_.Exception.Message)" "ERROR"
             }
 
-            # Add users to group if specified
-            if ($memberReady -and -not [string]::IsNullOrWhiteSpace($groupMembers)) {
+            # Add users to group ONLY if group was newly created
+            if ($memberReady -and $result.MemberStatus -eq "Created" -and -not [string]::IsNullOrWhiteSpace($groupMembers)) {
                 $members = $groupMembers -split ";" | ForEach-Object { $_.Trim() } | Where-Object { $_ }
                 $addedMembers = @()
                 $failedMembers = @()
@@ -276,7 +276,7 @@ function Invoke-CACBatchSafeCreation {
             if ($match) { $permissions[$match] = $true }
         }
 
-        Log "Permissions: $($permissions.Keys | Where-Object { $permissions[$_] } | Join-String -Separator ', ')" "DEBUG"
+        Log "Permissions: $(($permissions.Keys | Where-Object { $permissions[$_] }) -join ', ')" "DEBUG"
 
         try {
             $safeMemberBody = @{

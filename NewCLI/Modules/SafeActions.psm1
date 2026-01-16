@@ -1,110 +1,10 @@
 # =============================================================================
 # SafeActions.psm1
-# Description: Consolidated Safe Operations - Create, Rename, Sync
-#              Uses raw CyberArk REST API
+# Description: Safe Operations - Create and Rename (Batch from CSV)
 # =============================================================================
 
 # =============================================================================
-# COMMON HELPER FUNCTIONS
-# =============================================================================
-
-function Get-CACPermissionParams {
-    param(
-        [array]$PermissionSource,
-        [hashtable]$PermissionSets
-    )
-
-    # All valid API permission names (lowercase as expected by REST API)
-    $validPerms = @(
-        "useAccounts", "retrieveAccounts", "listAccounts", "addAccounts",
-        "updateAccountContent", "updateAccountProperties", 
-        "initiateCPMAccountManagementOperations", "specifyNextAccountContent",
-        "renameAccounts", "deleteAccounts", "unlockAccounts",
-        "manageSafe", "manageSafeMembers", "backupSafe",
-        "viewAuditLog", "viewSafeMembers", "accessWithoutConfirmation",
-        "createFolders", "deleteFolders", "moveAccountsAndFolders",
-        "requestsAuthorizationLevel1", "requestsAuthorizationLevel2"
-    )
-
-    # Initialize all permissions to false
-    $permissions = @{}
-    foreach ($p in $validPerms) {
-        $permissions[$p] = $false
-    }
-
-    # Set provided permissions to true (direct match, case-insensitive)
-    foreach ($p in $PermissionSource) {
-        $match = $validPerms | Where-Object { $_ -eq $p } | Select-Object -First 1
-        if ($match) {
-            $permissions[$match] = $true
-        }
-    }
-
-    return $permissions
-}
-
-
-function Test-CACSafeExistsInternal {
-    param([string]$SafeName)
-    try {
-        $safe = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($SafeName))"
-        return ($null -ne $safe)
-    }
-    catch { return $false }
-}
-
-function Test-CACGroupExistsInternal {
-    param([string]$GroupName)
-    try {
-        $groups = Invoke-CACAPIRequest -Method GET -Endpoint "/API/UserGroups?search=$([System.Web.HttpUtility]::UrlEncode($GroupName))"
-        $match = $groups.value | Where-Object { $_.groupName -eq $GroupName } | Select-Object -First 1
-        return ($null -ne $match)
-    }
-    catch { return $false }
-}
-
-function Test-CACUserExistsInternal {
-    param([string]$UserName)
-    try {
-        $users = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Users?search=$([System.Web.HttpUtility]::UrlEncode($UserName))"
-        $match = $users.Users | Where-Object { $_.username -eq $UserName } | Select-Object -First 1
-        return ($null -ne $match)
-    }
-    catch { return $false }
-}
-
-function Add-CACSafeMemberInternal {
-    param(
-        [string]$SafeName,
-        [string]$MemberName,
-        [hashtable]$Permissions
-    )
-
-    $body = @{
-        memberName  = $MemberName
-        permissions = $Permissions
-    }
-
-    try {
-        Invoke-CACAPIRequest -Method POST -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($SafeName))/Members" -Body $body
-        return @{ Success = $true; Status = "Added" }
-    }
-    catch {
-        if ($_.Exception.Message -match "409|already exists|SFWS014E") {
-            try {
-                Invoke-CACAPIRequest -Method PUT -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($SafeName))/Members/$([System.Web.HttpUtility]::UrlEncode($MemberName))" -Body @{ permissions = $Permissions }
-                return @{ Success = $true; Status = "Updated" }
-            }
-            catch {
-                return @{ Success = $false; Status = "Failed"; Error = $_.Exception.Message }
-            }
-        }
-        return @{ Success = $false; Status = "Failed"; Error = $_.Exception.Message }
-    }
-}
-
-# =============================================================================
-# 1. CREATE SAFES FROM CSV
+# 1. BATCH SAFE CREATION
 # =============================================================================
 function Invoke-CACBatchSafeCreation {
     [CmdletBinding()]
@@ -143,46 +43,55 @@ function Invoke-CACBatchSafeCreation {
 
     $config = Get-CACConfig
     $permissionSets = $config.SafePermissionSets
-    $results = @()
+    $results = [System.Collections.ArrayList]::new()
     $data = Import-Csv $CsvPath
 
     Write-Log "Processing $($data.Count) rows from CSV" "INFO"
 
     foreach ($row in $data) {
         $safeName = $row.SafeName.Trim()
-        $safeMember = $row.SafeMember.Trim()
-        $memberType = $row.MemberType.Trim()
+        $safeMember = if ($row.PSObject.Properties['SafeMember']) { $row.SafeMember.Trim() } else { "" }
+        $memberType = if ($row.PSObject.Properties['MemberType']) { $row.MemberType.Trim() } else { "Group" }
+        $groupMembers = if ($row.PSObject.Properties['GroupMembers']) { $row.GroupMembers.Trim() } else { "" }
 
         Write-Host "`n==================================================================" -ForegroundColor Cyan
-        Write-Host " PROCESSING: Safe [$safeName] | Member [$safeMember] ($memberType)" -ForegroundColor Cyan
+        Write-Host " PROCESSING: Safe [$safeName]" -ForegroundColor Cyan
         Write-Host "==================================================================" -ForegroundColor Cyan
 
         $result = [ordered]@{
-            SafeName         = $safeName
-            SafeStatus       = "Unknown"
-            SafeMember       = $safeMember
-            MemberType       = $memberType
-            MembershipStatus = "NotAttempted"
-            OverallStatus    = "FAILED"
-            Message          = ""
+            SafeName      = $safeName
+            SafeStatus    = "Unknown"
+            SafeMember    = $safeMember
+            MemberType    = $memberType
+            MemberStatus  = "N/A"
+            MembersAdded  = ""
+            MembersFailed = ""
+            OverallStatus = "FAILED"
+            Message       = ""
         }
 
         # --- 1. SAFE CHECK / CREATE ---
         $safeReady = $false
-        if (Test-CACSafeExistsInternal $safeName) {
-            $safeReady = $true
-            $result.SafeStatus = "Exists"
-            Write-Host " -> Safe exists." -ForegroundColor Green
+        Write-Host " -> Checking Safe..." -NoNewline
+        try {
+            $safe = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))" -ErrorAction SilentlyContinue
+            if ($safe) {
+                $safeReady = $true
+                $result.SafeStatus = "Exists"
+                Write-Host " [EXISTS]" -ForegroundColor Green
+            }
         }
-        else {
+        catch {
+            # Safe doesn't exist, create it
             try {
                 $safeBody = @{ safeName = $safeName }
                 if (-not [string]::IsNullOrWhiteSpace($row.SafeDescription)) { $safeBody["description"] = $row.SafeDescription }
                 if (-not [string]::IsNullOrWhiteSpace($row.ManagingCPM)) { $safeBody["managingCPM"] = $row.ManagingCPM }
                 if ($row.NumberOfDaysRetention) { $safeBody["numberOfDaysRetention"] = [int]$row.NumberOfDaysRetention }
+                if ($row.NumberOfVersionsRetention) { $safeBody["numberOfVersionsRetention"] = [int]$row.NumberOfVersionsRetention }
 
-                Write-Host " -> Creating Safe..." -NoNewline
-                Invoke-CACAPIRequest -Method POST -Endpoint "/API/Safes" -Body $safeBody
+                Write-Host " Creating..." -NoNewline
+                Invoke-CACAPIRequest -Method POST -Endpoint "/API/Safes" -Body $safeBody | Out-Null
                 $safeReady = $true
                 $result.SafeStatus = "Created"
                 Write-Host " [CREATED]" -ForegroundColor Green
@@ -195,39 +104,120 @@ function Invoke-CACBatchSafeCreation {
         }
 
         if (-not $safeReady) { 
-            $results += [pscustomobject]$result
+            [void]$results.Add([pscustomobject]$result)
             continue 
         }
 
-        # --- 2. MEMBER VALIDATION ---
+        # Skip if no member specified
         if ([string]::IsNullOrWhiteSpace($safeMember)) {
-            $result.MembershipStatus = "Skipped"
             $result.OverallStatus = "SUCCESS"
-            $result.Message = "No member specified"
-            $results += [pscustomobject]$result
+            [void]$results.Add([pscustomobject]$result)
             continue
         }
 
-        Write-Host " -> Validating member: $safeMember..." -NoNewline
-        $memberExists = $false
+        # --- 2. HANDLE MEMBER (Group or User) ---
+        $memberReady = $false
+        $groupId = $null
 
         if ($memberType -eq "Group") {
-            $memberExists = Test-CACGroupExistsInternal $safeMember
+            # Check/Create Group
+            Write-Host " -> Checking Group [$safeMember]..." -NoNewline
+            try {
+                $groups = Invoke-CACAPIRequest -Method GET -Endpoint "/API/UserGroups?search=$([System.Web.HttpUtility]::UrlEncode($safeMember))"
+                $existingGroup = $groups.value | Where-Object { $_.groupName -eq $safeMember } | Select-Object -First 1
+                
+                if ($existingGroup) {
+                    $memberReady = $true
+                    $groupId = $existingGroup.id
+                    $result.MemberStatus = "Exists"
+                    Write-Host " [EXISTS]" -ForegroundColor Green
+                }
+                else {
+                    Write-Host " Creating..." -NoNewline
+                    $newGroup = Invoke-CACAPIRequest -Method POST -Endpoint "/API/UserGroups" -Body @{ groupName = $safeMember }
+                    $memberReady = $true
+                    $groupId = $newGroup.id
+                    $result.MemberStatus = "Created"
+                    Write-Host " [CREATED]" -ForegroundColor Green
+                }
+            }
+            catch {
+                $result.MemberStatus = "Failed"
+                $result.Message += " Group error: $($_.Exception.Message)"
+                Write-Host " [FAILED]" -ForegroundColor Red
+            }
+
+            # Add users to group if specified
+            if ($memberReady -and -not [string]::IsNullOrWhiteSpace($groupMembers)) {
+                $members = $groupMembers -split ";" | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+                $addedMembers = @()
+                $failedMembers = @()
+
+                Write-Host " -> Adding users to group..." -ForegroundColor Cyan
+                foreach ($member in $members) {
+                    Write-Host "    - $member..." -NoNewline
+                    try {
+                        $users = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Users?search=$([System.Web.HttpUtility]::UrlEncode($member))"
+                        $user = $users.Users | Where-Object { $_.username -eq $member } | Select-Object -First 1
+                        
+                        if ($user) {
+                            Invoke-CACAPIRequest -Method POST -Endpoint "/API/UserGroups/$groupId/Members" -Body @{ memberId = $user.id } | Out-Null
+                            $addedMembers += $member
+                            Write-Host " [ADDED]" -ForegroundColor Green
+                        }
+                        else {
+                            $failedMembers += "$member(NotFound)"
+                            Write-Host " [NOT FOUND]" -ForegroundColor Yellow
+                        }
+                    }
+                    catch {
+                        if ($_.Exception.Message -match "409|already exists") {
+                            $addedMembers += "$member(Exists)"
+                            Write-Host " [ALREADY MEMBER]" -ForegroundColor Green
+                        }
+                        else {
+                            $failedMembers += "$member(Error)"
+                            Write-Host " [FAILED]" -ForegroundColor Red
+                        }
+                    }
+                }
+                $result.MembersAdded = $addedMembers -join ";"
+                $result.MembersFailed = $failedMembers -join ";"
+            }
         }
-        elseif ($memberType -eq "User") {
-            $memberExists = Test-CACUserExistsInternal $safeMember
+        else {
+            # User - just validate exists
+            Write-Host " -> Checking User [$safeMember]..." -NoNewline
+            try {
+                $users = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Users?search=$([System.Web.HttpUtility]::UrlEncode($safeMember))"
+                $user = $users.Users | Where-Object { $_.username -eq $safeMember } | Select-Object -First 1
+                
+                if ($user) {
+                    $memberReady = $true
+                    $result.MemberStatus = "Exists"
+                    Write-Host " [EXISTS]" -ForegroundColor Green
+                }
+                else {
+                    $result.MemberStatus = "NotFound"
+                    Write-Host " [NOT FOUND]" -ForegroundColor Red
+                }
+            }
+            catch {
+                $result.MemberStatus = "Failed"
+                $result.Message += " User lookup error: $($_.Exception.Message)"
+                Write-Host " [FAILED]" -ForegroundColor Red
+            }
         }
 
-        if (-not $memberExists) {
-            $result.MembershipStatus = "Failed"
-            $result.Message = "$memberType '$safeMember' not found"
-            Write-Host " [NOT FOUND]" -ForegroundColor Red
-            $results += [pscustomobject]$result
+        if (-not $memberReady) {
+            [void]$results.Add([pscustomobject]$result)
             continue
         }
-        Write-Host " [OK]" -ForegroundColor Green
 
-        # --- 3. PERMISSIONS MAPPING ---
+        # --- 3. ADD MEMBER TO SAFE ---
+        Write-Host " -> Adding $memberType to Safe..." -NoNewline
+        
+        # Build permissions
         $permSource = if ($row.Permissions) { 
             $row.Permissions -split ";" | ForEach-Object { $_.Trim() } 
         }
@@ -235,24 +225,49 @@ function Invoke-CACBatchSafeCreation {
             $permissionSets.$($row.PermissionKey) 
         }
 
-        $permissions = Get-CACPermissionParams -PermissionSource $permSource -PermissionSets $permissionSets
+        $validPerms = @("useAccounts", "retrieveAccounts", "listAccounts", "addAccounts",
+            "updateAccountContent", "updateAccountProperties", 
+            "initiateCPMAccountManagementOperations", "specifyNextAccountContent",
+            "renameAccounts", "deleteAccounts", "unlockAccounts",
+            "manageSafe", "manageSafeMembers", "backupSafe",
+            "viewAuditLog", "viewSafeMembers", "accessWithoutConfirmation",
+            "createFolders", "deleteFolders", "moveAccountsAndFolders",
+            "requestsAuthorizationLevel1", "requestsAuthorizationLevel2")
+        
+        $permissions = @{}
+        foreach ($p in $validPerms) { $permissions[$p] = $false }
+        foreach ($p in $permSource) {
+            $match = $validPerms | Where-Object { $_ -eq $p } | Select-Object -First 1
+            if ($match) { $permissions[$match] = $true }
+        }
 
-        # --- 4. ADD MEMBER TO SAFE ---
-        Write-Host " -> Adding to Safe..." -NoNewline
-        $addResult = Add-CACSafeMemberInternal -SafeName $safeName -MemberName $safeMember -Permissions $permissions
-
-        if ($addResult.Success) {
-            $result.MembershipStatus = $addResult.Status
+        try {
+            Invoke-CACAPIRequest -Method POST -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members" -Body @{
+                memberName  = $safeMember
+                permissions = $permissions
+            } | Out-Null
+            Write-Host " [ADDED]" -ForegroundColor Green
             $result.OverallStatus = "SUCCESS"
-            Write-Host " [$($addResult.Status.ToUpper())]" -ForegroundColor Green
         }
-        else {
-            $result.MembershipStatus = "Failed"
-            $result.Message = $addResult.Error
-            Write-Host " [FAILED]" -ForegroundColor Red
+        catch {
+            if ($_.Exception.Message -match "409|already exists") {
+                try {
+                    Invoke-CACAPIRequest -Method PUT -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members/$([System.Web.HttpUtility]::UrlEncode($safeMember))" -Body @{ permissions = $permissions } | Out-Null
+                    Write-Host " [UPDATED]" -ForegroundColor Green
+                    $result.OverallStatus = "SUCCESS"
+                }
+                catch {
+                    Write-Host " [FAILED]" -ForegroundColor Red
+                    $result.Message += " Safe member update failed."
+                }
+            }
+            else {
+                Write-Host " [FAILED]" -ForegroundColor Red
+                $result.Message += " Safe member add failed: $($_.Exception.Message)"
+            }
         }
 
-        $results += [pscustomobject]$result
+        [void]$results.Add([pscustomobject]$result)
     }
 
     $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
@@ -261,7 +276,7 @@ function Invoke-CACBatchSafeCreation {
 }
 
 # =============================================================================
-# 2. RENAME SAFES FROM CSV (Rename & Sync)
+# 2. BATCH SAFE RENAME
 # =============================================================================
 function Invoke-CACBatchSafeRename {
     [CmdletBinding()]
@@ -298,164 +313,127 @@ function Invoke-CACBatchSafeRename {
     $PSDefaultParameterValues = $PSDefaultParameterValues.Clone()
     $PSDefaultParameterValues["Write-Log:LogName"] = "SafeRename"
 
-    $config = Get-CACConfig
-    $permissionSets = $config.SafePermissionSets
-    $script:results = @()
-
-    # Helper to add result
-    function Add-Result {
-        param($sName, $sStatus, $mName, $mType, $smStatus, $oStatus, $msg)
-        $script:results += [pscustomobject][ordered]@{
-            SafeName         = $sName
-            SafeStatus       = $sStatus
-            SafeMember       = $mName
-            MemberType       = $mType
-            MembershipStatus = $smStatus
-            OverallStatus    = $oStatus
-            Message          = $msg
-        }
-    }
-
-    # Helper to rename group
-    function Rename-Group {
-        param($OldGroup, $NewGroup, $Context)
-        try {
-            $groups = Invoke-CACAPIRequest -Method GET -Endpoint "/API/UserGroups?search=$([System.Web.HttpUtility]::UrlEncode($OldGroup))"
-            $srcGroup = $groups.value | Where-Object { $_.groupName -eq $OldGroup } | Select-Object -First 1
-            
-            if (-not $srcGroup) {
-                Write-Log "[$Context] Source Group '$OldGroup' not found." "WARN"
-                return
-            }
-
-            $targetGroups = Invoke-CACAPIRequest -Method GET -Endpoint "/API/UserGroups?search=$([System.Web.HttpUtility]::UrlEncode($NewGroup))"
-            $tgtGroup = $targetGroups.value | Where-Object { $_.groupName -eq $NewGroup } | Select-Object -First 1
-            
-            if ($tgtGroup) {
-                Write-Log "[$Context] Target Group '$NewGroup' already exists." "WARN"
-                return
-            }
-
-            Invoke-CACAPIRequest -Method PUT -Endpoint "/API/UserGroups/$($srcGroup.id)" -Body @{ groupName = $NewGroup }
-            Write-Log "[$Context] Group Renamed: $OldGroup -> $NewGroup" "SUCCESS"
-            Write-Host "   -> Group Renamed: $OldGroup -> $NewGroup" -ForegroundColor Green
-        }
-        catch {
-            Write-Log "[$Context] Group Rename Failed: $($_.Exception.Message)" "ERROR"
-        }
-    }
-
+    $results = [System.Collections.ArrayList]::new()
     $data = Import-Csv $CsvPath
-    $groupedData = $data | Group-Object SafeName
 
-    Write-Log "Processing $($groupedData.Count) safes from CSV" "INFO"
+    Write-Log "Processing $($data.Count) rows from CSV" "INFO"
 
-    foreach ($group in $groupedData) {
-        $safeName = $group.Name.Trim()
-        $safeRows = $group.Group
-        
+    foreach ($row in $data) {
+        $oldSafeName = $row.OldSafeName.Trim()
+        $newSafeName = $row.SafeName.Trim()
+        $oldGroupName = if ($row.PSObject.Properties['OldGroupName']) { $row.OldGroupName.Trim() } else { "" }
+        $newGroupName = if ($row.PSObject.Properties['GroupName']) { $row.GroupName.Trim() } else { "" }
+
         Write-Host "`n==================================================================" -ForegroundColor Cyan
-        Write-Host " PROCESSING SAFE: [$safeName]" -ForegroundColor Cyan
+        Write-Host " RENAMING: [$oldSafeName] -> [$newSafeName]" -ForegroundColor Cyan
         Write-Host "==================================================================" -ForegroundColor Cyan
 
-        # --- STEP 1: SAFE RENAME / CHECK ---
-        $safeReady = $false
-        $safeStatus = "Unknown"
-        $oldSafeName = if ($safeRows[0].PSObject.Properties['OldSafeName']) { $safeRows[0].OldSafeName } else { $null }
-        $renameOccurred = $false
-
-        if (Test-CACSafeExistsInternal $safeName) {
-            $safeReady = $true
-            $safeStatus = "Exists"
-            Write-Host " -> Safe '$safeName' already exists." -ForegroundColor Green
-        }
-        elseif (-not [string]::IsNullOrWhiteSpace($oldSafeName)) {
-            Write-Host " -> Checking Old Safe: '$oldSafeName'..." -NoNewline
-            
-            if (Test-CACSafeExistsInternal $oldSafeName) {
-                try {
-                    Invoke-CACAPIRequest -Method PUT -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($oldSafeName))" -Body @{ safeName = $safeName }
-                    $safeReady = $true
-                    $safeStatus = "Renamed"
-                    $renameOccurred = $true
-                    Write-Host " [RENAMED]" -ForegroundColor Green
-                }
-                catch {
-                    Write-Host " [FAILED]" -ForegroundColor Red
-                }
-            }
-            else {
-                Write-Host " [NOT FOUND]" -ForegroundColor Yellow
-            }
+        $result = [ordered]@{
+            OldSafeName   = $oldSafeName
+            NewSafeName   = $newSafeName
+            SafeStatus    = "Unknown"
+            OldGroupName  = $oldGroupName
+            NewGroupName  = $newGroupName
+            GroupStatus   = "N/A"
+            OverallStatus = "FAILED"
+            Message       = ""
         }
 
-        if (-not $safeReady) {
-            Write-Host " -> Safe not found. Skipping." -ForegroundColor Yellow
-            foreach ($r in $safeRows) {
-                Add-Result $safeName "Skipped" $r.SafeMember $r.MemberType "N/A" "SKIPPED" "Safe not found"
+        # --- 1. CHECK IF NEW SAFE ALREADY EXISTS ---
+        Write-Host " -> Checking if [$newSafeName] exists..." -NoNewline
+        try {
+            $existingSafe = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($newSafeName))" -ErrorAction SilentlyContinue
+            if ($existingSafe) {
+                $result.SafeStatus = "AlreadyExists"
+                $result.Message = "Target safe name already exists"
+                Write-Host " [ALREADY EXISTS - SKIP]" -ForegroundColor Yellow
+                [void]$results.Add([pscustomobject]$result)
+                continue
             }
+        }
+        catch {
+            Write-Host " [OK]" -ForegroundColor Green
+        }
+
+        # --- 2. CHECK IF OLD SAFE EXISTS ---
+        Write-Host " -> Checking if [$oldSafeName] exists..." -NoNewline
+        try {
+            $oldSafe = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($oldSafeName))" -ErrorAction SilentlyContinue
+            if (-not $oldSafe) {
+                $result.SafeStatus = "NotFound"
+                $result.Message = "Source safe not found"
+                Write-Host " [NOT FOUND]" -ForegroundColor Red
+                [void]$results.Add([pscustomobject]$result)
+                continue
+            }
+            Write-Host " [FOUND]" -ForegroundColor Green
+        }
+        catch {
+            $result.SafeStatus = "NotFound"
+            $result.Message = "Source safe not found"
+            Write-Host " [NOT FOUND]" -ForegroundColor Red
+            [void]$results.Add([pscustomobject]$result)
             continue
         }
 
-        # --- STEP 2: GROUP RENAME (If Safe Rename Occurred) ---
-        if ($renameOccurred -and -not [string]::IsNullOrWhiteSpace($oldSafeName)) {
-            Write-Host " -> Renaming associated groups..." -ForegroundColor Cyan
-            Rename-Group "KA_${oldSafeName}_R" "KA_${safeName}_R" $safeName
-            Rename-Group "KA_${oldSafeName}_RW" "KA_${safeName}_RW" $safeName
+        # --- 3. RENAME SAFE ---
+        Write-Host " -> Renaming Safe..." -NoNewline
+        try {
+            $updateBody = @{ safeName = $newSafeName }
+            if (-not [string]::IsNullOrWhiteSpace($row.SafeDescription)) { $updateBody["description"] = $row.SafeDescription }
+            if (-not [string]::IsNullOrWhiteSpace($row.ManagingCPM)) { $updateBody["managingCPM"] = $row.ManagingCPM }
+
+            Invoke-CACAPIRequest -Method PUT -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($oldSafeName))" -Body $updateBody | Out-Null
+            $result.SafeStatus = "Renamed"
+            Write-Host " [RENAMED]" -ForegroundColor Green
+        }
+        catch {
+            $result.SafeStatus = "Failed"
+            $result.Message = "Safe rename failed: $($_.Exception.Message)"
+            Write-Host " [FAILED]" -ForegroundColor Red
+            [void]$results.Add([pscustomobject]$result)
+            continue
         }
 
-        # --- STEP 3: SYNC SAFE PROPERTIES ---
-        $desc = if ($safeRows[0].PSObject.Properties['SafeDescription']) { $safeRows[0].SafeDescription } else { $null }
-        $cpm = if ($safeRows[0].PSObject.Properties['ManagingCPM']) { $safeRows[0].ManagingCPM } else { $null }
-
-        $updateBody = @{}
-        if (-not [string]::IsNullOrWhiteSpace($desc)) { $updateBody["description"] = $desc }
-        if (-not [string]::IsNullOrWhiteSpace($cpm)) { $updateBody["managingCPM"] = $cpm }
-
-        if ($updateBody.Count -gt 0) {
+        # --- 4. RENAME GROUP (if specified) ---
+        if (-not [string]::IsNullOrWhiteSpace($oldGroupName) -and -not [string]::IsNullOrWhiteSpace($newGroupName)) {
+            Write-Host " -> Renaming Group [$oldGroupName] -> [$newGroupName]..." -NoNewline
             try {
-                Invoke-CACAPIRequest -Method PUT -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))" -Body $updateBody
-                Write-Host " -> Safe properties updated." -ForegroundColor Green
+                $groups = Invoke-CACAPIRequest -Method GET -Endpoint "/API/UserGroups?search=$([System.Web.HttpUtility]::UrlEncode($oldGroupName))"
+                $srcGroup = $groups.value | Where-Object { $_.groupName -eq $oldGroupName } | Select-Object -First 1
+                
+                if (-not $srcGroup) {
+                    $result.GroupStatus = "NotFound"
+                    Write-Host " [SOURCE NOT FOUND]" -ForegroundColor Yellow
+                }
+                else {
+                    # Check if target group already exists
+                    $targetGroups = Invoke-CACAPIRequest -Method GET -Endpoint "/API/UserGroups?search=$([System.Web.HttpUtility]::UrlEncode($newGroupName))"
+                    $tgtGroup = $targetGroups.value | Where-Object { $_.groupName -eq $newGroupName } | Select-Object -First 1
+                    
+                    if ($tgtGroup) {
+                        $result.GroupStatus = "TargetExists"
+                        Write-Host " [TARGET ALREADY EXISTS]" -ForegroundColor Yellow
+                    }
+                    else {
+                        Invoke-CACAPIRequest -Method PUT -Endpoint "/API/UserGroups/$($srcGroup.id)" -Body @{ groupName = $newGroupName } | Out-Null
+                        $result.GroupStatus = "Renamed"
+                        Write-Host " [RENAMED]" -ForegroundColor Green
+                    }
+                }
             }
             catch {
-                Write-Host " -> Failed to update properties." -ForegroundColor Red
-            }
-        }
-
-        # --- STEP 4: SYNC PERMISSIONS ---
-        foreach ($row in $safeRows) {
-            $safeMember = $row.SafeMember.Trim()
-            $memberType = $row.MemberType.Trim()
-            
-            if ([string]::IsNullOrWhiteSpace($safeMember)) { continue }
-            
-            Write-Host "   Member: $safeMember" -ForegroundColor Gray -NoNewline
-
-            $memberExists = if ($memberType -eq "Group") { Test-CACGroupExistsInternal $safeMember } else { Test-CACUserExistsInternal $safeMember }
-
-            if (-not $memberExists) {
-                Write-Host " [NOT FOUND]" -ForegroundColor Red
-                Add-Result $safeName $safeStatus $safeMember $memberType "Failed" "FAILED" "$memberType not found"
-                continue
-            }
-
-            $permSource = if ($row.Permissions) { $row.Permissions -split ";" | ForEach-Object { $_.Trim() } } else { $permissionSets.$($row.PermissionKey) }
-            $permissions = Get-CACPermissionParams -PermissionSource $permSource -PermissionSets $permissionSets
-
-            $addResult = Add-CACSafeMemberInternal -SafeName $safeName -MemberName $safeMember -Permissions $permissions
-
-            if ($addResult.Success) {
-                Write-Host " [$($addResult.Status.ToUpper())]" -ForegroundColor Green
-                Add-Result $safeName $safeStatus $safeMember $memberType $addResult.Status "SUCCESS" "OK"
-            }
-            else {
+                $result.GroupStatus = "Failed"
+                $result.Message += " Group rename error: $($_.Exception.Message)"
                 Write-Host " [FAILED]" -ForegroundColor Red
-                Add-Result $safeName $safeStatus $safeMember $memberType "Failed" "FAILED" $addResult.Error
             }
         }
+
+        $result.OverallStatus = "SUCCESS"
+        [void]$results.Add([pscustomobject]$result)
     }
 
-    $script:results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
+    $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
     Write-Log "Safe Rename Complete. Results: $OutputCsvPath" "INFO"
     Write-Host "`nDone. Results saved to: $OutputCsvPath" -ForegroundColor Green
 }
@@ -465,46 +443,46 @@ function Invoke-CACBatchSafeRename {
 # =============================================================================
 function New-CACSafeCreationTemplate {
     [CmdletBinding()]
-    param(
-        [string]$Path
-    )
+    param([string]$Path)
 
     if ([string]::IsNullOrWhiteSpace($Path)) {
         $Path = Join-Path (Get-CACOutputDir) "SafeCreation_Template.csv"
     }
 
     $template = [ordered]@{
-        SafeName              = "Example_Safe"
-        SafeDescription       = "Safe Description"
-        ManagingCPM           = "PasswordManager"
-        NumberOfDaysRetention = "7"
-        SafeMember            = "Domain\GroupOrUser"
-        MemberType            = "Group"
-        PermissionKey         = "SAFE_READ"
-        Permissions           = ""
+        SafeName                  = "Example_Safe"
+        SafeDescription           = "Safe Description"
+        ManagingCPM               = "PasswordManager"
+        NumberOfDaysRetention     = "7"
+        NumberOfVersionsRetention = ""
+        SafeMember                = "Domain\SafeGroup"
+        MemberType                = "Group"
+        GroupMembers              = "user1;user2;user3"
+        PermissionKey             = "SAFE_READ"
+        Permissions               = ""
     }
 
     @([pscustomobject]$template) | Export-Csv -Path $Path -NoTypeInformation -Encoding UTF8
     Write-Host "Template created: $Path" -ForegroundColor Green
     Write-Host ""
     Write-Host "CSV Columns:" -ForegroundColor Cyan
-    Write-Host "  SafeName          - Name of the safe to create"
-    Write-Host "  SafeDescription   - Description (optional)"
-    Write-Host "  ManagingCPM       - CPM name (optional)"
-    Write-Host "  NumberOfDaysRetention - Retention days (optional)"
-    Write-Host "  SafeMember        - User or Group to add"
-    Write-Host "  MemberType        - 'User' or 'Group'"
-    Write-Host "  PermissionKey     - Key from config (e.g., SAFE_READ)"
-    Write-Host "  Permissions       - Override permissions (semicolon-separated)"
+    Write-Host "  SafeName                  - Name of the safe to create"
+    Write-Host "  SafeDescription           - Description (optional)"
+    Write-Host "  ManagingCPM               - CPM name (optional)"
+    Write-Host "  NumberOfDaysRetention     - Days to retain (optional, mutually exclusive with versions)"
+    Write-Host "  NumberOfVersionsRetention - Versions to retain (optional, mutually exclusive with days)"
+    Write-Host "  SafeMember                - User or Group name to add as safe member"
+    Write-Host "  MemberType                - 'User' or 'Group'"
+    Write-Host "  GroupMembers              - Users to add to group (semicolon-separated, only for MemberType=Group)"
+    Write-Host "  PermissionKey             - Key from config (e.g., SAFE_READ, SAFE_READWRITE)"
+    Write-Host "  Permissions               - Override permissions (semicolon-separated)"
     
     return $Path
 }
 
 function New-CACSafeRenameTemplate {
     [CmdletBinding()]
-    param(
-        [string]$Path
-    )
+    param([string]$Path)
 
     if ([string]::IsNullOrWhiteSpace($Path)) {
         $Path = Join-Path (Get-CACOutputDir) "SafeRename_Template.csv"
@@ -515,24 +493,20 @@ function New-CACSafeRenameTemplate {
         SafeName        = "New_Safe_Name"
         SafeDescription = "Updated Description"
         ManagingCPM     = "PasswordManager"
-        SafeMember      = "Domain\GroupOrUser"
-        MemberType      = "Group"
-        PermissionKey   = "SAFE_READ"
-        Permissions     = ""
+        OldGroupName    = "KA_Old_Safe_Name_R"
+        GroupName       = "KA_New_Safe_Name_R"
     }
 
     @([pscustomobject]$template) | Export-Csv -Path $Path -NoTypeInformation -Encoding UTF8
     Write-Host "Template created: $Path" -ForegroundColor Green
     Write-Host ""
     Write-Host "CSV Columns:" -ForegroundColor Cyan
-    Write-Host "  OldSafeName       - Current safe name to rename FROM"
-    Write-Host "  SafeName          - New safe name to rename TO"
-    Write-Host "  SafeDescription   - Updated description (optional)"
-    Write-Host "  ManagingCPM       - CPM name (optional)"
-    Write-Host "  SafeMember        - User or Group for permission sync"
-    Write-Host "  MemberType        - 'User' or 'Group'"
-    Write-Host "  PermissionKey     - Key from config (e.g., SAFE_READ)"
-    Write-Host "  Permissions       - Override permissions (semicolon-separated)"
+    Write-Host "  OldSafeName     - Current safe name to rename FROM"
+    Write-Host "  SafeName        - New safe name to rename TO"
+    Write-Host "  SafeDescription - Updated description (optional)"
+    Write-Host "  ManagingCPM     - CPM name (optional)"
+    Write-Host "  OldGroupName    - Current group name to rename (optional)"
+    Write-Host "  GroupName       - New group name (optional)"
     
     return $Path
 }

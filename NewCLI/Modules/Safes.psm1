@@ -638,15 +638,6 @@ function Export-CACSafeAccountCounts {
 # Replaces Export-CACSafeMembersReport and Export-CACSafeUsers
 # =========================================================
 function Export-CACConsolidatedReport {
-    <#
-    .SYNOPSIS
-        Comprehensive safe export wizard with multiple output options.
-    .DESCRIPTION
-        Interactive wizard that allows exporting:
-        - Safe attributes only
-        - Safe members with or without permissions
-        - Detailed user information (expands groups to users)
-    #>
     [CmdletBinding()]
     param()
 
@@ -746,24 +737,8 @@ function Export-CACConsolidatedReport {
             # --- BRANCH 2: Permissions Included ---
             if ($reqPerms -eq 'y') {
                 foreach ($m in $members) {
-                    # Lookup Source for Permissions View
-                    $source = "Unknown"
-                    try {
-                        if ($m.memberType -eq "Group") {
-                            $gInfo = Invoke-CACAPIRequest -Method GET -Endpoint "/API/UserGroups?search=$([System.Web.HttpUtility]::UrlEncode($m.memberName))" -ErrorAction SilentlyContinue
-                            $groups = @(Get-CACResponseData -Response $gInfo -PropertyNames @("value", "groups"))
-                            $matchedGroup = $groups | Where-Object { $_.groupName -eq $m.memberName } | Select-Object -First 1
-                            if ($matchedGroup) { $source = $matchedGroup.directory }
-                        }
-                        elseif ($m.memberType -eq "User") {
-                            $uInfo = Get-CACUserDetailsFromStore -InputValue $m.memberName
-                            if ($uInfo -and $uInfo.Source) { $source = $uInfo.Source }
-                        }
-                    }
-                    catch { $source = "LookupFailed" }
-
                     # Build detailed row with permissions
-                    $results.Add((New-CACSafeMemberDetailedRow -SafeName $safeName -MemberObj $m -MemberSource $source -SafeProps $safePropsHash))
+                    $results.Add((New-CACSafeMemberDetailedRow -SafeName $safeName -MemberObj $m -SafeProps $safePropsHash))
                 }
                 continue
             }
@@ -832,27 +807,6 @@ function Export-CACConsolidatedReport {
                 
                 $row["MemberName"] = $m.memberName
                 $row["MemberType"] = $m.memberType
-                $row["IsPredefined"] = $m.isPredefinedUser
-
-                # Lookup Source
-                $source = "Unknown"
-                try {
-                    if ($m.memberType -eq "Group") {
-                        # Fetch Group Details to get Source
-                        $gInfo = Invoke-CACAPIRequest -Method GET -Endpoint "/API/UserGroups?search=$([System.Web.HttpUtility]::UrlEncode($m.memberName))" -ErrorAction SilentlyContinue
-                        $groups = @(Get-CACResponseData -Response $gInfo -PropertyNames @("value", "groups"))
-                        $matchedGroup = $groups | Where-Object { $_.groupName -eq $m.memberName } | Select-Object -First 1
-                        if ($matchedGroup) { $source = $matchedGroup.directory }
-                    }
-                    elseif ($m.memberType -eq "User") {
-                        # Fetch User Details to get Source
-                        $uInfo = Get-CACUserDetailsFromStore -InputValue $m.memberName
-                        if ($uInfo -and $uInfo.Source) { $source = $uInfo.Source }
-                    }
-                }
-                catch { $source = "LookupFailed" }
-                
-                $row["MemberSource"] = $source
 
                 if ($m.memberType -eq "Group") {
                     $gUsers = Get-CACGroupUsers -GroupName $m.memberName
@@ -901,7 +855,6 @@ function New-CACSafeMemberDetailedRow {
     param (
         [string]$SafeName,
         [object]$MemberObj,
-        [string]$MemberSource = "Unknown",
         [hashtable]$SafeProps = @{} 
     )
 
@@ -929,8 +882,6 @@ function New-CACSafeMemberDetailedRow {
     # Add Member info
     $finalObj["MemberName"] = $MemberObj.memberName
     $finalObj["MemberType"] = $MemberObj.memberType
-    $finalObj["MemberSource"] = $MemberSource
-    $finalObj["IsPredefined"] = $MemberObj.isPredefinedUser
     $finalObj["MembershipExpirationDate"] = $MemberObj.membershipExpirationDate
 
     # Add Permissions

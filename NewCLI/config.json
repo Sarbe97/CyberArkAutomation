@@ -11,6 +11,10 @@
     "Operators",
     "Notification Engines"
   ],
+  "DefaultSafeMembers": {
+    "Vault Admins": "VAULT_ADMIN",
+    "PasswordManager": "CCP_PROVIDER"
+  },
   "SafePermissionSets": {
     "SAFE_READ": [
       "UseAccounts",

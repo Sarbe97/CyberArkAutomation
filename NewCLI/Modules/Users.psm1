@@ -476,12 +476,6 @@ function Get-CACAllGroups {
 # GROUPS - Remove Single Group (Manual)
 # ============================================================
 function Remove-CACGroup {
-    <#
-    .SYNOPSIS
-        Delete a group from CyberArk (manual/interactive).
-    .DESCRIPTION
-        Prompts for a group name, validates it exists, and deletes it after confirmation.
-    #>
     [CmdletBinding()]
     param(
         [string]$GroupName

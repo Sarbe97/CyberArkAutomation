@@ -4,7 +4,7 @@
 # ============================================================================
 
 # ============================================================
-# 1. Get Discovered Accounts
+# 1. Get Discovered Accounts (with full details)
 # ============================================================
 function Get-CACDiscoveredAccounts {
     [CmdletBinding()]
@@ -58,21 +58,36 @@ function Get-CACDiscoveredAccounts {
 
         Write-Log "Retrieved $($accounts.Count) discovered accounts" "INFO"
 
-        # Format output
-        $formattedAccounts = @()
+        # Format output with expanded fields
+        $formattedAccounts = [System.Collections.Generic.List[PSCustomObject]]::new()
         foreach ($acct in $accounts) {
-            $formattedAccounts += [PSCustomObject]@{
-                Id             = $acct.id
-                UserName       = $acct.userName
-                Address        = $acct.address
-                DiscoveryDate  = Convert-CACTimestamp $acct.discoveryDate
-                AccountEnabled = $acct.accountEnabled
-                Privileged     = $acct.privileged
-                PlatformType   = $acct.platformType
-                Domain         = $acct.domain
-                OU             = $acct.organizationalUnit
-                OSFamily       = $acct.osFamily
-            }
+            $formattedAccounts.Add([PSCustomObject]@{
+                    # Basic Info
+                    Id                      = $acct.id
+                    UserName                = $acct.userName
+                    Description             = $acct.description
+                    AccountType             = $acct.additionalProperties.AccountType
+                    Address                 = $acct.address
+                    Domain                  = $acct.domain
+                    OU                      = $acct.organizationalUnit
+                
+                    # Platform Info
+                    PlatformType            = $acct.platformType
+                    OSFamily                = $acct.osFamily
+                    OSVersion               = $acct.osVersion
+                    OsGroups                = $acct.osGroups
+                
+                    # Status Info
+                    AccountEnabled          = $acct.accountEnabled
+                    Privileged              = $acct.privileged
+                    PasswordNeverExpires    = $acct.passwordNeverExpires
+                    NumberOfDependencies    = $acct.numberOfDependencies
+                
+                    # Timestamps
+                    DiscoveryDateTime       = Convert-CACTimestamp $acct.discoveryDateTime
+                    LastLogonDateTime       = Convert-CACTimestamp $acct.lastLogonDateTime
+                    LastPasswordSetDateTime = Convert-CACTimestamp $acct.lastPasswordSetDateTime
+                })
         }
 
         # Display summary
@@ -81,10 +96,11 @@ function Get-CACDiscoveredAccounts {
         Write-Host "Total Found: $($formattedAccounts.Count)"
         Write-Host ""
 
-        $formattedAccounts | Format-Table UserName, Address, PlatformType, Privileged, AccountEnabled -AutoSize
+        # Display basic table in console (key columns)
+        $formattedAccounts | Format-Table UserName, Address, Domain, PlatformType, Privileged, AccountEnabled -AutoSize
 
         # Ask about export
-        $exportChoice = Read-Host "Export to CSV? (Y/N)"
+        $exportChoice = Read-Host "Export full details to CSV? (Y/N)"
         if ($exportChoice -eq 'Y' -or $exportChoice -eq 'y') {
             $outputDir = Get-CACOutputDir
             $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
@@ -92,6 +108,7 @@ function Get-CACDiscoveredAccounts {
 
             $formattedAccounts | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
             Write-Host "Export File: $outputFile" -ForegroundColor Green
+            Write-Log "Exported $($formattedAccounts.Count) discovered accounts to $outputFile" "INFO"
         }
 
         return $formattedAccounts
@@ -103,69 +120,7 @@ function Get-CACDiscoveredAccounts {
 }
 
 # ============================================================
-# 2. Get Discovered Account Details
-# ============================================================
-function Get-CACDiscoveredAccountDetails {
-    [CmdletBinding()]
-    param()
-
-    Write-Log "Started Get-CACDiscoveredAccountDetails()" "DEBUG"
-
-    try {
-        $AccountId = Read-Host "Enter Discovered Account ID"
-        if ([string]::IsNullOrWhiteSpace($AccountId)) {
-            Write-Host "Account ID cannot be empty." -ForegroundColor Yellow
-            return
-        }
-
-        Write-Host "Fetching discovered account details..." -ForegroundColor Cyan
-
-        $endpoint = "/API/DiscoveredAccounts/$([System.Web.HttpUtility]::UrlEncode($AccountId))/"
-        $account = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint
-
-        if (-not $account) {
-            Write-Host "Account not found." -ForegroundColor Yellow
-            return
-        }
-
-        Write-Host ""
-        Write-Host "===== Discovered Account Details =====" -ForegroundColor Cyan
-        Write-Host ""
-        Write-Host "  Account ID:         $($account.id)" -ForegroundColor White
-        Write-Host "  User Name:          $($account.userName)" -ForegroundColor White
-        Write-Host "  Address:            $($account.address)" -ForegroundColor White
-        Write-Host "  Platform Type:      $($account.platformType)" -ForegroundColor White
-        Write-Host "  Domain:             $($account.domain)" -ForegroundColor White
-        Write-Host "  OS Family:          $($account.osFamily)" -ForegroundColor White
-        Write-Host "  Machine Type:       $($account.machineType)" -ForegroundColor White
-        Write-Host "  OU:                 $($account.organizationalUnit)" -ForegroundColor White
-        Write-Host ""
-        Write-Host "  Privileged:         $($account.privileged)" -ForegroundColor $(if ($account.privileged) { "Red" } else { "Green" })
-        Write-Host "  Account Enabled:    $($account.accountEnabled)" -ForegroundColor White
-        Write-Host ""
-        Write-Host "  Discovery Date:     $(Convert-CACTimestamp $account.discoveryDate)" -ForegroundColor White
-        Write-Host "  Last Logon:         $(if ($account.lastLogonDate) { Convert-CACTimestamp $account.lastLogonDate } else { 'N/A' })" -ForegroundColor White
-        Write-Host "  Last Password Set:  $(if ($account.lastPasswordSetDate) { Convert-CACTimestamp $account.lastPasswordSetDate } else { 'N/A' })" -ForegroundColor White
-        Write-Host ""
-
-        # Display dependencies if present
-        if ($account.dependencies) {
-            Write-Host "  Dependencies:" -ForegroundColor Yellow
-            foreach ($dep in $account.dependencies) {
-                Write-Host "    - $($dep.name): $($dep.type)" -ForegroundColor White
-            }
-        }
-
-        return $account
-    }
-    catch {
-        Write-Log "Error in Get-CACDiscoveredAccountDetails(): $($_.Exception.Message)" "ERROR"
-        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
-    }
-}
-
-# ============================================================
-# 3. Get Onboarding Rules
+# 2. Get Onboarding Rules
 # ============================================================
 function Get-CACOnboardingRules {
     [CmdletBinding()]
@@ -249,5 +204,4 @@ function Get-CACOnboardingRules {
 # ============================================================
 Export-ModuleMember -Function `
     Get-CACDiscoveredAccounts, `
-    Get-CACDiscoveredAccountDetails, `
     Get-CACOnboardingRules

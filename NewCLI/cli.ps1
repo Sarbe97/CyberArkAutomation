@@ -197,14 +197,14 @@ function Show-MainMenu {
             '8' { Show-DiscoveryMenu }
             '9' { Show-ApplicationMenu }
 
-            '10' {
+            '0' {
                 Invoke-CACLogout
                 $Script:IsLoggedIn = $false
                 Pause
                 Show-LoginMenu
             }
 
-            '0' { Invoke-CACLogout; exit }
+            #'0' { Invoke-CACLogout; exit }
 
             default { 
                 Write-Host "Invalid option!" -ForegroundColor Yellow 
@@ -346,26 +346,16 @@ function Show-SafeMenu {
         Write-Host ""
         Write-Host "--- SAFE OPERATIONS ---" -ForegroundColor Yellow
         Write-Host "1. Export All Safes to CSV"
-        Write-Host "2. Search Safe By Name"
-        Write-Host "3. Get Safe Details"
-        Write-Host "4. Create New Safe"
-        Write-Host "5. Get Safe Members"
-        Write-Host "6. Add Safe Member"
-        Write-Host "7. Safe Account Counts"
-        Write-Host "8. Consolidated Safe Report"
+        Write-Host "2. Safe Account Counts"
+        Write-Host "3. Consolidated Safe Report"
         Write-Host "0. Back"
 
         $choice = Read-Host "Enter Choice"
 
         switch ($choice) {
             '1' { Export-CACAllSafes; Pause }
-            '2' { Search-CACSafeByName; Pause }
-            '3' { Get-CACSafeDetails; Pause }
-            '4' { New-CACSafe; Pause }
-            '5' { Get-CACSafeMembers; Pause }
-            '6' { Add-CACSafeMember; Pause }
-            '7' { Export-CACSafeAccountCounts; Pause }
-            '8' { Export-CACConsolidatedReport; Pause }
+            '2' { Export-CACSafeAccountCounts; Pause }
+            '3' { Export-CACConsolidatedReport; Pause }
             '0' { return }
 
             default {
@@ -419,8 +409,11 @@ function Show-SafeActivitiesMenu {
         Write-Host "--- SAFE ACTIVITIES ---" -ForegroundColor Yellow
         Write-Host "1. Create Safes (from CSV)"
         Write-Host "2. Rename Safes (from CSV)"
-        Write-Host "3. Download 'Create Safe' Template"
-        Write-Host "4. Download 'Rename Safe' Template"
+        Write-Host "3. Manage Safe Members (from CSV)"
+        Write-Host "---"
+        Write-Host "4. Download 'Create Safe' Template"
+        Write-Host "5. Download 'Rename Safe' Template"
+        Write-Host "6. Download 'Safe Member' Template"
         Write-Host "0. Back"
 
         $choice = Read-Host "Enter Choice"
@@ -428,8 +421,10 @@ function Show-SafeActivitiesMenu {
         switch ($choice) {
             '1' { Invoke-CACBatchSafeCreation; Pause }
             '2' { Invoke-CACBatchSafeRename; Pause }
-            '3' { New-CACSafeCreationTemplate; Pause }
-            '4' { New-CACSafeRenameTemplate; Pause }
+            '3' { Invoke-CACBatchSafeMember; Pause }
+            '4' { New-CACSafeCreationTemplate; Pause }
+            '5' { New-CACSafeRenameTemplate; Pause }
+            '6' { New-CACSafeMemberTemplate; Pause }
             '0' { return }
 
             default {
@@ -451,17 +446,15 @@ function Show-DiscoveryMenu {
         Write-Host "============================================="
         Write-Host ""
         Write-Host "--- DISCOVERY & ONBOARDING ---" -ForegroundColor Yellow
-        Write-Host "1. Search Discovered Accounts"
-        Write-Host "2. Get Discovered Account Details"
-        Write-Host "3. View All Onboarding Rules"
+        Write-Host "1. Search Discovered Accounts (with full details)"
+        Write-Host "2. View All Onboarding Rules"
         Write-Host "0. Back"
 
         $choice = Read-Host "Enter Choice"
 
         switch ($choice) {
             '1' { Get-CACDiscoveredAccounts; Pause }
-            '2' { Get-CACDiscoveredAccountDetails; Pause }
-            '3' { Get-CACOnboardingRules; Pause }
+            '2' { Get-CACOnboardingRules; Pause }
             '0' { return }
 
             default {
@@ -483,19 +476,15 @@ function Show-PlatformMenu {
         Write-Host "============================================="
         Write-Host ""
         Write-Host "--- PLATFORM MANAGEMENT ---" -ForegroundColor Yellow
-        Write-Host "1. View All Platforms"
-        Write-Host "2. Get Platform Details"
-        Write-Host "3. Search Platforms"
-        Write-Host "4. Export Platform Package (ZIP)"
+        Write-Host "1. View All Platforms (with full details)"
+        Write-Host "2. Export Platform Package (ZIP)"
         Write-Host "0. Back"
 
         $choice = Read-Host "Enter Choice"
 
         switch ($choice) {
             '1' { Get-CACAllPlatforms; Pause }
-            '2' { Get-CACPlatformDetails; Pause }
-            '3' { Search-CACPlatform; Pause }
-            '4' { Export-CACPlatform; Pause }
+            '2' { Export-CACPlatform; Pause }
             '0' { return }
 
             default {

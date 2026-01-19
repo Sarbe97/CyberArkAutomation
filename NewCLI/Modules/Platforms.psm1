@@ -4,7 +4,7 @@
 # ============================================================================
 
 # ============================================================
-# 1. Get All Platforms
+# 1. Get All Platforms (with full details)
 # ============================================================
 function Get-CACAllPlatforms {
     [CmdletBinding()]
@@ -15,6 +15,7 @@ function Get-CACAllPlatforms {
     try {
         Write-Host "Fetching all platforms..." -ForegroundColor Cyan
 
+        # Get list of all platforms first
         $response = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Platforms"
 
         $platforms = @()
@@ -29,31 +30,99 @@ function Get-CACAllPlatforms {
 
         Write-Log "Retrieved $($platforms.Count) platforms" "INFO"
 
-        # Format output
-        $formattedPlatforms = @()
+        # Fetch detailed info for each platform
+        $formattedPlatforms = [System.Collections.Generic.List[PSCustomObject]]::new()
         $counter = 0
 
         foreach ($plat in $platforms) {
             $counter++
-            Write-Progress -Activity "Processing Platforms" -Status "$counter of $($platforms.Count)" -PercentComplete (($counter / $platforms.Count) * 100)
+            $platformId = $plat.PlatformID
+            Write-Progress -Activity "Fetching Platform Details" -Status "$counter of $($platforms.Count): $platformId" -PercentComplete (($counter / $platforms.Count) * 100)
 
-            $details = $plat.Details
-            $workflows = if ($details) { $details.PrivilegedAccessWorkflows } else { $null }
+            try {
+                # Fetch detailed platform info using the specific platform endpoint
+                $detailedPlatform = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Platforms/$([System.Web.HttpUtility]::UrlEncode($platformId))"
 
-            $formattedPlatforms += [PSCustomObject]@{
-                PlatformID      = $plat.PlatformID
-                PlatformName    = if ($details) { $details.Name } else { $plat.Name }
-                Active          = $plat.Active
-                SystemType      = if ($details) { $details.SystemType } else { "" }
-                PlatformType    = $plat.PlatformType
-                CheckinCheckout = if ($workflows -and $workflows.EnforceCheckinCheckoutExclusiveAccess) { $workflows.EnforceCheckinCheckoutExclusiveAccess.IsActive } else { "N/A" }
-                OTP             = if ($workflows -and $workflows.EnforceOnetimePasswordAccess) { $workflows.EnforceOnetimePasswordAccess.IsActive } else { "N/A" }
-                DualControl     = if ($workflows -and $workflows.RequireDualControlPasswordAccessApproval) { $workflows.RequireDualControlPasswordAccessApproval.IsActive } else { "N/A" }
-                ReasonRequired  = if ($workflows -and $workflows.RequireUsersToSpecifyReasonForAccess) { $workflows.RequireUsersToSpecifyReasonForAccess.IsActive } else { "N/A" }
+                # Extract sections from detailed response
+                $general = $detailedPlatform.general
+                $linkedAccounts = $detailedPlatform.linkedAccounts
+                $credsMgmt = $detailedPlatform.credentialsManagement
+                $sessionMgmt = $detailedPlatform.sessionManagement
+                $workflows = $detailedPlatform.privilegedAccessWorkflows
+
+                # Format linkedAccounts as comma-separated string
+                $linkedAccountsStr = ""
+                if ($linkedAccounts -and $linkedAccounts.Count -gt 0) {
+                    $linkedAccountsStr = ($linkedAccounts | ForEach-Object { "$($_.name):$($_.displayName)" }) -join "; "
+                }
+
+                $formattedPlatforms.Add([PSCustomObject]@{
+                        # General section
+                        ID                                    = if ($general) { $general.id } else { $platformId }
+                        Name                                  = if ($general) { $general.name } else { $plat.Name }
+                        SystemType                            = if ($general) { $general.systemType } else { "" }
+                        Active                                = if ($general) { $general.active } else { $plat.Active }
+                        Description                           = if ($general) { $general.description } else { "" }
+                        PlatformBaseID                        = if ($general) { $general.platformBaseID } else { "" }
+                        PlatformType                          = if ($general) { $general.platformType } else { $plat.PlatformType }
+                    
+                        # Linked Accounts (formatted as string)
+                        LinkedAccounts                        = $linkedAccountsStr
+                    
+                        # Credentials Management section
+                        AllowedSafes                          = if ($credsMgmt) { $credsMgmt.allowedSafes } else { "" }
+                        AllowManualChange                     = if ($credsMgmt) { $credsMgmt.allowManualChange } else { "" }
+                        PerformPeriodicChange                 = if ($credsMgmt) { $credsMgmt.performPeriodicChange } else { "" }
+                        RequirePasswordChangeEveryXDays       = if ($credsMgmt) { $credsMgmt.requirePasswordChangeEveryXDays } else { "" }
+                        AllowManualVerification               = if ($credsMgmt) { $credsMgmt.allowManualVerification } else { "" }
+                        PerformPeriodicVerification           = if ($credsMgmt) { $credsMgmt.performPeriodicVerification } else { "" }
+                        RequirePasswordVerificationEveryXDays = if ($credsMgmt) { $credsMgmt.requirePasswordVerificationEveryXDays } else { "" }
+                        AllowManualReconciliation             = if ($credsMgmt) { $credsMgmt.allowManualReconciliation } else { "" }
+                        AutomaticReconcileWhenUnsynched       = if ($credsMgmt) { $credsMgmt.automaticReconcileWhenUnsynched } else { "" }
+                    
+                        # Session Management section
+                        RequirePSMMonitoringAndIsolation      = if ($sessionMgmt) { $sessionMgmt.requirePrivilegedSessionMonitoringAndIsolation } else { "" }
+                        RecordAndSaveSessionActivity          = if ($sessionMgmt) { $sessionMgmt.recordAndSaveSessionActivity } else { "" }
+                        PSMServerID                           = if ($sessionMgmt) { $sessionMgmt.PSMServerID } else { "" }
+                    
+                        # Privileged Access Workflows section
+                        RequireDualControlApproval            = if ($workflows) { $workflows.requireDualControlPasswordAccessApproval } else { "" }
+                        EnforceCheckinCheckoutExclusiveAccess = if ($workflows) { $workflows.enforceCheckinCheckoutExclusiveAccess } else { "" }
+                        EnforceOnetimePasswordAccess          = if ($workflows) { $workflows.enforceOnetimePasswordAccess } else { "" }
+                    })
+            }
+            catch {
+                Write-Log "Failed to get details for platform '$platformId': $($_.Exception.Message)" "WARN"
+                # Add basic info if detailed fetch fails
+                $formattedPlatforms.Add([PSCustomObject]@{
+                        ID                                    = $platformId
+                        Name                                  = $plat.Name
+                        SystemType                            = ""
+                        Active                                = $plat.Active
+                        Description                           = ""
+                        PlatformBaseID                        = ""
+                        PlatformType                          = $plat.PlatformType
+                        LinkedAccounts                        = ""
+                        AllowedSafes                          = ""
+                        AllowManualChange                     = ""
+                        PerformPeriodicChange                 = ""
+                        RequirePasswordChangeEveryXDays       = ""
+                        AllowManualVerification               = ""
+                        PerformPeriodicVerification           = ""
+                        RequirePasswordVerificationEveryXDays = ""
+                        AllowManualReconciliation             = ""
+                        AutomaticReconcileWhenUnsynched       = ""
+                        RequirePSMMonitoringAndIsolation      = ""
+                        RecordAndSaveSessionActivity          = ""
+                        PSMServerID                           = ""
+                        RequireDualControlApproval            = ""
+                        EnforceCheckinCheckoutExclusiveAccess = ""
+                        EnforceOnetimePasswordAccess          = ""
+                    })
             }
         }
 
-        Write-Progress -Activity "Processing Platforms" -Completed
+        Write-Progress -Activity "Fetching Platform Details" -Completed
 
         # Display summary
         Write-Host ""
@@ -65,10 +134,11 @@ function Get-CACAllPlatforms {
         Write-Host "  Inactive: $($formattedPlatforms.Count - $activeCount)"
         Write-Host ""
 
-        $formattedPlatforms | Format-Table PlatformID, PlatformName, Active, SystemType, PlatformType -AutoSize
+        # Display basic table in console
+        $formattedPlatforms | Format-Table ID, Name, Active, SystemType, PlatformType -AutoSize
 
         # Ask about export
-        $exportChoice = Read-Host "Export to CSV? (Y/N)"
+        $exportChoice = Read-Host "Export full details to CSV? (Y/N)"
         if ($exportChoice -eq 'Y' -or $exportChoice -eq 'y') {
             $outputDir = Get-CACOutputDir
             $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
@@ -76,6 +146,7 @@ function Get-CACAllPlatforms {
 
             $formattedPlatforms | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
             Write-Host "Export File: $outputFile" -ForegroundColor Green
+            Write-Log "Exported $($formattedPlatforms.Count) platforms to $outputFile" "INFO"
         }
 
         return $formattedPlatforms
@@ -87,59 +158,7 @@ function Get-CACAllPlatforms {
 }
 
 # ============================================================
-# 2. Get Platform Details
-# ============================================================
-function Get-CACPlatformDetails {
-    [CmdletBinding()]
-    param()
-
-    Write-Log "Started Get-CACPlatformDetails()" "DEBUG"
-
-    try {
-        $platformId = Read-Host "Enter Platform ID"
-        if ([string]::IsNullOrWhiteSpace($platformId)) {
-            Write-Host "Platform ID cannot be empty." -ForegroundColor Yellow
-            return
-        }
-
-        Write-Host "Fetching platform details..." -ForegroundColor Cyan
-
-        $platform = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Platforms/$([System.Web.HttpUtility]::UrlEncode($platformId))"
-
-        if (-not $platform) {
-            Write-Host "Platform not found." -ForegroundColor Yellow
-            return
-        }
-
-        $details = $platform.Details
-        $workflows = if ($details) { $details.PrivilegedAccessWorkflows } else { $null }
-
-        Write-Host ""
-        Write-Host "===== Platform Details =====" -ForegroundColor Cyan
-        Write-Host ""
-        Write-Host "  Platform ID:      $($platform.PlatformID)" -ForegroundColor White
-        Write-Host "  Platform Name:    $(if ($details) { $details.Name } else { 'N/A' })" -ForegroundColor White
-        Write-Host "  Active:           $($platform.Active)" -ForegroundColor $(if ($platform.Active) { "Green" } else { "Yellow" })
-        Write-Host "  Platform Type:    $($platform.PlatformType)" -ForegroundColor White
-        Write-Host "  System Type:      $(if ($details) { $details.SystemType } else { 'N/A' })" -ForegroundColor White
-        Write-Host ""
-        Write-Host "  --- Workflows ---" -ForegroundColor Yellow
-        Write-Host "  Checkin/Checkout: $(if ($workflows -and $workflows.EnforceCheckinCheckoutExclusiveAccess) { $workflows.EnforceCheckinCheckoutExclusiveAccess.IsActive } else { 'N/A' })" -ForegroundColor White
-        Write-Host "  One-Time Password:$(if ($workflows -and $workflows.EnforceOnetimePasswordAccess) { $workflows.EnforceOnetimePasswordAccess.IsActive } else { 'N/A' })" -ForegroundColor White
-        Write-Host "  Dual Control:     $(if ($workflows -and $workflows.RequireDualControlPasswordAccessApproval) { $workflows.RequireDualControlPasswordAccessApproval.IsActive } else { 'N/A' })" -ForegroundColor White
-        Write-Host "  Reason Required:  $(if ($workflows -and $workflows.RequireUsersToSpecifyReasonForAccess) { $workflows.RequireUsersToSpecifyReasonForAccess.IsActive } else { 'N/A' })" -ForegroundColor White
-        Write-Host ""
-
-        return $platform
-    }
-    catch {
-        Write-Log "Error in Get-CACPlatformDetails(): $($_.Exception.Message)" "ERROR"
-        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
-    }
-}
-
-# ============================================================
-# 3. Export Platform Package (ZIP)
+# 2. Export Platform Package (ZIP)
 # ============================================================
 function Export-CACPlatform {
     [CmdletBinding()]
@@ -232,64 +251,8 @@ function Export-CACPlatform {
 }
 
 # ============================================================
-# 4. Search Platforms
-# ============================================================
-function Search-CACPlatform {
-    [CmdletBinding()]
-    param()
-
-    Write-Log "Started Search-CACPlatform()" "DEBUG"
-
-    try {
-        $search = Read-Host "Enter search term (platform name/ID)"
-        if ([string]::IsNullOrWhiteSpace($search)) {
-            Write-Host "Search term cannot be empty." -ForegroundColor Yellow
-            return
-        }
-
-        Write-Host "Searching platforms..." -ForegroundColor Cyan
-
-        $endpoint = "/API/Platforms?search=$([System.Web.HttpUtility]::UrlEncode($search))"
-        $response = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint
-
-        $platforms = @()
-        if ($response.Platforms) { $platforms = @($response.Platforms) }
-        elseif ($response.value) { $platforms = @($response.value) }
-        elseif ($response -is [array]) { $platforms = @($response) }
-
-        if ($platforms.Count -eq 0) {
-            Write-Host "No platforms found matching '$search'." -ForegroundColor Yellow
-            return
-        }
-
-        Write-Host ""
-        Write-Host "===== Search Results =====" -ForegroundColor Cyan
-        Write-Host "Found $($platforms.Count) platform(s)"
-        Write-Host ""
-
-        $platforms | ForEach-Object {
-            $details = $_.Details
-            [PSCustomObject]@{
-                PlatformID   = $_.PlatformID
-                PlatformName = if ($details) { $details.Name } else { $_.Name }
-                Active       = $_.Active
-                PlatformType = $_.PlatformType
-            }
-        } | Format-Table -AutoSize
-
-        return $platforms
-    }
-    catch {
-        Write-Log "Error in Search-CACPlatform(): $($_.Exception.Message)" "ERROR"
-        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
-    }
-}
-
-# ============================================================
 # EXPORT
 # ============================================================
 Export-ModuleMember -Function `
     Get-CACAllPlatforms, `
-    Get-CACPlatformDetails, `
-    Export-CACPlatform, `
-    Search-CACPlatform
+    Export-CACPlatform

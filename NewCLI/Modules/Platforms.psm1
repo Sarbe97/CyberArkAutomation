@@ -15,8 +15,8 @@ function Get-CACAllPlatforms {
     try {
         Write-Host "Fetching all platforms..." -ForegroundColor Cyan
 
-        # Get list of all platforms first
-        $response = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Platforms"
+        # Single API call to get all platforms with full details
+        $response = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Platforms/"
 
         $platforms = @()
         if ($response.Platforms) { $platforms = @($response.Platforms) }
@@ -30,99 +30,58 @@ function Get-CACAllPlatforms {
 
         Write-Log "Retrieved $($platforms.Count) platforms" "INFO"
 
-        # Fetch detailed info for each platform
+        # Format output from the response
         $formattedPlatforms = [System.Collections.Generic.List[PSCustomObject]]::new()
-        $counter = 0
 
         foreach ($plat in $platforms) {
-            $counter++
-            $platformId = $plat.PlatformID
-            Write-Progress -Activity "Fetching Platform Details" -Status "$counter of $($platforms.Count): $platformId" -PercentComplete (($counter / $platforms.Count) * 100)
+            # Extract sections from response
+            $general = $plat.general
+            $linkedAccounts = $plat.linkedAccounts
+            $credsMgmt = $plat.credentialsManagement
+            $sessionMgmt = $plat.sessionManagement
+            $workflows = $plat.privilegedAccessWorkflows
 
-            try {
-                # Fetch detailed platform info using the specific platform endpoint
-                $detailedPlatform = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Platforms/$([System.Web.HttpUtility]::UrlEncode($platformId))"
-
-                # Extract sections from detailed response
-                $general = $detailedPlatform.general
-                $linkedAccounts = $detailedPlatform.linkedAccounts
-                $credsMgmt = $detailedPlatform.credentialsManagement
-                $sessionMgmt = $detailedPlatform.sessionManagement
-                $workflows = $detailedPlatform.privilegedAccessWorkflows
-
-                # Format linkedAccounts as comma-separated string
-                $linkedAccountsStr = ""
-                if ($linkedAccounts -and $linkedAccounts.Count -gt 0) {
-                    $linkedAccountsStr = ($linkedAccounts | ForEach-Object { "$($_.name):$($_.displayName)" }) -join "; "
-                }
-
-                $formattedPlatforms.Add([PSCustomObject]@{
-                        # General section
-                        ID                                    = if ($general) { $general.id } else { $platformId }
-                        Name                                  = if ($general) { $general.name } else { $plat.Name }
-                        SystemType                            = if ($general) { $general.systemType } else { "" }
-                        Active                                = if ($general) { $general.active } else { $plat.Active }
-                        Description                           = if ($general) { $general.description } else { "" }
-                        PlatformBaseID                        = if ($general) { $general.platformBaseID } else { "" }
-                        PlatformType                          = if ($general) { $general.platformType } else { $plat.PlatformType }
-                    
-                        # Linked Accounts (formatted as string)
-                        LinkedAccounts                        = $linkedAccountsStr
-                    
-                        # Credentials Management section
-                        AllowedSafes                          = if ($credsMgmt) { $credsMgmt.allowedSafes } else { "" }
-                        AllowManualChange                     = if ($credsMgmt) { $credsMgmt.allowManualChange } else { "" }
-                        PerformPeriodicChange                 = if ($credsMgmt) { $credsMgmt.performPeriodicChange } else { "" }
-                        RequirePasswordChangeEveryXDays       = if ($credsMgmt) { $credsMgmt.requirePasswordChangeEveryXDays } else { "" }
-                        AllowManualVerification               = if ($credsMgmt) { $credsMgmt.allowManualVerification } else { "" }
-                        PerformPeriodicVerification           = if ($credsMgmt) { $credsMgmt.performPeriodicVerification } else { "" }
-                        RequirePasswordVerificationEveryXDays = if ($credsMgmt) { $credsMgmt.requirePasswordVerificationEveryXDays } else { "" }
-                        AllowManualReconciliation             = if ($credsMgmt) { $credsMgmt.allowManualReconciliation } else { "" }
-                        AutomaticReconcileWhenUnsynched       = if ($credsMgmt) { $credsMgmt.automaticReconcileWhenUnsynched } else { "" }
-                    
-                        # Session Management section
-                        RequirePSMMonitoringAndIsolation      = if ($sessionMgmt) { $sessionMgmt.requirePrivilegedSessionMonitoringAndIsolation } else { "" }
-                        RecordAndSaveSessionActivity          = if ($sessionMgmt) { $sessionMgmt.recordAndSaveSessionActivity } else { "" }
-                        PSMServerID                           = if ($sessionMgmt) { $sessionMgmt.PSMServerID } else { "" }
-                    
-                        # Privileged Access Workflows section
-                        RequireDualControlApproval            = if ($workflows) { $workflows.requireDualControlPasswordAccessApproval } else { "" }
-                        EnforceCheckinCheckoutExclusiveAccess = if ($workflows) { $workflows.enforceCheckinCheckoutExclusiveAccess } else { "" }
-                        EnforceOnetimePasswordAccess          = if ($workflows) { $workflows.enforceOnetimePasswordAccess } else { "" }
-                    })
+            # Format linkedAccounts as comma-separated string
+            $linkedAccountsStr = ""
+            if ($linkedAccounts -and $linkedAccounts.Count -gt 0) {
+                $linkedAccountsStr = ($linkedAccounts | ForEach-Object { "$($_.name):$($_.displayName)" }) -join "; "
             }
-            catch {
-                Write-Log "Failed to get details for platform '$platformId': $($_.Exception.Message)" "WARN"
-                # Add basic info if detailed fetch fails
-                $formattedPlatforms.Add([PSCustomObject]@{
-                        ID                                    = $platformId
-                        Name                                  = $plat.Name
-                        SystemType                            = ""
-                        Active                                = $plat.Active
-                        Description                           = ""
-                        PlatformBaseID                        = ""
-                        PlatformType                          = $plat.PlatformType
-                        LinkedAccounts                        = ""
-                        AllowedSafes                          = ""
-                        AllowManualChange                     = ""
-                        PerformPeriodicChange                 = ""
-                        RequirePasswordChangeEveryXDays       = ""
-                        AllowManualVerification               = ""
-                        PerformPeriodicVerification           = ""
-                        RequirePasswordVerificationEveryXDays = ""
-                        AllowManualReconciliation             = ""
-                        AutomaticReconcileWhenUnsynched       = ""
-                        RequirePSMMonitoringAndIsolation      = ""
-                        RecordAndSaveSessionActivity          = ""
-                        PSMServerID                           = ""
-                        RequireDualControlApproval            = ""
-                        EnforceCheckinCheckoutExclusiveAccess = ""
-                        EnforceOnetimePasswordAccess          = ""
-                    })
-            }
+
+            $formattedPlatforms.Add([PSCustomObject]@{
+                    # General section
+                    ID                                    = if ($general) { $general.id } else { $plat.PlatformID }
+                    Name                                  = if ($general) { $general.name } else { $plat.Name }
+                    SystemType                            = if ($general) { $general.systemType } else { "" }
+                    Active                                = if ($general) { $general.active } else { $plat.Active }
+                    Description                           = if ($general) { $general.description } else { "" }
+                    PlatformBaseID                        = if ($general) { $general.platformBaseID } else { "" }
+                    PlatformType                          = if ($general) { $general.platformType } else { $plat.PlatformType }
+                
+                    # Linked Accounts (formatted as string)
+                    LinkedAccounts                        = $linkedAccountsStr
+                
+                    # Credentials Management section
+                    AllowedSafes                          = if ($credsMgmt) { $credsMgmt.allowedSafes } else { "" }
+                    AllowManualChange                     = if ($credsMgmt) { $credsMgmt.allowManualChange } else { "" }
+                    PerformPeriodicChange                 = if ($credsMgmt) { $credsMgmt.performPeriodicChange } else { "" }
+                    RequirePasswordChangeEveryXDays       = if ($credsMgmt) { $credsMgmt.requirePasswordChangeEveryXDays } else { "" }
+                    AllowManualVerification               = if ($credsMgmt) { $credsMgmt.allowManualVerification } else { "" }
+                    PerformPeriodicVerification           = if ($credsMgmt) { $credsMgmt.performPeriodicVerification } else { "" }
+                    RequirePasswordVerificationEveryXDays = if ($credsMgmt) { $credsMgmt.requirePasswordVerificationEveryXDays } else { "" }
+                    AllowManualReconciliation             = if ($credsMgmt) { $credsMgmt.allowManualReconciliation } else { "" }
+                    AutomaticReconcileWhenUnsynched       = if ($credsMgmt) { $credsMgmt.automaticReconcileWhenUnsynched } else { "" }
+                
+                    # Session Management section
+                    RequirePSMMonitoringAndIsolation      = if ($sessionMgmt) { $sessionMgmt.requirePrivilegedSessionMonitoringAndIsolation } else { "" }
+                    RecordAndSaveSessionActivity          = if ($sessionMgmt) { $sessionMgmt.recordAndSaveSessionActivity } else { "" }
+                    PSMServerID                           = if ($sessionMgmt) { $sessionMgmt.PSMServerID } else { "" }
+                
+                    # Privileged Access Workflows section
+                    RequireDualControlApproval            = if ($workflows) { $workflows.requireDualControlPasswordAccessApproval } else { "" }
+                    EnforceCheckinCheckoutExclusiveAccess = if ($workflows) { $workflows.enforceCheckinCheckoutExclusiveAccess } else { "" }
+                    EnforceOnetimePasswordAccess          = if ($workflows) { $workflows.enforceOnetimePasswordAccess } else { "" }
+                })
         }
-
-        Write-Progress -Activity "Fetching Platform Details" -Completed
 
         # Display summary
         Write-Host ""

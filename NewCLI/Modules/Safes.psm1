@@ -174,19 +174,21 @@ function Export-CACConsolidatedReport {
 
     Write-Log "Started Export-CACConsolidatedReport" "DEBUG"
 
-    # --- INPUT SELECTION ---
+    # ==========================================
+    # 1. INPUT SELECTION
+    # ==========================================
     Write-Host "=== Safe Export Wizard ===" -ForegroundColor Cyan
     Write-Host "1. Manual List (Comma separated)"
     Write-Host "2. CSV Input (Header: SafeName)"
-    $mode = Read-Host "Select Input Mode"
+    $inputMode = Read-Host "Select Input Source"
 
     $safesInput = @()
     $outPathBase = Get-CACOutputDir
 
-    if ($mode -eq '1') {
+    if ($inputMode -eq '1') {
         $safesInput = (Read-Host "Enter Safe Names") -split "," | ForEach-Object { $_.Trim() }
     }
-    elseif ($mode -eq '2') {
+    elseif ($inputMode -eq '2') {
         $csvPath = Read-Host "Enter CSV Path"
         if (!(Test-Path $csvPath)) { Write-Host "File not found!" -ForegroundColor Red; return }
         $safesInput = (Import-Csv $csvPath).SafeName | ForEach-Object { $_.Trim() }
@@ -195,223 +197,221 @@ function Export-CACConsolidatedReport {
     else { return }
 
     if ($safesInput.Count -eq 0) {
-        Write-Host "No safes to process." -ForegroundColor Yellow
-        return
+        Write-Host "No safes to process." -ForegroundColor Yellow; return
     }
 
-    # --- LOGIC PROMPTS ---
-    Write-Host ""
-    $reqMembers = Read-Host "1. Include Member Details? (y/n)"
+    # ==========================================
+    # 2. REPORT CONFIGURATION (LOGIC GATES)
+    # ==========================================
+    Write-Host "`n=== Select Report Type ===" -ForegroundColor Cyan
+    Write-Host "1. Safe Inventory Only" -ForegroundColor Gray
+    Write-Host "   (Output: Safe Name + Description/Location/Retention)"
+    Write-Host "2. Permissions Audit" -ForegroundColor Gray
+    Write-Host "   (Output: Row per Member with Permissions)"
+    Write-Host "3. Membership Summary (Compact)" -ForegroundColor Gray
+    Write-Host "   (Output: Row per Member. Groups listed as 'UserA;UserB' in one cell)"
+    Write-Host "4. Detailed User Audit (Expanded)" -ForegroundColor Gray
+    Write-Host "   (Output: Row per User. Groups exploded into rows + Extended User Attributes)"
     
-    $reqSafeAttrs = 'n'
-    $reqPerms = 'n'
-    $reqDetailUsers = 'n'
-    $includeDefaultGroupUsers = 'n'
+    $reportMode = Read-Host "Select Option (1-4)"
+    if ($reportMode -notin '1', '2', '3', '4') { Write-Host "Invalid selection." -ForegroundColor Red; return }
 
-    # Get default groups from config
+    # --- Prompt A: Safe Attributes ---
+    $reqSafeAttrs = 'y' # Default for Mode 1
+    if ($reportMode -ne '1') {
+        $reqSafeAttrs = Read-Host "`n> Include Safe Attributes (Location, Retention, etc.) in every row? (y/n)"
+    }
+
+    # --- Prompt B: Default Groups (Only for Modes 3 & 4) ---
+    $includeDefaultGroupUsers = 'n'
     $defaultGroups = Get-CACDefaultGroups
 
-    if ($reqMembers -eq 'y') {
-        $reqSafeAttrs = Read-Host "2. Include Safe Attributes in Report? (y/n)"
-        $reqPerms = Read-Host "3. Include Permission Details? (y/n)"
-        
-        if ($reqPerms -ne 'y') {
-            $reqDetailUsers = Read-Host "4. Detailed User Information Required? (y/n)"
-        }
-
-        # Show default groups prompt if user details are being fetched
-        if ($reqDetailUsers -eq 'y' -or $reqPerms -ne 'y') {
-            if ($defaultGroups.Count -gt 0) {
-                Write-Host ""
-                Write-Host "--- Default Groups (from config.json) ---" -ForegroundColor Yellow
-                $defaultGroups | ForEach-Object { Write-Host "   - $_" -ForegroundColor Gray }
-                Write-Host ""
-                $includeDefaultGroupUsers = Read-Host "5. Include user details for default groups? (y/n)"
-            }
-        }
-    }
-    else {
-        # Safe Attributes forced if no members requested (otherwise report is empty)
-        $reqSafeAttrs = 'y' 
+    if ($reportMode -in '3', '4' -and $defaultGroups.Count -gt 0) {
+        Write-Host "`n> Default Groups Detected in Config:" -ForegroundColor Yellow
+        $defaultGroups | ForEach-Object { Write-Host "  - $_" -ForegroundColor Gray }
+        $includeDefaultGroupUsers = Read-Host "> Expand/List users for these default groups? (y/n)"
     }
 
+    # ==========================================
+    # 3. PROCESSING LOOP
+    # ==========================================
     $results = [System.Collections.Generic.List[PSObject]]::new()
     $total = $safesInput.Count
     $i = 0
 
-    # --- PROCESSING LOOP ---
     foreach ($safeName in $safesInput) {
         $i++
-        Write-Progress -Activity "Generating Report" -Status "Processing Safe $i/$total : $safeName" -PercentComplete (($i / $total) * 100)
+        Write-Progress -Activity "Generating Report (Mode $reportMode)" -Status "Processing Safe $i/$total : $safeName" -PercentComplete (($i / $total) * 100)
         Write-Log "Processing Safe: $safeName" "INFO"
 
         try {
-            # 1. Fetch Safe Object (Always needed for attributes or validation)
+            # --- Step A: Base Safe Data ---
+            # We always fetch the safe object to verify existence and get attributes
             $safeObj = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))"
             
-            # Prepare Safe Attributes Hashtable if requested
-            $safePropsHash = [ordered]@{}
-            if ($reqSafeAttrs -eq 'y') {
-                $safePropsHash["Description"] = $safeObj.description
-                $safePropsHash["Location"] = $safeObj.location
-                $safePropsHash["ManagingCPM"] = $safeObj.managingCPM
-                $safePropsHash["OLACEnabled"] = $safeObj.olacEnabled
-                $safePropsHash["NumberOfDaysRetention"] = $safeObj.numberOfDaysRetention
-                $safePropsHash["AutoPurgeEnabled"] = $safeObj.autoPurgeEnabled
-            }
-
-            # --- BRANCH 1: Safe Attributes Only (No Members) ---
-            if ($reqMembers -ne 'y') {
-                $row = [ordered]@{ SafeName = $safeName }
-                foreach ($k in $safePropsHash.Keys) { $row[$k] = $safePropsHash[$k] }
-                $results.Add([PSCustomObject]$row)
-                continue
-            }
-
-            # Fetch Members
-            $membersResponse = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members"
-            $members = @(Get-CACResponseData -Response $membersResponse -PropertyNames @("value", "members"))
+            # Create the Base Row (Common to all modes)
+            $baseRow = [ordered]@{ SafeName = $safeName }
             
-            if ($members.Count -eq 0) { 
-                # Add a row indicating no members if safe attrs are requested
-                $row = [ordered]@{ SafeName = $safeName; MemberInfo = "NO MEMBERS FOUND" }
-                foreach ($k in $safePropsHash.Keys) { $row[$k] = $safePropsHash[$k] }
-                $results.Add([PSCustomObject]$row)
-                continue 
+            if ($reqSafeAttrs -eq 'y') {
+                $baseRow["Description"] = $safeObj.description
+                $baseRow["Location"] = $safeObj.location
+                $baseRow["ManagingCPM"] = $safeObj.managingCPM
+                $baseRow["RetentionDays"] = $safeObj.numberOfDaysRetention
+                $baseRow["AutoPurge"] = $safeObj.autoPurgeEnabled
             }
 
-            # --- BRANCH 2: Permissions Included ---
-            if ($reqPerms -eq 'y') {
-                foreach ($m in $members) {
-                    # Build detailed row with permissions
-                    $results.Add((New-CACSafeMemberDetailedRow -SafeName $safeName -MemberObj $m -SafeProps $safePropsHash))
+            # --- Step B: Logic Switch ---
+            switch ($reportMode) {
+                
+                # --- MODE 1: Inventory Only ---
+                '1' {
+                    $results.Add([PSCustomObject]$baseRow)
                 }
-                continue
-            }
 
-            # --- BRANCH 3: Detailed User Info (Rows per user) ---
-            if ($reqDetailUsers -eq 'y') {
-                foreach ($m in $members) {
-                    # Check if this is a default group that should be skipped
-                    $isDefaultGroup = ($m.memberType -eq "Group") -and ($m.memberName -in $defaultGroups)
+                # --- MODE 2: Permissions Audit ---
+                '2' {
+                    $membersResponse = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members"
+                    $members = @(Get-CACResponseData -Response $membersResponse -PropertyNames @("value", "members"))
                     
-                    if ($isDefaultGroup -and $includeDefaultGroupUsers -ne 'y') {
-                        # Just add the group name without fetching users
-                        $row = [ordered]@{ SafeName = $safeName }
-                        foreach ($k in $safePropsHash.Keys) { $row[$k] = $safePropsHash[$k] }
-                        $row["SafeMemberName"] = $m.memberName
-                        $row["SafeMemberType"] = $m.memberType
-                        $row["Status"] = "DefaultGroup"
-                        $row["UserName"] = "(Skipped - Default Group)"
-                        $results.Add([PSCustomObject]$row)
-                        continue
+                    if ($members.Count -eq 0) {
+                        $row = $baseRow.Clone(); $row["MemberInfo"] = "NO MEMBERS"; $results.Add([PSCustomObject]$row)
                     }
+                    else {
+                        foreach ($m in $members) {
+                            # Use your existing helper for granular permissions
+                            # We pass safePropsHash as empty or filled based on user choice, but logic here assumes New-CACSafeMemberDetailedRow 
+                            # might need to be adjusted or we construct the row manually here.
+                            # Assuming New-CACSafeMemberDetailedRow returns a PSCustomObject:
+                            $permRow = New-CACSafeMemberDetailedRow -SafeName $safeName -MemberObj $m -SafeProps $null
+                            
+                            # Merge BaseRow attributes into the perm row if requested
+                            if ($reqSafeAttrs -eq 'y') {
+                                # We reconstruct to put SafeName/Attrs first
+                                $finalRow = [ordered]@{ SafeName = $safeName }
+                                foreach ($k in $baseRow.Keys) { if ($k -ne 'SafeName') { $finalRow[$k] = $baseRow[$k] } }
+                                $permRow.PSObject.Properties | Where-Object { $_.Name -ne 'SafeName' } | ForEach-Object { $finalRow[$_.Name] = $_.Value }
+                                $results.Add([PSCustomObject]$finalRow)
+                            }
+                            else {
+                                $results.Add($permRow)
+                            }
+                        }
+                    }
+                }
 
-                    # 1. Resolve Users for this member
-                    $usersToProcess = @()
-                    if ($m.memberType -eq "User") {
-                        $usersToProcess += $m.memberName
-                    }
-                    elseif ($m.memberType -eq "Group") {
-                        $gUsers = Get-CACGroupUsers -GroupName $m.memberName
-                        if ($gUsers) { $usersToProcess += $gUsers.UserName }
-                    }
+                # --- MODE 3: Membership Summary (Compact) ---
+                '3' {
+                    $membersResponse = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members"
+                    $members = @(Get-CACResponseData -Response $membersResponse -PropertyNames @("value", "members"))
 
-                    # 2. Handle Empty Groups
-                    if ($usersToProcess.Count -eq 0) {
-                        $row = [ordered]@{ SafeName = $safeName }
-                        foreach ($k in $safePropsHash.Keys) { $row[$k] = $safePropsHash[$k] }
-                         
-                        $row["SafeMemberName"] = $m.memberName
-                        $row["SafeMemberType"] = $m.memberType
-                        $row["Status"] = "Empty"
-                        $row["UserName"] = "-"
-                         
-                        $results.Add([PSCustomObject]$row)
-                        continue
-                    }
-
-                    # 3. Process Users
-                    foreach ($uName in $usersToProcess) {
-                        # Fetch User Details
-                        $uDetails = Get-CACUserDetailsFromStore -InputValue $uName
+                    foreach ($m in $members) {
+                        $row = $baseRow.Clone()
+                        $row["MemberName"] = $m.memberName
+                        $row["MemberType"] = $m.memberType
                         
-                        # Build Row from Scratch
-                        $row = [ordered]@{ SafeName = $safeName }
-                        foreach ($k in $safePropsHash.Keys) { $row[$k] = $safePropsHash[$k] }
-                        
-                        $row["SafeMemberName"] = $m.memberName
-                        $row["SafeMemberType"] = $m.memberType
-                        $row["Status"] = "HasMembers"
-                        
-                        if ($uDetails) {
-                            $row["UserName"] = $uDetails.UserName
-                            $row["FullName"] = $uDetails.FullName
-                            $row["Email"] = $uDetails.Email
-                            $row["Department"] = $uDetails.Department
+                        if ($m.memberType -eq "Group") {
+                            $isDefault = $m.memberName -in $defaultGroups
+                            
+                            if ($isDefault -and $includeDefaultGroupUsers -ne 'y') {
+                                $row["SafeUsers"] = "(Skipped - Default Group)"
+                            }
+                            else {
+                                $gUsers = Get-CACGroupUsers -GroupName $m.memberName
+                                if ($gUsers) { $row["SafeUsers"] = ($gUsers.UserName -join ";") }
+                                else { $row["SafeUsers"] = "-" }
+                            }
                         }
                         else {
-                            $row["UserName"] = $uName
+                            $row["SafeUsers"] = $m.memberName
+                        }
+                        $results.Add([PSCustomObject]$row)
+                    }
+                }
+
+                # --- MODE 4: Detailed User Audit (Expanded) ---
+                '4' {
+                    $membersResponse = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members"
+                    $members = @(Get-CACResponseData -Response $membersResponse -PropertyNames @("value", "members"))
+
+                    foreach ($m in $members) {
+                        # Resolve Target Users List
+                        $usersToProcess = @()
+                        $status = "User"
+
+                        if ($m.memberType -eq "User") {
+                            $usersToProcess += $m.memberName
+                        }
+                        elseif ($m.memberType -eq "Group") {
+                            $isDefault = $m.memberName -in $defaultGroups
+                            if ($isDefault -and $includeDefaultGroupUsers -ne 'y') {
+                                # Skip processing
+                                $status = "SkippedGroup"
+                            }
+                            else {
+                                $gUsers = Get-CACGroupUsers -GroupName $m.memberName
+                                if ($gUsers) { 
+                                    $usersToProcess += $gUsers.UserName 
+                                    $status = "GroupMember"
+                                }
+                                else {
+                                    $status = "EmptyGroup"
+                                }
+                            }
+                        }
+
+                        # Handle Skipped/Empty Groups (1 row)
+                        if ($status -eq "SkippedGroup" -or $status -eq "EmptyGroup") {
+                            $row = $baseRow.Clone()
+                            $row["OriginalMember"] = $m.memberName
+                            $row["Type"] = $m.memberType
+                            $row["ActualUser"] = if ($status -eq "SkippedGroup") { "(Default Group Skipped)" }else { "-" }
                             $row["FullName"] = ""
                             $row["Email"] = ""
                             $row["Department"] = ""
+                            $results.Add([PSCustomObject]$row)
+                            continue
                         }
-                        
-                        $results.Add([PSCustomObject]$row)
-                    }
-                }
-                continue
-            }
 
-            # --- BRANCH 4: Group-wise User List (Row per Member/Group) ---
-            foreach ($m in $members) {
-                $row = [ordered]@{ SafeName = $safeName }
-                foreach ($k in $safePropsHash.Keys) { $row[$k] = $safePropsHash[$k] }
-                
-                $row["MemberName"] = $m.memberName
-                $row["MemberType"] = $m.memberType
-
-                if ($m.memberType -eq "Group") {
-                    # Check if this is a default group that should be skipped
-                    $isDefaultGroup = $m.memberName -in $defaultGroups
-                    
-                    if ($isDefaultGroup -and $includeDefaultGroupUsers -ne 'y') {
-                        $row["Status"] = "DefaultGroup"
-                        $row["SafeUsers"] = "(Skipped - Default Group)"
-                    }
-                    else {
-                        $gUsers = Get-CACGroupUsers -GroupName $m.memberName
-                        if ($gUsers) {
-                            $row["Status"] = "HasMembers"
-                            $row["SafeUsers"] = ($gUsers.UserName -join ";")
-                        }
-                        else {
-                            $row["Status"] = "Empty"
-                            $row["SafeUsers"] = "-"
+                        # Handle Expanded Users (N rows)
+                        foreach ($uName in $usersToProcess) {
+                            $uDetails = Get-CACUserDetailsFromStore -InputValue $uName
+                            
+                            $row = $baseRow.Clone()
+                            $row["OriginalMember"] = $m.memberName
+                            $row["Type"] = $m.memberType
+                            
+                            if ($uDetails) {
+                                $row["ActualUser"] = $uDetails.UserName
+                                $row["FullName"] = $uDetails.FullName
+                                $row["Email"] = $uDetails.Email
+                                $row["Department"] = $uDetails.Department
+                            }
+                            else {
+                                $row["ActualUser"] = $uName
+                                $row["FullName"] = "" # Or "Not Found"
+                                $row["Email"] = ""
+                                $row["Department"] = ""
+                            }
+                            $results.Add([PSCustomObject]$row)
                         }
                     }
                 }
-                else {
-                    # Singular User
-                    $row["Status"] = "User"
-                    $row["SafeUsers"] = $m.memberName
-                }
-                
-                $results.Add([PSCustomObject]$row)
-            }
+            } # End Switch
         }
         catch {
             Write-Log "Error processing $safeName : $($_.Exception.Message)" "ERROR"
-            $row = [ordered]@{ SafeName = $safeName; Error = $_.Exception.Message }
-            $results.Add([PSCustomObject]$row)
+            $errRow = [ordered]@{ SafeName = $safeName; Error = $_.Exception.Message }
+            $results.Add([PSCustomObject]$errRow)
         }
     }
     Write-Progress -Activity "Generating Report" -Completed
 
-    # --- EXPORT ---
+    # ==========================================
+    # 4. EXPORT
+    # ==========================================
     if ($results.Count -gt 0) {
         $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-        $outFile = "$outPathBase/Consolidated_SafeReport_$timestamp.csv"
+        $outFile = "$outPathBase/Report_Mode${reportMode}_$timestamp.csv"
         
         $results | Export-Csv -Path $outFile -NoTypeInformation -Encoding UTF8
         Write-Host ""

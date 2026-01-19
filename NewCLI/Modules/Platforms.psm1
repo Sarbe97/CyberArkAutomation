@@ -13,22 +13,66 @@ function Get-CACAllPlatforms {
     Write-Log "Started Get-CACAllPlatforms()" "DEBUG"
 
     try {
-        Write-Host "Fetching all platforms..." -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "===== Platform Filter =====" -ForegroundColor Cyan
+        Write-Host "1. Active Platforms Only"
+        Write-Host "2. Inactive Platforms Only"
+        Write-Host "3. All Platforms"
+        $filterChoice = Read-Host "Select filter (1/2/3)"
 
-        # Single API call to get all platforms with full details
-        $response = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Platforms/"
+        $endpoint = "/API/Platforms"
+        switch ($filterChoice) {
+            '1' { $endpoint = "/API/Platforms?Active=true" }
+            '2' { $endpoint = "/API/Platforms?Active=false" }
+            '3' { $endpoint = "/API/Platforms?PlatformType=Regular" }
+            default { $endpoint = "/API/Platforms?Active=true" }
+        }
+
+        Write-Host "Fetching platforms..." -ForegroundColor Cyan
+        Write-Host "[DEBUG] Endpoint: $endpoint" -ForegroundColor Gray
+        Write-Log "Calling endpoint: $endpoint" "DEBUG"
+
+        $response = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint
+
+        # Debug: Show response structure
+        Write-Host "[DEBUG] Response Type: $($response.GetType().Name)" -ForegroundColor Gray
+        Write-Log "Response Type: $($response.GetType().Name)" "DEBUG"
+
+        if ($response -is [PSCustomObject] -or $response -is [hashtable]) {
+            $responseKeys = $response.PSObject.Properties.Name -join ", "
+            Write-Host "[DEBUG] Response Keys: $responseKeys" -ForegroundColor Gray
+            Write-Log "Response Keys: $responseKeys" "DEBUG"
+        }
 
         $platforms = @()
-        if ($response.Platforms) { $platforms = @($response.Platforms) }
-        elseif ($response.value) { $platforms = @($response.value) }
-        elseif ($response -is [array]) { $platforms = @($response) }
+        if ($response.Platforms) { 
+            $platforms = @($response.Platforms) 
+            Write-Host "[DEBUG] Found 'Platforms' property with $($platforms.Count) items" -ForegroundColor Gray
+        }
+        elseif ($response.value) { 
+            $platforms = @($response.value) 
+            Write-Host "[DEBUG] Found 'value' property with $($platforms.Count) items" -ForegroundColor Gray
+        }
+        elseif ($response -is [array]) { 
+            $platforms = @($response) 
+            Write-Host "[DEBUG] Response is array with $($platforms.Count) items" -ForegroundColor Gray
+        }
 
         if ($platforms.Count -eq 0) {
             Write-Host "No platforms found." -ForegroundColor Yellow
+            Write-Host "[DEBUG] Raw response:" -ForegroundColor Gray
+            Write-Host ($response | ConvertTo-Json -Depth 2 -Compress) -ForegroundColor Gray
             return
         }
 
         Write-Log "Retrieved $($platforms.Count) platforms" "INFO"
+
+        # Debug: Show first platform structure
+        $firstPlat = $platforms[0]
+        Write-Host "[DEBUG] First platform keys: $($firstPlat.PSObject.Properties.Name -join ', ')" -ForegroundColor Gray
+        Write-Host "[DEBUG] First platform JSON:" -ForegroundColor Gray
+        Write-Host ($firstPlat | ConvertTo-Json -Depth 3 -Compress) -ForegroundColor Gray
+        Write-Log "First platform: $($firstPlat | ConvertTo-Json -Depth 3 -Compress)" "DEBUG"
 
         # Format output from the response
         $formattedPlatforms = [System.Collections.Generic.List[PSCustomObject]]::new()

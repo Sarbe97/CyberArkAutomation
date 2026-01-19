@@ -181,7 +181,7 @@ function Show-MainMenu {
         Write-Host "7. Platform Management"
         Write-Host "8. Discovery & Onboarding"
         Write-Host "9. Application Management"
-        Write-Host "10. Logout"
+        # Write-Host "10. Logout"
         Write-Host "0. Exit"
 
         $choice = Read-Host "Select an option"

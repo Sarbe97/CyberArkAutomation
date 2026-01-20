@@ -1,265 +1,120 @@
-The error occurs because in PowerShell (and .NET), the [ordered] dictionary type (System.Collections.Specialized.OrderedDictionary) does not have a built-in .Clone() method.
-To fix this, we must manually copy the keys from the base row into a new row for each iteration.
-Here is the corrected full function. I have replaced the .Clone() calls with a simple loop that copies the existing properties to the new row.
-function Export-CACConsolidatedReport {
+# ============================================================
+# 3. Delete Discovered Accounts (Bulk from CSV)
+# ============================================================
+function Remove-CACDiscoveredAccounts {
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory=$false, HelpMessage="Path to the input CSV file")]
+        [string]$CsvPath
+    )
 
-    Write-Log "Started Export-CACConsolidatedReport" "DEBUG"
+    Write-Log "Started Remove-CACDiscoveredAccounts()" "DEBUG"
 
-    # ==========================================
-    # 1. INPUT SELECTION
-    # ==========================================
-    Write-Host "=== Safe Export Wizard ===" -ForegroundColor Cyan
-    Write-Host "1. Manual List (Comma separated)"
-    Write-Host "2. CSV Input (Header: SafeName)"
-    $inputMode = Read-Host "Select Input Source"
+    try {
+        Write-Host ""
+        Write-Host "===== Bulk Delete Discovered Accounts =====" -ForegroundColor Cyan
+        Write-Host ""
+        
+        # 1. Handle Input CSV
+        if ([string]::IsNullOrWhiteSpace($CsvPath)) {
+            $CsvPath = Read-Host "Enter path to CSV file (must contain 'Id' column)"
+        }
 
-    $safesInput = @()
-    $outPathBase = Get-CACOutputDir
+        # Remove quotes if user copied path as "C:\Path"
+        $CsvPath = $CsvPath -replace '"', ''
 
-    if ($inputMode -eq '1') {
-        $safesInput = (Read-Host "Enter Safe Names") -split "," | ForEach-Object { $_.Trim() }
-    }
-    elseif ($inputMode -eq '2') {
-        $csvPath = Read-Host "Enter CSV Path"
-        if (!(Test-Path $csvPath)) { Write-Host "File not found!" -ForegroundColor Red; return }
-        $safesInput = (Import-Csv $csvPath).SafeName | ForEach-Object { $_.Trim() }
-        $outPathBase = Split-Path $csvPath -Parent
-    }
-    else { return }
+        if (-not (Test-Path $CsvPath)) {
+            Write-Host "Error: File not found at $CsvPath" -ForegroundColor Red
+            return
+        }
 
-    if ($safesInput.Count -eq 0) {
-        Write-Host "No safes to process." -ForegroundColor Yellow; return
-    }
+        $csvData = Import-Csv -Path $CsvPath
+        
+        if ($csvData.Count -eq 0) {
+            Write-Host "Error: CSV file is empty." -ForegroundColor Red
+            return
+        }
 
-    # ==========================================
-    # 2. REPORT CONFIGURATION (LOGIC GATES)
-    # ==========================================
-    Write-Host "`n=== Select Report Type ===" -ForegroundColor Cyan
-    Write-Host "1. Safe Inventory Only" -ForegroundColor Gray
-    Write-Host "   (Output: Safe Name + Description/Location/Retention)"
-    Write-Host "2. Permissions Audit" -ForegroundColor Gray
-    Write-Host "   (Output: Row per Member with Permissions)"
-    Write-Host "3. Membership Summary (Compact)" -ForegroundColor Gray
-    Write-Host "   (Output: Row per Member. Groups listed as 'UserA;UserB' in one cell)"
-    Write-Host "4. Detailed User Audit (Expanded)" -ForegroundColor Gray
-    Write-Host "   (Output: Row per User. Groups exploded into rows + Extended User Attributes)"
-    
-    $reportMode = Read-Host "Select Option (1-4)"
-    if ($reportMode -notin '1','2','3','4') { Write-Host "Invalid selection." -ForegroundColor Red; return }
+        # Validate required column exists
+        $firstRow = $csvData | Select-Object -First 1
+        if (-not $firstRow.PSObject.Properties['Id']) {
+            Write-Host "Error: Input CSV must contain a column named 'Id'." -ForegroundColor Red
+            Write-Host "Please use the export from Get-CACDiscoveredAccounts as a template." -ForegroundColor Yellow
+            return
+        }
 
-    # --- Prompt A: Safe Attributes ---
-    $reqSafeAttrs = 'y' # Default for Mode 1
-    if ($reportMode -ne '1') {
-        $reqSafeAttrs = Read-Host "`n> Include Safe Attributes (Location, Retention, etc.) in every row? (y/n)"
-    }
+        Write-Host "Loaded $($csvData.Count) records to process." -ForegroundColor Cyan
+        $confirm = Read-Host "Are you sure you want to attempt deletion for these accounts? (Y/N)"
+        if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+            Write-Host "Operation cancelled." -ForegroundColor Yellow
+            return
+        }
 
-    # --- Prompt B: Default Groups (Only for Modes 3 & 4) ---
-    $includeDefaultGroupUsers = 'n'
-    $defaultGroups = Get-CACDefaultGroups
+        # 2. Process Deletions
+        $results = [System.Collections.Generic.List[PSCustomObject]]::new()
+        $successCount = 0
+        $failCount = 0
 
-    if ($reportMode -in '3', '4' -and $defaultGroups.Count -gt 0) {
-        Write-Host "`n> Default Groups Detected in Config:" -ForegroundColor Yellow
-        $defaultGroups | ForEach-Object { Write-Host "  - $_" -ForegroundColor Gray }
-        $includeDefaultGroupUsers = Read-Host "> Expand/List users for these default groups? (y/n)"
-    }
-
-    # ==========================================
-    # 3. PROCESSING LOOP
-    # ==========================================
-    $results = [System.Collections.Generic.List[PSObject]]::new()
-    $total = $safesInput.Count
-    $i = 0
-
-    foreach ($safeName in $safesInput) {
-        $i++
-        Write-Progress -Activity "Generating Report (Mode $reportMode)" -Status "Processing Safe $i/$total : $safeName" -PercentComplete (($i / $total) * 100)
-        Write-Log "Processing Safe: $safeName" "INFO"
-
-        try {
-            # --- Step A: Base Safe Data ---
-            $safeObj = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))"
+        foreach ($row in $csvData) {
+            $accountId = $row.Id
+            $acctName = if ($row.UserName) { $row.UserName } else { $accountId }
             
-            # Create the Base Row Template
-            $baseRow = [ordered]@{ SafeName = $safeName }
-            
-            if ($reqSafeAttrs -eq 'y') {
-                $baseRow["Description"] = $safeObj.description
-                $baseRow["Location"] = $safeObj.location
-                $baseRow["ManagingCPM"] = $safeObj.managingCPM
-                $baseRow["RetentionDays"] = $safeObj.numberOfDaysRetention
-                $baseRow["AutoPurge"] = $safeObj.autoPurgeEnabled
+            # Clone row to avoid modifying the loop iterator directly and ensure distinct object
+            $outputRow = $row | Select-Object * try {
+                Write-Host "Deleting account ID: $accountId ($acctName)... " -NoNewline
+
+                # CyberArk API: DELETE /API/DiscoveredAccounts/{id}
+                $endpoint = "/API/DiscoveredAccounts/$accountId"
+                
+                # Invoke-CACAPIRequest usually returns the response or throws on error
+                # DELETE returns 204 No Content on success, which Invoke-RestMethod usually returns as null/empty
+                Invoke-CACAPIRequest -Method DELETE -Endpoint $endpoint | Out-Null
+
+                Write-Host "Success" -ForegroundColor Green
+                
+                # Append Status columns
+                $outputRow | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "Success" -Force
+                $outputRow | Add-Member -MemberType NoteProperty -Name "DeletionMessage" -Value "Deleted successfully" -Force
+                $successCount++
+            }
+            catch {
+                $errMsg = $_.Exception.Message
+                # Handle specific CyberArk API error structures if encapsulated
+                if ($_.Exception.Response) {
+                    # Try to read stream if it's a web exception
+                    # (This depends on how Invoke-CACAPIRequest handles errors, but this is a safe generic catch)
+                }
+
+                Write-Host "Failed - $errMsg" -ForegroundColor Red
+                
+                $outputRow | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "Failed" -Force
+                $outputRow | Add-Member -MemberType NoteProperty -Name "DeletionMessage" -Value $errMsg -Force
+                $failCount++
+                Write-Log "Failed to delete discovered account $accountId: $errMsg" "ERROR"
             }
 
-            # --- Step B: Logic Switch ---
-            switch ($reportMode) {
-                
-                # --- MODE 1: Inventory Only ---
-                '1' {
-                    $results.Add([PSCustomObject]$baseRow)
-                }
-
-                # --- MODE 2: Permissions Audit ---
-                '2' {
-                    $membersResponse = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members"
-                    $members = @(Get-CACResponseData -Response $membersResponse -PropertyNames @("value", "members"))
-                    
-                    if ($members.Count -eq 0) {
-                        # Manual Clone
-                        $row = [ordered]@{}
-                        foreach($k in $baseRow.Keys){ $row[$k] = $baseRow[$k] }
-                        $row["MemberInfo"] = "NO MEMBERS"
-                        $results.Add([PSCustomObject]$row)
-                    }
-                    else {
-                        foreach ($m in $members) {
-                            $permRow = New-CACSafeMemberDetailedRow -SafeName $safeName -MemberObj $m -SafeProps $null
-                            
-                            if ($reqSafeAttrs -eq 'y') {
-                                # Merge BaseRow + PermRow
-                                $finalRow = [ordered]@{ SafeName = $safeName }
-                                # Add Base Attributes (skip SafeName as it's added)
-                                foreach ($k in $baseRow.Keys) { if($k -ne 'SafeName'){$finalRow[$k] = $baseRow[$k]} }
-                                # Add Perm Attributes (skip SafeName)
-                                $permRow.PSObject.Properties | Where-Object { $_.Name -ne 'SafeName' } | ForEach-Object { $finalRow[$_.Name] = $_.Value }
-                                $results.Add([PSCustomObject]$finalRow)
-                            } else {
-                                $results.Add($permRow)
-                            }
-                        }
-                    }
-                }
-
-                # --- MODE 3: Membership Summary (Compact) ---
-                '3' {
-                    $membersResponse = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members"
-                    $members = @(Get-CACResponseData -Response $membersResponse -PropertyNames @("value", "members"))
-
-                    foreach ($m in $members) {
-                        # Manual Clone
-                        $row = [ordered]@{}
-                        foreach($k in $baseRow.Keys){ $row[$k] = $baseRow[$k] }
-
-                        $row["MemberName"] = $m.memberName
-                        $row["MemberType"] = $m.memberType
-                        
-                        if ($m.memberType -eq "Group") {
-                            $isDefault = $m.memberName -in $defaultGroups
-                            
-                            if ($isDefault -and $includeDefaultGroupUsers -ne 'y') {
-                                $row["SafeUsers"] = "(Skipped - Default Group)"
-                            }
-                            else {
-                                $gUsers = Get-CACGroupUsers -GroupName $m.memberName
-                                if ($gUsers) { $row["SafeUsers"] = ($gUsers.UserName -join ";") }
-                                else { $row["SafeUsers"] = "-" }
-                            }
-                        }
-                        else {
-                            $row["SafeUsers"] = $m.memberName
-                        }
-                        $results.Add([PSCustomObject]$row)
-                    }
-                }
-
-                # --- MODE 4: Detailed User Audit (Expanded) ---
-                '4' {
-                    $membersResponse = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members"
-                    $members = @(Get-CACResponseData -Response $membersResponse -PropertyNames @("value", "members"))
-
-                    foreach ($m in $members) {
-                        # Resolve Target Users List
-                        $usersToProcess = @()
-                        $status = "User"
-
-                        if ($m.memberType -eq "User") {
-                            $usersToProcess += $m.memberName
-                        }
-                        elseif ($m.memberType -eq "Group") {
-                            $isDefault = $m.memberName -in $defaultGroups
-                            if ($isDefault -and $includeDefaultGroupUsers -ne 'y') {
-                                $status = "SkippedGroup"
-                            }
-                            else {
-                                $gUsers = Get-CACGroupUsers -GroupName $m.memberName
-                                if ($gUsers) { 
-                                    $usersToProcess += $gUsers.UserName 
-                                    $status = "GroupMember"
-                                }
-                                else {
-                                    $status = "EmptyGroup"
-                                }
-                            }
-                        }
-
-                        # Handle Skipped/Empty Groups (1 row)
-                        if ($status -eq "SkippedGroup" -or $status -eq "EmptyGroup") {
-                            # Manual Clone
-                            $row = [ordered]@{}
-                            foreach($k in $baseRow.Keys){ $row[$k] = $baseRow[$k] }
-
-                            $row["OriginalMember"] = $m.memberName
-                            $row["Type"] = $m.memberType
-                            $row["ActualUser"] = if($status -eq "SkippedGroup"){"(Default Group Skipped)"}else{"-"}
-                            $row["FullName"] = ""
-                            $row["Email"] = ""
-                            $row["Department"] = ""
-                            $results.Add([PSCustomObject]$row)
-                            continue
-                        }
-
-                        # Handle Expanded Users (N rows)
-                        foreach ($uName in $usersToProcess) {
-                            $uDetails = Get-CACUserDetailsFromStore -InputValue $uName
-                            
-                            # Manual Clone
-                            $row = [ordered]@{}
-                            foreach($k in $baseRow.Keys){ $row[$k] = $baseRow[$k] }
-
-                            $row["OriginalMember"] = $m.memberName
-                            $row["Type"] = $m.memberType
-                            
-                            if ($uDetails) {
-                                $row["ActualUser"] = $uDetails.UserName
-                                $row["FullName"] = $uDetails.FullName
-                                $row["Email"] = $uDetails.Email
-                                $row["Department"] = $uDetails.Department
-                            }
-                            else {
-                                $row["ActualUser"] = $uName
-                                $row["FullName"] = "" 
-                                $row["Email"] = ""
-                                $row["Department"] = ""
-                            }
-                            $results.Add([PSCustomObject]$row)
-                        }
-                    }
-                }
-            } # End Switch
+            $results.Add($outputRow)
         }
-        catch {
-            Write-Log "Error processing $safeName : $($_.Exception.Message)" "ERROR"
-            $errRow = [ordered]@{ SafeName = $safeName; Error = $_.Exception.Message }
-            $results.Add([PSCustomObject]$errRow)
-        }
-    }
-    Write-Progress -Activity "Generating Report" -Completed
 
-    # ==========================================
-    # 4. EXPORT
-    # ==========================================
-    if ($results.Count -gt 0) {
-        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-        $outFile = "$outPathBase/Report_Mode${reportMode}_$timestamp.csv"
-        
-        $results | Export-Csv -Path $outFile -NoTypeInformation -Encoding UTF8
+        # 3. Export Results
         Write-Host ""
-        Write-Host "Report Generated: $outFile" -ForegroundColor Green
-        Write-Log "Exported $($results.Count) rows to $outFile" "SUCCESS"
+        Write-Host "===== Deletion Summary =====" -ForegroundColor Cyan
+        Write-Host "Total Processed: $($results.Count)"
+        Write-Host "Successful:      $successCount" -ForegroundColor Green
+        Write-Host "Failed:          $failCount" -ForegroundColor Red
+        Write-Host ""
+
+        $outputDir = Get-CACOutputDir
+        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+        $outputFile = "$outputDir/delete_discovered_results_$timestamp.csv"
+
+        $results | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
+        
+        Write-Host "Results exported to: $outputFile" -ForegroundColor Green
+        Write-Log "Bulk delete completed. Success: $successCount, Failed: $failCount. Results: $outputFile" "INFO"
     }
-    else {
-        Write-Host "No data found to export." -ForegroundColor Yellow
+    catch {
+        Write-Log "Error in Remove-CACDiscoveredAccounts(): $($_.Exception.Message)" "ERROR"
+        Write-Host "Critical Error: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
-

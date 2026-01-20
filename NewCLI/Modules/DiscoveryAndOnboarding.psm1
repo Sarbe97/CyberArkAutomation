@@ -200,75 +200,36 @@ function Get-CACOnboardingRules {
 }
 
 function Remove-CACDiscoveredAccounts {
+    [CmdletBinding()]
+    param()
+
+    Write-Log "Started Remove-CACDiscoveredAccounts()" "DEBUG"
+
     try {
-        # --- 1. Internal Prompt for Mode ---
-        Write-Host "Select Input Method:" -ForegroundColor Cyan
-        Write-Host "[1] Manual Entry (Comma-separated IDs)"
-        Write-Host "[2] CSV File"
-        $choice = Read-Host "Enter choice"
+        Write-Host ""
+        Write-Host "===== DELETE ALL DISCOVERED ACCOUNTS =====" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "WARNING: This will DELETE ALL discovered accounts from the vault!" -ForegroundColor Yellow
+        Write-Host "This action cannot be undone." -ForegroundColor Yellow
+        Write-Host ""
 
-        $accountsToProcess = @()
-        $isCsvMode = $false
-
-        if ($choice -eq '1') {
-            # Manual Mode
-            $inputStr = Read-Host "Enter Account IDs (comma separated)"
-            # Split string into array and convert to objects
-            $ids = $inputStr -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
-            $accountsToProcess = $ids | ForEach-Object { [PSCustomObject]@{ Id = $_ } }
-        }
-        elseif ($choice -eq '2') {
-            # CSV Mode
-            $isCsvMode = $true
-            $csvPath = Read-Host "Enter CSV Path"
-            $csvPath = $csvPath -replace '"', '' # Remove quotes if user pasted path
-            
-            if (-not (Test-Path $csvPath)) { throw "File not found at $csvPath" }
-            
-            $csvData = Import-Csv -Path $csvPath
-            if (-not $csvData[0].PSObject.Properties['Id']) { throw "CSV is missing the 'Id' column." }
-            $accountsToProcess = $csvData
-        }
-        else {
-            Write-Host "Invalid selection." -ForegroundColor Red; return
+        $confirm = Read-Host "Type 'DELETE' to confirm"
+        if ($confirm -ne 'DELETE') {
+            Write-Host "Operation cancelled." -ForegroundColor Cyan
+            return
         }
 
-        if ($accountsToProcess.Count -eq 0) { Write-Host "No data to process." -ForegroundColor Yellow; return }
+        Write-Host ""
+        Write-Host "Deleting all discovered accounts..." -ForegroundColor Cyan
 
-        # --- 2. Execution Loop ---
-        $results = [System.Collections.Generic.List[PSCustomObject]]::new()
+        # CyberArk API call - DELETE /API/DiscoveredAccounts/
+        Invoke-CACAPIRequest -Method DELETE -Endpoint "/API/DiscoveredAccounts/" | Out-Null
 
-        foreach ($row in $accountsToProcess) {
-            $id = $row.Id
-            Write-Host "Deleting ID: $id ... " -NoNewline
-
-            try {
-                # CyberArk API call
-                Invoke-CACAPIRequest -Method DELETE -Endpoint "/API/DiscoveredAccounts/$id" | Out-Null
-                Write-Host "Success" -ForegroundColor Green
-                $status = "Success"
-            }
-            catch {
-                $status = "Failed: $($_.Exception.Message)"
-                Write-Host $status -ForegroundColor Red
-            }
-
-            # Only collect data for export if we are in CSV mode
-            if ($isCsvMode) {
-                $row | Add-Member -NotePropertyName "DeleteStatus" -NotePropertyValue $status -Force
-                $results.Add($row)
-            }
-        }
-
-        # --- 3. Export (CSV Mode Only) ---
-        if ($isCsvMode -and $results.Count -gt 0) {
-            $outputDir = Get-CACOutputDir
-            $outFile = "$outputDir/delete_results_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
-            $results | Export-Csv -Path $outFile -NoTypeInformation
-            Write-Host "Results saved to: $outFile" -ForegroundColor Cyan
-        }
+        Write-Log "All discovered accounts deleted successfully" "SUCCESS"
+        Write-Host "All discovered accounts have been deleted." -ForegroundColor Green
     }
     catch {
+        Write-Log "Error in Remove-CACDiscoveredAccounts(): $($_.Exception.Message)" "ERROR"
         Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
     }
 }

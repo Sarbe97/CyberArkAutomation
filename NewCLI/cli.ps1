@@ -448,6 +448,7 @@ function Show-DiscoveryMenu {
         Write-Host "--- DISCOVERY & ONBOARDING ---" -ForegroundColor Yellow
         Write-Host "1. Search Discovered Accounts (with full details)"
         Write-Host "2. View All Onboarding Rules"
+        Write-Host "3. Delete Discovered Accounts"
         Write-Host "0. Back"
 
         $choice = Read-Host "Enter Choice"
@@ -455,6 +456,7 @@ function Show-DiscoveryMenu {
         switch ($choice) {
             '1' { Get-CACDiscoveredAccounts; Pause }
             '2' { Get-CACOnboardingRules; Pause }
+            '3' { Remove-CACDiscoveredAccounts; Pause }
             '0' { return }
 
             default {

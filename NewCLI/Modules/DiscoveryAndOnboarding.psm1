@@ -199,9 +199,83 @@ function Get-CACOnboardingRules {
     }
 }
 
+function Remove-CACDiscoveredAccounts {
+    try {
+        # --- 1. Internal Prompt for Mode ---
+        Write-Host "Select Input Method:" -ForegroundColor Cyan
+        Write-Host "[1] Manual Entry (Comma-separated IDs)"
+        Write-Host "[2] CSV File"
+        $choice = Read-Host "Enter choice"
+
+        $accountsToProcess = @()
+        $isCsvMode = $false
+
+        if ($choice -eq '1') {
+            # Manual Mode
+            $inputStr = Read-Host "Enter Account IDs (comma separated)"
+            # Split string into array and convert to objects
+            $ids = $inputStr -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+            $accountsToProcess = $ids | ForEach-Object { [PSCustomObject]@{ Id = $_ } }
+        }
+        elseif ($choice -eq '2') {
+            # CSV Mode
+            $isCsvMode = $true
+            $csvPath = Read-Host "Enter CSV Path"
+            $csvPath = $csvPath -replace '"', '' # Remove quotes if user pasted path
+            
+            if (-not (Test-Path $csvPath)) { throw "File not found at $csvPath" }
+            
+            $csvData = Import-Csv -Path $csvPath
+            if (-not $csvData[0].PSObject.Properties['Id']) { throw "CSV is missing the 'Id' column." }
+            $accountsToProcess = $csvData
+        }
+        else {
+            Write-Host "Invalid selection." -ForegroundColor Red; return
+        }
+
+        if ($accountsToProcess.Count -eq 0) { Write-Host "No data to process." -ForegroundColor Yellow; return }
+
+        # --- 2. Execution Loop ---
+        $results = [System.Collections.Generic.List[PSCustomObject]]::new()
+
+        foreach ($row in $accountsToProcess) {
+            $id = $row.Id
+            Write-Host "Deleting ID: $id ... " -NoNewline
+
+            try {
+                # CyberArk API call
+                Invoke-CACAPIRequest -Method DELETE -Endpoint "/API/DiscoveredAccounts/$id" | Out-Null
+                Write-Host "Success" -ForegroundColor Green
+                $status = "Success"
+            }
+            catch {
+                $status = "Failed: $($_.Exception.Message)"
+                Write-Host $status -ForegroundColor Red
+            }
+
+            # Only collect data for export if we are in CSV mode
+            if ($isCsvMode) {
+                $row | Add-Member -NotePropertyName "DeleteStatus" -NotePropertyValue $status -Force
+                $results.Add($row)
+            }
+        }
+
+        # --- 3. Export (CSV Mode Only) ---
+        if ($isCsvMode -and $results.Count -gt 0) {
+            $outputDir = Get-CACOutputDir
+            $outFile = "$outputDir/delete_results_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+            $results | Export-Csv -Path $outFile -NoTypeInformation
+            Write-Host "Results saved to: $outFile" -ForegroundColor Cyan
+        }
+    }
+    catch {
+        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
 # ============================================================
 # EXPORT
 # ============================================================
 Export-ModuleMember -Function `
     Get-CACDiscoveredAccounts, `
-    Get-CACOnboardingRules
+    Get-CACOnboardingRules, `
+    Remove-CACDiscoveredAccounts

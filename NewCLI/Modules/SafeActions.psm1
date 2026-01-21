@@ -5,6 +5,7 @@
 
 # =============================================================================
 # 1. BATCH SAFE CREATION
+# Creates safes in batch from CSV, with group/member management
 # =============================================================================
 function Invoke-CACBatchSafeCreation {
     [CmdletBinding()]
@@ -322,7 +323,8 @@ function Invoke-CACBatchSafeCreation {
 }
 
 # =============================================================================
-# 2. BATCH SAFE RENAME (IMPROVED)
+# 2. BATCH SAFE RENAME
+# Renames safes and associated groups (KA_..._R/RW) from CSV
 # =============================================================================
 function Invoke-CACBatchSafeRename {
     [CmdletBinding()]
@@ -628,7 +630,8 @@ function Invoke-CACBatchSafeRename {
 }
 
 # =============================================================================
-# 3. BATCH SAFE MEMBER MANAGEMENT (NEW)
+# 3. BATCH SAFE MEMBER MANAGEMENT
+# Add/update members on safes from CSV
 # =============================================================================
 function Invoke-CACBatchSafeMember {
     [CmdletBinding()]
@@ -804,7 +807,10 @@ function Invoke-CACBatchSafeMember {
 
 # =============================================================================
 # 4. TEMPLATE GENERATORS
+# Generates CSV templates for batch operations
 # =============================================================================
+
+# --- Safe Creation Template ---
 function New-CACSafeCreationTemplate {
     [CmdletBinding()]
     param([string]$Path)
@@ -831,6 +837,7 @@ function New-CACSafeCreationTemplate {
     return $Path
 }
 
+# --- Safe Rename Template ---
 function New-CACSafeRenameTemplate {
     [CmdletBinding()]
     param([string]$Path)
@@ -854,6 +861,7 @@ function New-CACSafeRenameTemplate {
     return $Path
 }
 
+# --- Safe Member Template ---
 function New-CACSafeMemberTemplate {
     [CmdletBinding()]
     param([string]$Path)
@@ -876,12 +884,137 @@ function New-CACSafeMemberTemplate {
 }
 
 # =============================================================================
+# 5. BATCH SAFE DELETE
+# Deletes empty safes (skips safes with accounts)
+# =============================================================================
+function Invoke-CACBatchSafeDelete {
+    [CmdletBinding()]
+    param()
+
+    # Setup Logging
+    $logDir = "$PSScriptRoot/../Logs"
+    if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
+    $logFile = Join-Path $logDir "SafeDeletion_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+    function Log { param($Msg) Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Msg" }
+
+    Write-Host "Log file: $logFile" -ForegroundColor Gray
+
+    # Input Selection
+    Write-Host "`nSelect Input Method:" -ForegroundColor Cyan
+    Write-Host "1. Manual Entry (Comma-separated)"
+    Write-Host "2. CSV File (Header: SafeName)"
+    Write-Host "T. Download Template CSV"
+    $inputChoice = Read-Host "Enter option"
+
+    if ($inputChoice -eq 'T' -or $inputChoice -eq 't') {
+        New-CACSafeDeleteTemplate
+        return
+    }
+
+    $targetSafes = @()
+
+    if ($inputChoice -eq '1') {
+        $manualInput = Read-Host "Enter Safe Names (e.g. Safe1,Safe2)"
+        if (-not [string]::IsNullOrWhiteSpace($manualInput)) {
+            $targetSafes = $manualInput -split "," | ForEach-Object { $_.Trim() }
+        }
+    }
+    elseif ($inputChoice -eq '2') {
+        $path = Read-Host "Enter CSV File Path"
+        if (Test-Path $path) {
+            $csv = Import-Csv $path
+            foreach ($row in $csv) { if ($row.SafeName) { $targetSafes += $row.SafeName.Trim() } }
+        }
+        else {
+            Write-Host "File not found." -ForegroundColor Red
+            return
+        }
+    }
+    else {
+        Write-Host "Invalid selection." -ForegroundColor Red
+        return
+    }
+
+    if ($targetSafes.Count -eq 0) { Write-Host "No safes provided." -ForegroundColor Yellow; return }
+
+    $results = [System.Collections.ArrayList]::new()
+    $outPath = Join-Path (Get-CACOutputDir) "SafeDelete_Result_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+
+    foreach ($safe in $targetSafes) {
+        if (-not $safe) { continue }
+        
+        Write-Host "Processing Safe: [$safe]..." -NoNewline
+        Log "Processing $safe"
+
+        $res = [ordered]@{ SafeName = $safe; Status = "Failed"; Message = "" }
+
+        try {
+            # 1. Check Account Count
+            $accts = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Accounts?filter=safeName eq '$safe'"
+            $count = if ($accts.count) { $accts.count } elseif ($accts.value) { ($accts.value | Measure-Object).Count } else { 0 }
+
+            if ($count -gt 0) {
+                $res.Status = "Skipped"
+                $res.Message = "Safe contains $count accounts"
+                Write-Host " [SKIPPED - $count Accounts]" -ForegroundColor Yellow
+                Log "Skipped $safe - contains $count accounts"
+            }
+            else {
+                # 2. Delete Safe
+                Invoke-CACAPIRequest -Method DELETE -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safe))" | Out-Null
+                $res.Status = "Deleted"
+                Write-Host " [DELETED]" -ForegroundColor Green
+                Log "Deleted $safe"
+            }
+        }
+        catch {
+            $err = $_.Exception.Message
+            if ($err -match "404") {
+                $res.Status = "NotFound"
+                $res.Message = "Safe not found"
+                Write-Host " [NOT FOUND]" -ForegroundColor DarkGray
+            }
+            else {
+                $res.Message = $err
+                Write-Host " [ERROR]" -ForegroundColor Red
+                Log "Error: $err"
+            }
+        }
+        [void]$results.Add([pscustomobject]$res)
+    }
+
+    $results | Export-Csv -Path $outPath -NoTypeInformation -Force -Encoding UTF8
+    Write-Host "`nDone. Results: $outPath" -ForegroundColor Green
+}
+
+# --- Safe Delete Template ---
+function New-CACSafeDeleteTemplate {
+    [CmdletBinding()]
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        $Path = Join-Path (Get-CACOutputDir) "SafeDelete_Template_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+    }
+
+    $template = [ordered]@{
+        SafeName = "Safe_To_Delete"
+    }
+
+    @([pscustomobject]$template) | Export-Csv -Path $Path -NoTypeInformation -Encoding UTF8
+    Write-Host "Template created: $Path" -ForegroundColor Green
+    Write-Host "Note: Only empty safes (0 accounts) will be deleted." -ForegroundColor Yellow
+    return $Path
+}
+
+# =============================================================================
 # EXPORT
 # =============================================================================
 Export-ModuleMember -Function `
     Invoke-CACBatchSafeCreation, `
     Invoke-CACBatchSafeRename, `
     Invoke-CACBatchSafeMember, `
+    Invoke-CACBatchSafeDelete, `
     New-CACSafeCreationTemplate, `
     New-CACSafeRenameTemplate, `
-    New-CACSafeMemberTemplate
+    New-CACSafeMemberTemplate, `
+    New-CACSafeDeleteTemplate

@@ -950,7 +950,8 @@ function Invoke-CACBatchSafeDelete {
 
         try {
             # 1. Check Account Count
-            $accts = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Accounts?filter=safeName eq '$safe'"
+            $encodedFilter = [System.Web.HttpUtility]::UrlEncode("safename eq $safe")
+            $accts = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Accounts?filter=$encodedFilter&limit=1"
             $count = if ($accts.count) { $accts.count } elseif ($accts.value) { ($accts.value | Measure-Object).Count } else { 0 }
 
             if ($count -gt 0) {

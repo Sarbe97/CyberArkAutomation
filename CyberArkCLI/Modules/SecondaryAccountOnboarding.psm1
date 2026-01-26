@@ -437,8 +437,8 @@ function New-CACSecondaryAccountEmailBody {
 <head>
     <style>
         body { font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.6; }
-        table { border-collapse: collapse; width: 100%; margin-top: 15px; margin-bottom: 15px; }
-        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        table { border-collapse: collapse; margin-top: 15px; margin-bottom: 15px; }
+        th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
         th { background-color: #0066cc; color: white; }
         tr:nth-child(even) { background-color: #f9f9f9; }
         .highlight { background-color: #e6f3ff; padding: 15px; border-radius: 5px; margin: 15px 0; }

@@ -2,6 +2,12 @@
   "PVWAURL": "http://localhost:8080",
   "UserCacheTTL": 30,
   "LogLevel": "INFO",
+  "Mail": {
+    "SmtpServer": "smtp.yourdomain.com",
+    "SmtpPort": 25,
+    "SmtpFrom": "cyberark-noreply@yourdomain.com",
+    "SmtpUseSSL": false
+  },
   "DefaultGroups": [
     "Vault Admins",
     "PVWAMonitor",

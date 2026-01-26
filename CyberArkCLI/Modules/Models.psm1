@@ -19,22 +19,24 @@ function New-CACUserObject {
         [string]$UserType = "",
         [string]$Phone = "",
         [string]$Mobile = "",
-        [string]$Status = ""
+        [string]$Status = "",
+        [string]$LastSuccessfulLoginDate = ""
     )
 
     return [PSCustomObject]@{
-        Id           = $Id
-        UserName     = $UserName
-        FullName     = $FullName
-        Email        = $Email
-        Phone        = $Phone
-        Mobile       = $Mobile
-        Department   = $Department
-        Title        = $Title
-        Organization = $Organization
-        Source       = $Source
-        UserType     = $UserType
-        Status       = $Status
+        Id                      = $Id
+        UserName                = $UserName
+        FullName                = $FullName
+        Email                   = $Email
+        Phone                   = $Phone
+        Mobile                  = $Mobile
+        Department              = $Department
+        Title                   = $Title
+        Organization            = $Organization
+        Source                  = $Source
+        UserType                = $UserType
+        Status                  = $Status
+        LastSuccessfulLoginDate = $LastSuccessfulLoginDate
     }
 }
 

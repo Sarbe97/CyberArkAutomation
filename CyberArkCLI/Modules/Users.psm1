@@ -138,7 +138,6 @@ function New-CACUserStore {
         }
         if (-not $fullName) { $fullName = $userDetails.username }
 
-        $statusStr = if ($userDetails.suspended -eq $true) { "Suspended" } else { "Active" }
 
         $userObj = New-CACUserObject `
             -Id $userDetails.id `
@@ -151,7 +150,8 @@ function New-CACUserStore {
             -Organization $(if ($userDetails.personalDetails) { $userDetails.personalDetails.organization } else { "" }) `
             -Source $userDetails.source `
             -UserType $userDetails.userType `
-            -Status $statusStr
+            -Status $userDetails.enableUser `
+            -LastSuccessfulLoginDate $userDetails.lastSuccessfulLoginDate
 
         $finalUsers.Add($userObj)
     }

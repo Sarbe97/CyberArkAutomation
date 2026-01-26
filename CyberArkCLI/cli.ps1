@@ -33,7 +33,8 @@ function Reload-CACModules {
         "SafeActions.psm1",
         "DiscoveryAndOnboarding.psm1",
         "Platforms.psm1",
-        "Applications.psm1"
+        "Applications.psm1",
+        "SecondaryAccountOnboarding.psm1"
     )
 
     $modulePaths = $moduleFiles | ForEach-Object { Join-Path "$PSScriptRoot/Modules" $_ }
@@ -235,6 +236,8 @@ function Show-AccountMenu {
         Write-Host "8. Delete Account"
         Write-Host "9. Batch Delete Accounts"
         Write-Host "10. Connect via PSM"
+        Write-Host "11. Batch Onboard Accounts (CSV)"
+        Write-Host "12. Secondary Account Onboarding (with Email)"
         Write-Host "0. Back"
         Write-Host "===================================="
 
@@ -251,6 +254,8 @@ function Show-AccountMenu {
             '8' { Remove-CACAccount; Pause }
             '9' { Invoke-CACBatchAccountDeletion; Pause }
             '10' { Invoke-CACPSMConnect; Pause }
+            '11' { Invoke-CACBatchAccountOnboarding; Pause }
+            '12' { Invoke-CACSecondaryAccountOnboarding; Pause }
             '0' { return }
 
             default {

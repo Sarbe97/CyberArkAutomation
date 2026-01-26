@@ -107,4 +107,100 @@ function Get-CACOutputDir {
     return (Resolve-Path $targetDir).Path
 }
 
-Export-ModuleMember -Function Initialize-CACLogging, Write-Log, Convert-CACTimestamp, Get-CACOutputDir
+# ============================================================
+# Send Email Notification
+# ============================================================
+function Get-CACMailConfig {
+    <#
+    .SYNOPSIS
+        Gets mail configuration from config.json (Mail object).
+    #>
+    [CmdletBinding()]
+    param()
+
+    $config = Get-CACConfig
+    
+    if ($null -eq $config.Mail) {
+        Write-Log "Mail configuration not found in config.json" "WARN"
+        return $null
+    }
+
+    return $config.Mail
+}
+
+function Send-CACEmail {
+    <#
+    .SYNOPSIS
+        Sends an email using SMTP settings from config.json (Mail object).
+    .PARAMETER To
+        Recipient email address.
+    .PARAMETER Subject
+        Email subject line.
+    .PARAMETER Body
+        Email body content (HTML supported).
+    .PARAMETER IsHtml
+        If true, sends email as HTML. Default: true.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$To,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Subject,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Body,
+
+        [bool]$IsHtml = $true
+    )
+
+    Write-Log "Sending email to: $To" "DEBUG"
+
+    try {
+        # Load mail config from main config.json
+        $mailConfig = Get-CACMailConfig
+        
+        if ($null -eq $mailConfig) {
+            throw "Mail configuration not found. Please configure 'Mail' section in config.json"
+        }
+
+        # Validate SMTP settings
+        if ([string]::IsNullOrWhiteSpace($mailConfig.SmtpServer)) {
+            throw "Mail.SmtpServer not configured in config.json"
+        }
+        if ([string]::IsNullOrWhiteSpace($mailConfig.SmtpFrom)) {
+            throw "Mail.SmtpFrom not configured in config.json"
+        }
+
+        $smtpParams = @{
+            From       = $mailConfig.SmtpFrom
+            To         = $To
+            Subject    = $Subject
+            Body       = $Body
+            SmtpServer = $mailConfig.SmtpServer
+            BodyAsHtml = $IsHtml
+        }
+
+        # Add optional port
+        if ($mailConfig.SmtpPort) {
+            $smtpParams["Port"] = $mailConfig.SmtpPort
+        }
+
+        # Add SSL if configured
+        if ($mailConfig.SmtpUseSSL -eq $true) {
+            $smtpParams["UseSsl"] = $true
+        }
+
+        Send-MailMessage @smtpParams -ErrorAction Stop
+
+        Write-Log "Email sent successfully to: $To" "SUCCESS"
+        return $true
+    }
+    catch {
+        Write-Log "Failed to send email to $To : $($_.Exception.Message)" "ERROR"
+        return $false
+    }
+}
+
+Export-ModuleMember -Function Initialize-CACLogging, Write-Log, Convert-CACTimestamp, Get-CACOutputDir, Send-CACEmail

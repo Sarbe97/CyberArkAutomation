@@ -576,10 +576,7 @@ function Invoke-CACAccountVerify {
 # 7. Add New Account
 # ============================================================
 function New-CACAccount {
-    <#
-    .SYNOPSIS
-        Create a new account in CyberArk.
-    #>
+   
     [CmdletBinding()]
     param(
         [string]$SafeName,
@@ -956,6 +953,179 @@ function Invoke-CACPSMConnect {
 }
 
 # ============================================================
+# 11. Batch Account Onboarding
+# ============================================================
+function Invoke-CACBatchAccountOnboarding {
+    <#
+    .SYNOPSIS
+        Onboard multiple accounts to CyberArk from a CSV file.
+    .DESCRIPTION
+        Reads account details from CSV and creates accounts via REST API.
+        Required CSV columns: SafeName, PlatformId, Address, UserName
+        Optional CSV columns: Name, Password (secret)
+        Output CSV includes all input columns plus OnboardingStatus and Message.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $outputDir = Get-CACOutputDir
+    $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $OutputCsvPath = "$outputDir/AccountOnboarding_Result_$timestamp.csv"
+
+    Write-Log "Started Invoke-CACBatchAccountOnboarding()" "DEBUG"
+
+    # Prompt for CSV path
+    Write-Host "===== Batch Account Onboarding =====" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Required CSV columns: SafeName, PlatformId, Address, UserName" -ForegroundColor Yellow
+    Write-Host "Optional CSV columns: Name, Password" -ForegroundColor Yellow
+    Write-Host ""
+
+    $CsvPath = Read-Host "Enter CSV Path"
+    
+    if ([string]::IsNullOrWhiteSpace($CsvPath)) {
+        Write-Host "CSV path cannot be empty." -ForegroundColor Yellow
+        return
+    }
+
+    if (-not (Test-Path $CsvPath)) {
+        Write-Host "CSV file not found: $CsvPath" -ForegroundColor Red
+        return
+    }
+
+    Write-Log "Processing CSV: $CsvPath" "INFO"
+    
+    try {
+        $itemsToProcess = Import-Csv $CsvPath
+    }
+    catch {
+        Write-Host "Error reading CSV: $($_.Exception.Message)" -ForegroundColor Red
+        return
+    }
+
+    if ($itemsToProcess.Count -eq 0) {
+        Write-Host "No items found in CSV." -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host ""
+    Write-Host "Found $($itemsToProcess.Count) account(s) to onboard." -ForegroundColor Cyan
+    Write-Host ""
+
+    $confirm = Read-Host "Proceed with onboarding? (Y/N)"
+    if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+        Write-Host "Onboarding cancelled." -ForegroundColor Yellow
+        return
+    }
+
+    # Process onboarding
+    $results = @()
+    $total = $itemsToProcess.Count
+    $current = 0
+    $successCount = 0
+    $failCount = 0
+
+    foreach ($item in $itemsToProcess) {
+        $current++
+        $resObj = $item | Select-Object *
+
+        # Get required fields
+        $safeName = $item.SafeName
+        $platformId = $item.PlatformId
+        $address = $item.Address
+        $userName = $item.UserName
+        
+        # Get optional fields
+        $name = if ($item.PSObject.Properties['Name'] -and -not [string]::IsNullOrWhiteSpace($item.Name)) { 
+            $item.Name 
+        }
+        else { 
+            "$userName@$address" 
+        }
+        $password = if ($item.PSObject.Properties['Password']) { $item.Password } else { $null }
+
+        # Validate required fields
+        $missingFields = @()
+        if ([string]::IsNullOrWhiteSpace($safeName)) { $missingFields += "SafeName" }
+        if ([string]::IsNullOrWhiteSpace($platformId)) { $missingFields += "PlatformId" }
+        if ([string]::IsNullOrWhiteSpace($address)) { $missingFields += "Address" }
+        if ([string]::IsNullOrWhiteSpace($userName)) { $missingFields += "UserName" }
+
+        if ($missingFields.Count -gt 0) {
+            Write-Host "[$current/$total] $userName@$address ... " -NoNewline
+            Write-Host "Skipped (Missing: $($missingFields -join ', '))" -ForegroundColor Yellow
+            
+            $resObj | Add-Member -MemberType NoteProperty -Name "OnboardingStatus" -Value "Skipped" -Force
+            $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Missing required fields: $($missingFields -join ', ')" -Force
+            $resObj | Add-Member -MemberType NoteProperty -Name "AccountId" -Value "" -Force
+            $results += $resObj
+            $failCount++
+            continue
+        }
+
+        Write-Progress -Activity "Onboarding Accounts" -Status "Processing: $name" -PercentComplete (($current / $total) * 100)
+        Write-Host "[$current/$total] $name ... " -NoNewline
+
+        try {
+            # Build account body
+            $accountBody = @{
+                safeName   = $safeName
+                platformId = $platformId
+                name       = $name
+                address    = $address
+                userName   = $userName
+            }
+
+            # Add password if provided
+            if (-not [string]::IsNullOrWhiteSpace($password)) {
+                $accountBody["secret"] = $password
+            }
+
+            # Create account via API
+            $result = Invoke-CACAPIRequest -Method POST -Endpoint "/API/Accounts" -Body $accountBody
+
+            Write-Host "Success (ID: $($result.id))" -ForegroundColor Green
+            
+            $resObj | Add-Member -MemberType NoteProperty -Name "OnboardingStatus" -Value "Success" -Force
+            $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Account created" -Force
+            $resObj | Add-Member -MemberType NoteProperty -Name "AccountId" -Value $result.id -Force
+            
+            Write-Log "Account created: $name (ID: $($result.id))" "SUCCESS"
+            $successCount++
+        }
+        catch {
+            $errMsg = $_.Exception.Message
+            Write-Host "Failed ($errMsg)" -ForegroundColor Red
+            
+            $resObj | Add-Member -MemberType NoteProperty -Name "OnboardingStatus" -Value "Failed" -Force
+            $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value $errMsg -Force
+            $resObj | Add-Member -MemberType NoteProperty -Name "AccountId" -Value "" -Force
+            
+            Write-Log "Failed to create $name : $errMsg" "ERROR"
+            $failCount++
+        }
+
+        $results += $resObj
+    }
+
+    Write-Progress -Activity "Onboarding Accounts" -Completed
+
+    # Export results
+    $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
+
+    # Display summary
+    Write-Host ""
+    Write-Host "===== Onboarding Summary =====" -ForegroundColor Cyan
+    Write-Host "  Total:     $total"
+    Write-Host "  Success:   $successCount" -ForegroundColor Green
+    Write-Host "  Failed:    $failCount" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "White" })
+    Write-Host ""
+    Write-Host "Results saved to: $OutputCsvPath" -ForegroundColor Green
+
+    Write-Log "Batch Account Onboarding Complete. Success: $successCount, Failed: $failCount. Results: $OutputCsvPath" "INFO"
+}
+
+# ============================================================
 # EXPORT ALL FUNCTIONS
 # ============================================================
 Export-ModuleMember -Function `
@@ -968,4 +1138,5 @@ Export-ModuleMember -Function `
     New-CACAccount, `
     Remove-CACAccount, `
     Invoke-CACBatchAccountDeletion, `
-    Invoke-CACPSMConnect
+    Invoke-CACPSMConnect, `
+    Invoke-CACBatchAccountOnboarding

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 15px;
+            margin-bottom: 15px;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #0066cc;
+            color: white;
+        }
+
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+
+        .highlight {
+            background-color: #e6f3ff;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <p>Hi John Doe,</p>
+
+    <p>We have identified the following secondary accounts that are not yet onboarded in CyberArk.</p>
+
+    <p>As you already have access to CyberArk and have some accounts onboarded, we would like to inform you that we have
+        now onboarded the below-discovered accounts into CyberArk. You can use CyberArk to securely retrieve the
+        passwords for these accounts as required.</p>
+
+    <table>
+        <tr>
+            <th>UserName</th>
+            <th>Address</th>
+            <th>Safe</th>
+        </tr>
+        <tr>
+            <td>A12345</td>
+            <td>server01.domain.com</td>
+            <td>Safe_Production</td>
+        </tr>
+        <tr>
+            <td>S12345</td>
+            <td>linux01.domain.com</td>
+            <td>Safe_Development</td>
+        </tr>
+        <tr>
+            <td>D12345</td>
+            <td>db01.domain.com</td>
+            <td>Safe_Database</td>
+        </tr>
+    </table>
+
+    <div class="highlight">
+        <strong>Important:</strong> Going forward, we request that you use <strong>CyberArk PSM</strong> to log in to
+        any Windows machines instead of copying passwords and using them manually for connectivity. This is required to
+        ensure that the accounts remain fully managed by CyberArk and to prevent any potential password exposure or
+        leakage.
+    </div>
+
+    <p>Please let us know if you have any questions or need assistance with CyberArk or PSM access.</p>
+
+    <p>Thank you for your cooperation.</p>
+
+    <p>Regards,<br>
+        <strong>CyberArk Team</strong>
+    </p>
+
+    <p><em>This is an automated message from CyberArk.</em></p>
+</body>
+
+</html>

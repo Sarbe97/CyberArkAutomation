@@ -14,7 +14,7 @@ function Invoke-CACSecondaryAccountOnboarding {
         - Processes that employee's accounts
         - Moves to next employee
         
-        Required CSV columns: EmpNbr, Email, SafeName, PlatformId, Address, UserName
+        Required CSV columns: EmpNbr, UserFullName, Email, SafeName, PlatformId, Address, UserName
         Optional CSV columns: Name, Password
     #>
     [CmdletBinding()]
@@ -29,7 +29,7 @@ function Invoke-CACSecondaryAccountOnboarding {
     # Prompt for CSV path
     Write-Host "===== Secondary Account Onboarding =====" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "Required CSV columns: EmpNbr, Email, SafeName, PlatformId, Address, UserName" -ForegroundColor Yellow
+    Write-Host "Required CSV columns: EmpNbr, UserFullName, Email, SafeName, PlatformId, Address, UserName" -ForegroundColor Yellow
     Write-Host "Optional CSV columns: Name, Password" -ForegroundColor Yellow
     Write-Host ""
 
@@ -58,6 +58,43 @@ function Invoke-CACSecondaryAccountOnboarding {
     if ($itemsToProcess.Count -eq 0) {
         Write-Host "No items found in CSV." -ForegroundColor Yellow
         return
+    }
+
+    # ============================================================
+    # CC Address Configuration
+    # ============================================================
+    $mailConfig = Get-CACMailConfig
+    $defaultCC = if ($mailConfig -and $mailConfig.DefaultCC) { @($mailConfig.DefaultCC) } else { @() }
+    
+    Write-Host ""
+    Write-Host "===== Email CC Configuration =====" -ForegroundColor Cyan
+    if ($defaultCC.Count -gt 0) {
+        Write-Host "Default CC addresses from config:" -ForegroundColor White
+        foreach ($cc in $defaultCC) {
+            Write-Host "  - $cc" -ForegroundColor Gray
+        }
+    }
+    else {
+        Write-Host "No default CC addresses configured." -ForegroundColor Yellow
+    }
+    
+    Write-Host ""
+    $changeCCInput = Read-Host "Change CC addresses? (Y/N)"
+    
+    $ccAddresses = $defaultCC
+    if ($changeCCInput -eq 'Y' -or $changeCCInput -eq 'y') {
+        $ccInput = Read-Host "Enter CC addresses (comma-separated, or leave empty for none)"
+        if ([string]::IsNullOrWhiteSpace($ccInput)) {
+            $ccAddresses = @()
+            Write-Host "CC addresses cleared." -ForegroundColor Yellow
+        }
+        else {
+            $ccAddresses = $ccInput -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+            Write-Host "CC addresses updated:" -ForegroundColor Green
+            foreach ($cc in $ccAddresses) {
+                Write-Host "  - $cc" -ForegroundColor Gray
+            }
+        }
     }
 
     # Group by employee and sort
@@ -97,6 +134,7 @@ function Invoke-CACSecondaryAccountOnboarding {
         $empNbr = $empGroup.Name
         $empAccounts = $empGroup.Group
         $empEmail = ($empAccounts | Select-Object -First 1).Email
+        $empFullName = ($empAccounts | Select-Object -First 1).UserFullName
         $accountCount = $empAccounts.Count
 
         Clear-Host
@@ -104,8 +142,9 @@ function Invoke-CACSecondaryAccountOnboarding {
         Write-Host "  Employee $empIndex of $totalEmployees" -ForegroundColor Cyan
         Write-Host "============================================================" -ForegroundColor Cyan
         Write-Host ""
-        Write-Host "EmpNbr: $empNbr" -ForegroundColor White
-        Write-Host "Email:  $empEmail" -ForegroundColor White
+        Write-Host "EmpNbr:    $empNbr" -ForegroundColor White
+        Write-Host "Full Name: $empFullName" -ForegroundColor White
+        Write-Host "Email:     $empEmail" -ForegroundColor White
         Write-Host ""
 
         # Show this employee's accounts
@@ -304,13 +343,21 @@ function Invoke-CACSecondaryAccountOnboarding {
             Write-Host ""
             Write-Host "Sending email to $empEmail... " -NoNewline
             
-            $emailBody = New-CACSecondaryAccountEmailBody -EmpNbr $empNbr -Accounts $empResults
+            $emailBody = New-CACSecondaryAccountEmailBody -UserFullName $empFullName -Accounts $empResults
             
-            $emailResult = Send-CACEmail `
-                -To $empEmail `
-                -Subject "CyberArk Secondary Account Onboarding - Results" `
-                -Body $emailBody `
-                -IsHtml $true
+            $emailParams = @{
+                To      = $empEmail
+                Subject = "CyberArk Secondary Account Onboarding Notification"
+                Body    = $emailBody
+                IsHtml  = $true
+            }
+            
+            # Add CC if configured
+            if ($ccAddresses -and $ccAddresses.Count -gt 0) {
+                $emailParams["CC"] = $ccAddresses
+            }
+            
+            $emailResult = Send-CACEmail @emailParams
 
             if ($emailResult) {
                 Write-Host "Sent" -ForegroundColor Green
@@ -371,65 +418,46 @@ function Invoke-CACSecondaryAccountOnboarding {
 # ============================================================
 function New-CACSecondaryAccountEmailBody {
     param(
-        [string]$EmpNbr,
+        [string]$UserFullName,
         [array]$Accounts
     )
 
     $successAccounts = $Accounts | Where-Object { $_.OnboardingStatus -eq "Success" }
-    $failedAccounts = $Accounts | Where-Object { $_.OnboardingStatus -ne "Success" }
 
     $html = @"
 <!DOCTYPE html>
 <html>
 <head>
     <style>
-        body { font-family: Arial, sans-serif; font-size: 14px; color: #333; }
-        h2 { color: #0066cc; }
-        table { border-collapse: collapse; width: 100%; margin-top: 10px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        body { font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.6; }
+        table { border-collapse: collapse; width: 100%; margin-top: 15px; margin-bottom: 15px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
         th { background-color: #0066cc; color: white; }
         tr:nth-child(even) { background-color: #f9f9f9; }
-        .success { color: #28a745; font-weight: bold; }
-        .failed { color: #dc3545; font-weight: bold; }
-        .summary { margin: 20px 0; padding: 15px; background-color: #f5f5f5; border-radius: 5px; }
+        .highlight { background-color: #e6f3ff; padding: 15px; border-radius: 5px; margin: 15px 0; }
     </style>
 </head>
 <body>
-    <h2>CyberArk Secondary Account Onboarding Results</h2>
+    <p>Hi $UserFullName,</p>
     
-    <p>Dear User (Employee #: $EmpNbr),</p>
+    <p>We have identified the following secondary accounts that are not yet onboarded in CyberArk.</p>
     
-    <p>Your secondary account(s) have been processed for onboarding to CyberArk. Please find the details below:</p>
+    <p>As you already have access to CyberArk and have some accounts onboarded, we would like to inform you that we have now onboarded the below-discovered accounts into CyberArk. You can use CyberArk to securely retrieve the passwords for these accounts as required.</p>
     
-    <div class="summary">
-        <strong>Summary:</strong><br>
-        Total Accounts: $($Accounts.Count)<br>
-        <span class="success">Successful: $($successAccounts.Count)</span><br>
-        <span class="failed">Failed: $($failedAccounts.Count)</span>
-    </div>
-    
-    <h3>Account Details</h3>
     <table>
         <tr>
             <th>UserName</th>
             <th>Address</th>
             <th>Safe</th>
-            <th>Platform</th>
-            <th>Status</th>
-            <th>Message</th>
         </tr>
 "@
 
-    foreach ($acc in $Accounts) {
-        $statusClass = if ($acc.OnboardingStatus -eq "Success") { "success" } else { "failed" }
+    foreach ($acc in $successAccounts) {
         $html += @"
         <tr>
             <td>$($acc.UserName)</td>
             <td>$($acc.Address)</td>
             <td>$($acc.SafeName)</td>
-            <td>$($acc.PlatformId)</td>
-            <td class="$statusClass">$($acc.OnboardingStatus)</td>
-            <td>$($acc.Message)</td>
         </tr>
 "@
     }
@@ -437,13 +465,18 @@ function New-CACSecondaryAccountEmailBody {
     $html += @"
     </table>
     
-    <p style="margin-top: 20px;">
-        If you have any questions, please contact the CyberArk administration team.
-    </p>
+    <div class="highlight">
+        <strong>Important:</strong> Going forward, we request that you use <strong>CyberArk PSM</strong> to log in to any Windows machines instead of copying passwords and using them manually for connectivity. This is required to ensure that the accounts remain fully managed by CyberArk and to prevent any potential password exposure or leakage.
+    </div>
     
-    <p>
-        <em>This is an automated message from CyberArk CLI.</em>
-    </p>
+    <p>Please let us know if you have any questions or need assistance with CyberArk or PSM access.</p>
+    
+    <p>Thank you for your cooperation.</p>
+    
+    <p>Regards,<br>
+    <strong>CyberArk Team</strong></p>
+    
+    <p><em>This is an automated message from CyberArk.</em></p>
 </body>
 </html>
 "@

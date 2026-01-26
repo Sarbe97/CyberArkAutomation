@@ -6,7 +6,11 @@
     "SmtpServer": "smtp.yourdomain.com",
     "SmtpPort": 25,
     "SmtpFrom": "cyberark-noreply@yourdomain.com",
-    "SmtpUseSSL": false
+    "SmtpUseSSL": false,
+    "DefaultCC": [
+      "cyberark-admin@yourdomain.com",
+      "security-team@yourdomain.com"
+    ]
   },
   "DefaultGroups": [
     "Vault Admins",

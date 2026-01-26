@@ -138,6 +138,8 @@ function Send-CACEmail {
         Email subject line.
     .PARAMETER Body
         Email body content (HTML supported).
+    .PARAMETER CC
+        CC recipients (array of email addresses). If not provided, uses DefaultCC from config.
     .PARAMETER IsHtml
         If true, sends email as HTML. Default: true.
     #>
@@ -151,6 +153,8 @@ function Send-CACEmail {
 
         [Parameter(Mandatory = $true)]
         [string]$Body,
+
+        [string[]]$CC = $null,
 
         [bool]$IsHtml = $true
     )
@@ -190,6 +194,13 @@ function Send-CACEmail {
         # Add SSL if configured
         if ($mailConfig.SmtpUseSSL -eq $true) {
             $smtpParams["UseSsl"] = $true
+        }
+
+        # Add CC - use provided CC or default from config
+        $ccList = if ($CC -and $CC.Count -gt 0) { $CC } elseif ($mailConfig.DefaultCC) { @($mailConfig.DefaultCC) } else { $null }
+        if ($ccList -and $ccList.Count -gt 0) {
+            $smtpParams["Cc"] = $ccList
+            Write-Log "CC recipients: $($ccList -join ', ')" "DEBUG"
         }
 
         Send-MailMessage @smtpParams -ErrorAction Stop

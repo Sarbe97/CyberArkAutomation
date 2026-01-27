@@ -281,7 +281,9 @@ function Invoke-CACSecondaryAccountOnboarding {
                     $accountBody["secret"] = $password
                 }
 
-                $result = Invoke-CACAPIRequest -Method POST -Endpoint "/API/Accounts" -Body $accountBody
+                # TEST MODE: Simulate API call
+                # $result = Invoke-CACAPIRequest -Method POST -Endpoint "/API/Accounts" -Body $accountBody
+                $result = @{ id = "TEST_$(Get-Random -Maximum 99999)" }
 
                 Write-Host "Success (ID: $($result.id))" -ForegroundColor Green
                 
@@ -326,8 +328,9 @@ function Invoke-CACSecondaryAccountOnboarding {
                 Write-Host "  Reconciling $($acc.UserName) (ID: $accountId)... " -NoNewline
                 
                 try {
-                    Invoke-CACAPIRequest -Method POST -Endpoint "/API/Accounts/$accountId/Reconcile"
-                    Write-Host "Initiated" -ForegroundColor Green
+                    # TEST MODE: Simulate API call
+                    # Invoke-CACAPIRequest -Method POST -Endpoint "/API/Accounts/$accountId/Reconcile"
+                    Write-Host "Initiated (SIMULATED)" -ForegroundColor Green
                     $globalReconcileCount++
                 }
                 catch {
@@ -343,7 +346,7 @@ function Invoke-CACSecondaryAccountOnboarding {
             Write-Host ""
             Write-Host "Sending email to $empEmail... " -NoNewline
             
-            $emailBody = New-CACSecondaryAccountEmailBody -UserFullName $empFullName -Accounts $empResults
+            $emailBody = New-CACSecondaryAccountEmailBody -UserFullName $empFullName -Accounts $empResults -ImagePath "C:\Path\To\your_image.png"
             
             $emailParams = @{
                 To      = $empEmail

@@ -107,7 +107,20 @@ function Invoke-CACSecondaryAccountOnboarding {
     Write-Host "Total Accounts: $totalAccounts" -ForegroundColor White
     Write-Host "Total Employees: $totalEmployees" -ForegroundColor White
     Write-Host ""
-    Write-Host "Will process each employee one at a time." -ForegroundColor Yellow
+
+    # ============================================================
+    # Collect Global Options ONCE at the Beginning
+    # ============================================================
+    Write-Host "===== Processing Options =====" -ForegroundColor Cyan
+    
+    $doReconcileInput = Read-Host "Trigger reconcile after onboarding? (Y/N)"
+    $doReconcile = ($doReconcileInput -eq 'Y' -or $doReconcileInput -eq 'y')
+    
+    $doSendEmailInput = Read-Host "Send email notifications? (Y/N)"
+    $doSendEmail = ($doSendEmailInput -eq 'Y' -or $doSendEmailInput -eq 'y')
+    
+    Write-Host ""
+    Write-Host "Settings: Reconcile=$doReconcile, Email=$doSendEmail" -ForegroundColor Gray
     Write-Host ""
     
     $startConfirm = Read-Host "Start processing? (Y/N)"
@@ -124,6 +137,7 @@ function Invoke-CACSecondaryAccountOnboarding {
     $globalEmailsSent = 0
     $employeesProcessed = 0
     $employeesSkipped = 0
+    $processAllRemaining = $false
 
     # ============================================================
     # Process Each Employee One at a Time
@@ -150,80 +164,10 @@ function Invoke-CACSecondaryAccountOnboarding {
         # Show this employee's accounts
         Write-Host "Accounts to onboard ($accountCount):" -ForegroundColor Yellow
         $empAccounts | Format-Table SafeName, PlatformId, Address, UserName, Name -AutoSize
-        
-        # ============================================================
-        # Collect Options for This Employee
-        # ============================================================
-        Write-Host "===== Options for EmpNbr: $empNbr =====" -ForegroundColor Cyan
-        
-        $doReconcile = Read-Host "Trigger reconcile after onboarding? (Y/N)"
-        $doReconcile = ($doReconcile -eq 'Y' -or $doReconcile -eq 'y')
-        
-        $doSendEmail = Read-Host "Send email notification to $empEmail? (Y/N)"
-        $doSendEmail = ($doSendEmail -eq 'Y' -or $doSendEmail -eq 'y')
-        
-        Write-Host ""
-        Write-Host "Options: Y=Proceed, N=Skip this employee, A=Abort (save & exit)" -ForegroundColor Yellow
-        $confirm = Read-Host "Proceed with onboarding for EmpNbr $empNbr? (Y/N/A)"
-        
-        # Handle Abort - save whatever has been processed and exit
-        if ($confirm -eq 'A' -or $confirm -eq 'a') {
-            Write-Host ""
-            Write-Host "Aborting... saving processed results." -ForegroundColor Yellow
-            
-            # Mark remaining employees (including current) as not processed
-            # Current employee
-            foreach ($acc in $empAccounts) {
-                $resObj = $acc | Select-Object *
-                $resObj | Add-Member -MemberType NoteProperty -Name "OnboardingStatus" -Value "NotProcessed" -Force
-                $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Aborted by user" -Force
-                $resObj | Add-Member -MemberType NoteProperty -Name "AccountId" -Value "" -Force
-                $allResults += $resObj
-            }
-            
-            # Remaining employees
-            $remainingGroups = $employeeGroups | Select-Object -Skip $empIndex
-            foreach ($remGroup in $remainingGroups) {
-                foreach ($acc in $remGroup.Group) {
-                    $resObj = $acc | Select-Object *
-                    $resObj | Add-Member -MemberType NoteProperty -Name "OnboardingStatus" -Value "NotProcessed" -Force
-                    $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Aborted before processing" -Force
-                    $resObj | Add-Member -MemberType NoteProperty -Name "AccountId" -Value "" -Force
-                    $allResults += $resObj
-                }
-            }
-            
-            # Export and exit
-            $allResults | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
-            Write-Host ""
-            Write-Host "Results saved to: $OutputCsvPath" -ForegroundColor Green
-            Write-Host "Processed: $employeesProcessed employees, Aborted at: EmpNbr $empNbr" -ForegroundColor Yellow
-            Write-Log "Aborted by user. Processed: $employeesProcessed, Remaining saved as NotProcessed" "WARN"
-            return
-        }
-        
-        # Handle Skip
-        if ($confirm -ne 'Y' -and $confirm -ne 'y') {
-            Write-Host "Skipped EmpNbr: $empNbr" -ForegroundColor Yellow
-            $employeesSkipped++
-            
-            # Add skipped records to results
-            foreach ($acc in $empAccounts) {
-                $resObj = $acc | Select-Object *
-                $resObj | Add-Member -MemberType NoteProperty -Name "OnboardingStatus" -Value "Skipped" -Force
-                $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Skipped by user" -Force
-                $resObj | Add-Member -MemberType NoteProperty -Name "AccountId" -Value "" -Force
-                $allResults += $resObj
-            }
-            
-            Pause
-            continue
-        }
 
         # ============================================================
         # Process This Employee's Accounts
         # ============================================================
-        Write-Host ""
         Write-Host "Processing accounts for EmpNbr: $empNbr..." -ForegroundColor Cyan
         
         $empResults = @()
@@ -349,10 +293,11 @@ function Invoke-CACSecondaryAccountOnboarding {
             $emailBody = New-CACSecondaryAccountEmailBody -UserFullName $empFullName -Accounts $empResults -ImagePath "C:\Path\To\your_image.png"
             
             $emailParams = @{
-                To      = $empEmail
-                Subject = "CyberArk Secondary Account Onboarding Notification"
-                Body    = $emailBody
-                IsHtml  = $true
+                To          = $empEmail
+                Subject     = "CyberArk Secondary Account Onboarding Notification"
+                Body        = $emailBody
+                IsHtml      = $true
+                Attachments = @("C:\Path\To\PSM_Guide.pdf")  # Optional: PDF/DOCX attachment
             }
             
             # Add CC if configured
@@ -374,15 +319,60 @@ function Invoke-CACSecondaryAccountOnboarding {
         # Add to global results
         $allResults += $empResults
 
+        # ============================================================
+        # Save Results After Each Employee (Incremental Save)
+        # ============================================================
+        $allResults | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
+        Write-Log "Saved results for EmpNbr $empNbr to $OutputCsvPath" "DEBUG"
+
         # Employee summary
         Write-Host ""
-        Write-Host "===== EmpNbr $empNbr Summary =====" -ForegroundColor Cyan
+        Write-Host "===== EmpNbr $empNbr Complete =====" -ForegroundColor Cyan
         Write-Host "  Success: $empSuccessCount" -ForegroundColor Green
         Write-Host "  Failed:  $empFailCount" -ForegroundColor $(if ($empFailCount -gt 0) { "Red" } else { "White" })
+        Write-Host "  (Results saved to file)" -ForegroundColor Gray
         Write-Host ""
         
-        if ($empIndex -lt $totalEmployees) {
-            Pause
+        # ============================================================
+        # Prompt for Next Employee (Y/N/A)
+        # ============================================================
+        if ($empIndex -lt $totalEmployees -and -not $processAllRemaining) {
+            $nextEmpNbr = ($employeeGroups[$empIndex]).Name
+            Write-Host "Next: EmpNbr $nextEmpNbr" -ForegroundColor Yellow
+            Write-Host "Options: Y=Proceed, N=Abort, A=Yes to All remaining" -ForegroundColor Yellow
+            $continueChoice = Read-Host "Continue? (Y/N/A)"
+            
+            # Handle Abort (N)
+            if ($continueChoice -eq 'N' -or $continueChoice -eq 'n') {
+                Write-Host ""
+                Write-Host "Aborting remaining employees..." -ForegroundColor Yellow
+                
+                # Mark remaining employees as NotProcessed
+                $remainingGroups = $employeeGroups | Select-Object -Skip $empIndex
+                foreach ($remGroup in $remainingGroups) {
+                    foreach ($acc in $remGroup.Group) {
+                        $resObj = $acc | Select-Object *
+                        $resObj | Add-Member -MemberType NoteProperty -Name "OnboardingStatus" -Value "NotProcessed" -Force
+                        $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Aborted by user" -Force
+                        $resObj | Add-Member -MemberType NoteProperty -Name "AccountId" -Value "" -Force
+                        $allResults += $resObj
+                    }
+                }
+                
+                # Final save and exit
+                $allResults | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
+                Write-Host "Results saved to: $OutputCsvPath" -ForegroundColor Green
+                Write-Log "Aborted by user after EmpNbr $empNbr. Processed: $employeesProcessed employees" "WARN"
+                break
+            }
+            
+            # Handle Yes to All (A)
+            if ($continueChoice -eq 'A' -or $continueChoice -eq 'a') {
+                Write-Host "Processing all remaining employees without prompts..." -ForegroundColor Cyan
+                $processAllRemaining = $true
+            }
+            
+            # Y or any other input continues to next employee
         }
     }
 

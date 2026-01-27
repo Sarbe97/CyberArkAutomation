@@ -140,6 +140,8 @@ function Send-CACEmail {
         Email body content (HTML supported).
     .PARAMETER CC
         CC recipients (array of email addresses). If not provided, uses DefaultCC from config.
+    .PARAMETER Attachments
+        Array of file paths to attach to the email.
     .PARAMETER IsHtml
         If true, sends email as HTML. Default: true.
     #>
@@ -155,6 +157,8 @@ function Send-CACEmail {
         [string]$Body,
 
         [string[]]$CC = $null,
+
+        [string[]]$Attachments = $null,
 
         [bool]$IsHtml = $true
     )
@@ -201,6 +205,23 @@ function Send-CACEmail {
         if ($ccList -and $ccList.Count -gt 0) {
             $smtpParams["Cc"] = $ccList
             Write-Log "CC recipients: $($ccList -join ', ')" "DEBUG"
+        }
+
+        # Add attachments if provided
+        if ($Attachments -and $Attachments.Count -gt 0) {
+            $validAttachments = @()
+            foreach ($attachment in $Attachments) {
+                if (Test-Path $attachment) {
+                    $validAttachments += $attachment
+                    Write-Log "Attaching file: $attachment" "DEBUG"
+                }
+                else {
+                    Write-Log "Attachment not found: $attachment" "WARN"
+                }
+            }
+            if ($validAttachments.Count -gt 0) {
+                $smtpParams["Attachments"] = $validAttachments
+            }
         }
 
         Send-MailMessage @smtpParams -ErrorAction Stop

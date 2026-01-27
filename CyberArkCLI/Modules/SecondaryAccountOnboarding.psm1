@@ -470,7 +470,7 @@ function New-CACSecondaryAccountEmailBody {
     $html += @"
     </table>
     
-    <p>We would like to inform you that these identified accounts have now been onboarded into CyberArk. As you already have CyberArk access and some secondary accounts onboarded, this activity aligns with our standard privileged access management controls.</p>
+    <p>We would like to inform you that these identified accounts have now been onboarded into CyberArk under your personal safe. As you already have CyberArk access and some secondary accounts onboarded, this activity aligns with our standard privileged access management controls.</p>
     
     <p>If you have any additional secondary accounts across other domains or environments, please let us know so they can be reviewed and onboarded accordingly.</p>
     

@@ -442,12 +442,14 @@ function New-CACSecondaryAccountEmailBody {
         th { background-color: #000; color: #fff; }
         ul { margin: 10px 0; padding-left: 20px; }
         li { margin: 5px 0; }
+        .highlight { background-color: #fff3cd; border: 1px solid #ffc107; padding: 12px; margin: 15px 0; border-radius: 4px; }
     </style>
 </head>
 <body>
     <p>Hi $UserFullName,</p>
     
-    <p>As part of our ongoing security governance and access review, we have identified the following secondary accounts that were not yet onboarded in CyberArk.</p>
+    <p>As part of our ongoing security governance and access review, we have identified the following 
+    secondary accounts that were not yet onboarded in CyberArk.</p>
     
     <table>
         <tr>
@@ -470,11 +472,20 @@ function New-CACSecondaryAccountEmailBody {
     $html += @"
     </table>
     
-    <p>We would like to inform you that these identified accounts have now been onboarded into CyberArk under your personal safe. As you already have CyberArk access and some secondary accounts onboarded, this activity aligns with our standard privileged access management controls.</p>
+    <p>We would like to inform you that these identified accounts have now been onboarded into 
+    CyberArk under your personal safe. As you already have CyberArk access and some secondary 
+    accounts onboarded, this activity aligns with our standard privileged access management controls.</p>
     
-    <p>If you have any additional secondary accounts across other domains or environments, please let us know so they can be reviewed and onboarded accordingly.</p>
+    <p>If you have any additional secondary accounts across other domains or environments, 
+    please let us know so they can be reviewed and onboarded accordingly.</p>
     
-    <p>As we continue to progressively adopt CyberArk PSM, we recommend using <strong>CyberArk PSM (RDP)</strong> for accessing Windows machines wherever possible, instead of copying or manually using passwords for connectivity. This will help ensure that access is properly monitored and aligned with privileged access best practices.</p>
+    <div class="highlight">
+        <strong>PSM Recommendation:</strong> As we continue to progressively adopt CyberArk PSM, 
+        we recommend using <strong>CyberArk PSM (RDP)</strong> for accessing Windows machines 
+        wherever possible, instead of copying or manually using passwords for connectivity. 
+        This will help ensure that access is properly monitored and aligned with privileged 
+        access best practices.
+    </div>
     
     <p>The gradual adoption of PSM is intended to:</p>
     <ul>
@@ -483,7 +494,8 @@ function New-CACSecondaryAccountEmailBody {
         <li>Reduce the risk of password exposure over time</li>
     </ul>
     
-    <p>Please feel free to reach out if you have any questions or need assistance with CyberArk or PSM access. We are happy to support you during this transition.</p>
+    <p>Please feel free to reach out if you have any questions or need assistance with 
+    CyberArk or PSM access. We are happy to support you during this transition.</p>
     
     <p>Thank you for your cooperation.</p>
     

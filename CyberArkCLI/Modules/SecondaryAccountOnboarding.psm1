@@ -436,20 +436,18 @@ function New-CACSecondaryAccountEmailBody {
 <html>
 <head>
     <style>
-        body { font-family: Arial, sans-serif; font-size: 14px; color: #333; line-height: 1.6; }
-        table { border-collapse: collapse; margin-top: 15px; margin-bottom: 15px; }
-        th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
-        th { background-color: #0066cc; color: white; }
-        tr:nth-child(even) { background-color: #f9f9f9; }
-        .highlight { background-color: #e6f3ff; padding: 15px; border-radius: 5px; margin: 15px 0; }
+        body { font-family: Arial, sans-serif; font-size: 13px; color: #333; line-height: 1.5; }
+        table { border-collapse: collapse; margin: 10px 0; }
+        th, td { border: 1px solid #000; padding: 4px 8px; text-align: left; }
+        th { background-color: #000; color: #fff; }
+        ul { margin: 10px 0; padding-left: 20px; }
+        li { margin: 5px 0; }
     </style>
 </head>
 <body>
     <p>Hi $UserFullName,</p>
     
-    <p>We have identified the following secondary accounts that are not yet onboarded in CyberArk.</p>
-    
-    <p>As you already have access to CyberArk and have some accounts onboarded, we would like to inform you that we have now onboarded the below-discovered accounts into CyberArk. You can use CyberArk to securely retrieve the passwords for these accounts as required.</p>
+    <p>As part of our ongoing security governance and access review, we have identified the following secondary accounts that were not yet onboarded in CyberArk.</p>
     
     <table>
         <tr>
@@ -472,18 +470,25 @@ function New-CACSecondaryAccountEmailBody {
     $html += @"
     </table>
     
-    <div class="highlight">
-        <strong>Important:</strong> Going forward, we request that you use <strong>CyberArk PSM</strong> to log in to any Windows machines instead of copying passwords and using them manually for connectivity. This is required to ensure that the accounts remain fully managed by CyberArk and to prevent any potential password exposure or leakage.
-    </div>
+    <p>We would like to inform you that these identified accounts have now been onboarded into CyberArk. As you already have CyberArk access and some secondary accounts onboarded, this activity aligns with our standard privileged access management controls.</p>
     
-    <p>Please let us know if you have any questions or need assistance with CyberArk or PSM access.</p>
+    <p>If you have any additional secondary accounts across other domains or environments, please let us know so they can be reviewed and onboarded accordingly.</p>
+    
+    <p>As we continue to progressively adopt CyberArk PSM, we recommend using <strong>CyberArk PSM (RDP)</strong> for accessing Windows machines wherever possible, instead of copying or manually using passwords for connectivity. This will help ensure that access is properly monitored and aligned with privileged access best practices.</p>
+    
+    <p>The gradual adoption of PSM is intended to:</p>
+    <ul>
+        <li>Improve visibility and auditability of privileged access</li>
+        <li>Ensure accounts are consistently managed through CyberArk</li>
+        <li>Reduce the risk of password exposure over time</li>
+    </ul>
+    
+    <p>Please feel free to reach out if you have any questions or need assistance with CyberArk or PSM access. We are happy to support you during this transition.</p>
     
     <p>Thank you for your cooperation.</p>
     
     <p>Regards,<br>
     <strong>CyberArk Team</strong></p>
-    
-    <p><em>This is an automated message from CyberArk.</em></p>
 </body>
 </html>
 "@

@@ -339,7 +339,7 @@ function Invoke-CACSecondaryAccountOnboarding {
         # ============================================================
         # Send Email for This Employee (if selected)
         # ============================================================
-        if ($doSendEmail -and -not [string]::IsNullOrWhiteSpace($empEmail)) {
+        if ($doSendEmail -and $empSuccessCount -gt 0 -and -not [string]::IsNullOrWhiteSpace($empEmail)) {
             Write-Host ""
             Write-Host "Sending email to $empEmail... " -NoNewline
             
@@ -419,10 +419,32 @@ function Invoke-CACSecondaryAccountOnboarding {
 function New-CACSecondaryAccountEmailBody {
     param(
         [string]$UserFullName,
-        [array]$Accounts
+        [array]$Accounts,
+        [string]$ImagePath = ""  # Optional: Path to image file to embed in PSM section
     )
 
     $successAccounts = $Accounts | Where-Object { $_.OnboardingStatus -eq "Success" }
+
+    # Prepare Base64 image tag if image path provided
+    $imageHtml = ""
+    if (-not [string]::IsNullOrWhiteSpace($ImagePath) -and (Test-Path $ImagePath)) {
+        try {
+            $imageBytes = [System.IO.File]::ReadAllBytes($ImagePath)
+            $base64Image = [Convert]::ToBase64String($imageBytes)
+            $extension = [System.IO.Path]::GetExtension($ImagePath).TrimStart('.').ToLower()
+            $mimeType = switch ($extension) {
+                "png" { "image/png" }
+                "jpg" { "image/jpeg" }
+                "jpeg" { "image/jpeg" }
+                "gif" { "image/gif" }
+                default { "image/png" }
+            }
+            $imageHtml = "<br><img src='data:$mimeType;base64,$base64Image' alt='PSM Guide' style='max-width: 100%; margin-top: 10px;' />"
+        }
+        catch {
+            Write-Log "Failed to embed image: $($_.Exception.Message)" "WARN"
+        }
+    }
 
     $html = @"
 <!DOCTYPE html>
@@ -433,16 +455,13 @@ function New-CACSecondaryAccountEmailBody {
         table { border-collapse: collapse; margin: 10px 0; }
         th, td { border: 1px solid #000; padding: 4px 8px; text-align: left; }
         th { background-color: #000; color: #fff; }
-        ul { margin: 10px 0; padding-left: 20px; }
-        li { margin: 5px 0; }
         .highlight { background-color: #fff3cd; border: 1px solid #ffc107; padding: 12px; margin: 15px 0; border-radius: 4px; }
     </style>
 </head>
 <body>
     <p>Hi $UserFullName,</p>
     
-    <p>As part of our ongoing security governance and access review, we have identified the following 
-    secondary accounts that were not yet onboarded in CyberArk.</p>
+    <p>The below secondary account(s) was discovered by CyberArk and onboarded to your personal safe.</p>
     
     <table>
         <tr>
@@ -465,32 +484,15 @@ function New-CACSecondaryAccountEmailBody {
     $html += @"
     </table>
     
-    <p>We would like to inform you that these identified accounts have now been onboarded into 
-    CyberArk under your personal safe. As you already have CyberArk access and some secondary 
-    accounts onboarded, this activity aligns with our standard privileged access management controls.</p>
-    
-    <p>If you have any additional secondary accounts across other domains or environments, 
-    please let us know so they can be reviewed and onboarded accordingly.</p>
-    
     <div class="highlight">
         <strong>PSM Recommendation:</strong> As we continue to progressively adopt CyberArk PSM, 
         we recommend using <strong>CyberArk PSM (RDP)</strong> for accessing Windows machines 
         wherever possible, instead of copying or manually using passwords for connectivity. 
         This will help ensure that access is properly monitored and aligned with privileged 
-        access best practices.
+        access best practices.$imageHtml
     </div>
     
-    <p>The gradual adoption of PSM is intended to:</p>
-    <ul>
-        <li>Improve visibility and auditability of privileged access</li>
-        <li>Ensure accounts are consistently managed through CyberArk</li>
-        <li>Reduce the risk of password exposure over time</li>
-    </ul>
-    
-    <p>Please feel free to reach out if you have any questions or need assistance with 
-    CyberArk or PSM access. We are happy to support you during this transition.</p>
-    
-    <p>Thank you for your cooperation.</p>
+    <p>Please let us know if you have any questions or need any assistance with CyberArk or PSM access.</p>
     
     <p>Regards,<br>
     <strong>CyberArk Team</strong></p>

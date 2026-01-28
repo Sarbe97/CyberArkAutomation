@@ -454,7 +454,7 @@ function New-CACSecondaryAccountEmailBody {
     <style>
         body { font-family: Arial, sans-serif; font-size: 13px; color: #333; line-height: 1.5; }
         table { border-collapse: collapse; margin: 10px 0; }
-        th, td { border: 1px solid #000; padding: 4px 8px; text-align: left; }
+        th, td { border: 1px solid #000; padding: 2px 4px; text-align: left; }
         th { background-color: #000; color: #fff; }
         .highlight { background-color: #fff3cd; border: 1px solid #ffc107; padding: 12px; margin: 15px 0; border-radius: 4px; }
     </style>

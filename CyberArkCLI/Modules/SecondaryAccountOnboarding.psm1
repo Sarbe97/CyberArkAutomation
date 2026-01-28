@@ -455,7 +455,7 @@ function New-CACSecondaryAccountEmailBody {
         body { font-family: Arial, sans-serif; font-size: 13px; color: #333; line-height: 1.5; }
         table { border-collapse: collapse; margin: 10px 0; }
         th, td { border: 1px solid #000; padding: 2px 4px; text-align: left; }
-        th { background-color: #000; color: #fff; }
+        th { background-color: #555; color: #fff; }
         .highlight { background-color: #fff3cd; border: 1px solid #ffc107; padding: 12px; margin: 15px 0; border-radius: 4px; }
     </style>
 </head>
@@ -466,7 +466,8 @@ function New-CACSecondaryAccountEmailBody {
     
     <table>
         <tr>
-            <th>UserName</th>
+            <th>User</th>
+            <th>Account</th>
             <th>Address</th>
             <th>Safe</th>
         </tr>
@@ -475,6 +476,7 @@ function New-CACSecondaryAccountEmailBody {
     foreach ($acc in $successAccounts) {
         $html += @"
         <tr>
+            <td>$($acc.UserFullName)</td>
             <td>$($acc.UserName)</td>
             <td>$($acc.Address)</td>
             <td>$($acc.SafeName)</td>

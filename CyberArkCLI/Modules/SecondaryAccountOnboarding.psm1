@@ -290,14 +290,19 @@ function Invoke-CACSecondaryAccountOnboarding {
             Write-Host ""
             Write-Host "Sending email to $empEmail... " -NoNewline
             
-            $emailBody = New-CACSecondaryAccountEmailBody -UserFullName $empFullName -Accounts $empResults -ImagePath "C:\Path\To\your_image.png"
+            # Static data paths (relative to CyberArkCLI folder)
+            $staticDataDir = Join-Path (Split-Path $PSScriptRoot -Parent) "Static_Data"
+            $imagePath = Join-Path $staticDataDir "RDP-Connect.png"
+            $attachmentPath = Join-Path $staticDataDir "CyberArk_PSM_Guide.docx"
+            
+            $emailBody = New-CACSecondaryAccountEmailBody -UserFullName $empFullName -Accounts $empResults -ImagePath $imagePath
             
             $emailParams = @{
                 To          = $empEmail
                 Subject     = "CyberArk Secondary Account Onboarding Notification"
                 Body        = $emailBody
                 IsHtml      = $true
-                Attachments = @("C:\Path\To\PSM_Guide.pdf")  # Optional: PDF/DOCX attachment
+                Attachments = @($attachmentPath)
             }
             
             # Add CC if configured

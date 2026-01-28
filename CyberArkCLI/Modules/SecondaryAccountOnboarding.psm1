@@ -225,9 +225,10 @@ function Invoke-CACSecondaryAccountOnboarding {
                     $accountBody["secret"] = $password
                 }
 
-                # TEST MODE: Simulate API call
-                # $result = Invoke-CACAPIRequest -Method POST -Endpoint "/API/Accounts" -Body $accountBody
-                $result = @{ id = "TEST_$(Get-Random -Maximum 99999)" }
+                # FOR TESTING: Uncomment below and comment out the actual API call
+                # $result = @{ id = "TEST_$(Get-Random -Maximum 99999)" }
+                
+                $result = Invoke-CACAPIRequest -Method POST -Endpoint "/API/Accounts" -Body $accountBody
 
                 Write-Host "Success (ID: $($result.id))" -ForegroundColor Green
                 
@@ -272,9 +273,11 @@ function Invoke-CACSecondaryAccountOnboarding {
                 Write-Host "  Reconciling $($acc.UserName) (ID: $accountId)... " -NoNewline
                 
                 try {
-                    # TEST MODE: Simulate API call
-                    # Invoke-CACAPIRequest -Method POST -Endpoint "/API/Accounts/$accountId/Reconcile"
-                    Write-Host "Initiated (SIMULATED)" -ForegroundColor Green
+                    # FOR TESTING: Uncomment below and comment out the actual API call
+                    # Write-Host "Initiated (SIMULATED)" -ForegroundColor Green
+                    
+                    Invoke-CACAPIRequest -Method POST -Endpoint "/API/Accounts/$accountId/Reconcile"
+                    Write-Host "Initiated" -ForegroundColor Green
                     $globalReconcileCount++
                 }
                 catch {

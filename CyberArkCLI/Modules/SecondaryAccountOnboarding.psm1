@@ -302,7 +302,7 @@ function Invoke-CACSecondaryAccountOnboarding {
             
             $emailParams = @{
                 To          = $empEmail
-                Subject     = "CyberArk Secondary Account Onboarding Notification"
+                Subject     = "CyberArk Secondary Account Onboarding Notification - $empNbr"
                 Body        = $emailBody
                 IsHtml      = $true
                 Attachments = @($attachmentPath)

@@ -63,6 +63,7 @@ function Invoke-CACBatchSafeCreation {
         $safeMember = if ($row.PSObject.Properties['SafeMember']) { $row.SafeMember.Trim() } else { "" }
         $memberType = if ($row.PSObject.Properties['MemberType']) { $row.MemberType.Trim() } else { "Group" }
         $groupMembers = if ($row.PSObject.Properties['GroupMembers']) { $row.GroupMembers.Trim() } else { "" }
+        $groupDescription = if ($row.PSObject.Properties['GroupDescription']) { $row.GroupDescription.Trim() } else { "" }
 
         Write-Host "`n==================================================================" -ForegroundColor Cyan
         Write-Host " PROCESSING: Safe [$safeName]" -ForegroundColor Cyan
@@ -155,7 +156,12 @@ function Invoke-CACBatchSafeCreation {
                 else {
                     Write-Host " Creating..." -NoNewline
                     Log "Creating group: $safeMember" "DEBUG"
-                    $newGroup = Invoke-CACAPIRequest -Method POST -Endpoint "/API/UserGroups" -Body @{ groupName = $safeMember }
+                    $groupBody = @{ groupName = $safeMember }
+                    if (-not [string]::IsNullOrWhiteSpace($groupDescription)) {
+                        $groupBody["description"] = $groupDescription
+                        Log "Group description: $groupDescription" "DEBUG"
+                    }
+                    $newGroup = Invoke-CACAPIRequest -Method POST -Endpoint "/API/UserGroups" -Body $groupBody
                     $memberReady = $true
                     $groupId = $newGroup.id
                     $result.MemberStatus = "Created"
@@ -725,7 +731,12 @@ function Invoke-CACBatchSafeMember {
                 else {
                     # Create Group
                     Write-Host " -> Creating Group..." -NoNewline
-                    Invoke-CACAPIRequest -Method POST -Endpoint "/API/UserGroups" -Body @{ groupName = $memberName } | Out-Null
+                    $groupBody = @{ groupName = $memberName }
+                    $groupDesc = if ($row.PSObject.Properties['GroupDescription']) { $row.GroupDescription.Trim() } else { "" }
+                    if (-not [string]::IsNullOrWhiteSpace($groupDesc)) {
+                        $groupBody["description"] = $groupDesc
+                    }
+                    Invoke-CACAPIRequest -Method POST -Endpoint "/API/UserGroups" -Body $groupBody | Out-Null
                     $memberReady = $true
                     $result.MemberStatus = "Created"
                     Write-Host " [CREATED]" -ForegroundColor Green
@@ -827,6 +838,7 @@ function New-CACSafeCreationTemplate {
         NumberOfVersionsRetention = ""
         SafeMember                = "Domain\SafeGroup"
         MemberType                = "Group"
+        GroupDescription          = "Group description for CyberArk"
         GroupMembers              = "user1;user2;user3"
         PermissionKey             = "SAFE_READ"
         Permissions               = ""
@@ -871,11 +883,12 @@ function New-CACSafeMemberTemplate {
     }
 
     $template = [ordered]@{
-        SafeName      = "Existing_Safe_Name"
-        MemberName    = "Domain\GroupOrUser"
-        MemberType    = "Group"
-        PermissionKey = "SAFE_READ"
-        Permissions   = ""
+        SafeName         = "Existing_Safe_Name"
+        MemberName       = "Domain\GroupOrUser"
+        MemberType       = "Group"
+        GroupDescription = "Group description (only used if MemberType=Group and group is created)"
+        PermissionKey    = "SAFE_READ"
+        Permissions      = ""
     }
 
     @([pscustomobject]$template) | Export-Csv -Path $Path -NoTypeInformation -Encoding UTF8

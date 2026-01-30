@@ -222,14 +222,14 @@ function Export-CACConsolidatedReport {
         $reqSafeAttrs = Read-Host "`n> Include Safe Attributes (Location, Retention, etc.) in every row? (y/n)"
     }
 
-    # --- Prompt B: Default Groups (Only for Modes 3 & 4) ---
-    $includeDefaultGroupUsers = 'n'
-    $defaultGroups = Get-CACDefaultGroups
+    # --- Prompt B: Groups to Hide (Only for Modes 3 & 4) ---
+    $includeHiddenGroupUsers = 'n'
+    $groupsToHide = Get-CACGroupsToHide
 
-    if ($reportMode -in '3', '4' -and $defaultGroups.Count -gt 0) {
-        Write-Host "`n> Default Groups Detected in Config:" -ForegroundColor Yellow
-        $defaultGroups | ForEach-Object { Write-Host "  - $_" -ForegroundColor Gray }
-        $includeDefaultGroupUsers = Read-Host "> Expand/List users for these default groups? (y/n)"
+    if ($reportMode -in '3', '4' -and $groupsToHide.Count -gt 0) {
+        Write-Host "`n> Groups to Hide (from Config):" -ForegroundColor Yellow
+        $groupsToHide | ForEach-Object { Write-Host "  - $_" -ForegroundColor Gray }
+        $includeHiddenGroupUsers = Read-Host "> Expand/List users for these hidden groups? (y/n)"
     }
 
     # ==========================================
@@ -310,10 +310,10 @@ function Export-CACConsolidatedReport {
                         $row["MemberType"] = $m.memberType
                         
                         if ($m.memberType -eq "Group") {
-                            $isDefault = $m.memberName -in $defaultGroups
+                            $isHidden = $m.memberName -in $groupsToHide
                             
-                            if ($isDefault -and $includeDefaultGroupUsers -ne 'y') {
-                                $row["SafeUsers"] = "(Skipped - Default Group)"
+                            if ($isHidden -and $includeHiddenGroupUsers -ne 'y') {
+                                $row["SafeUsers"] = "(Skipped - Hidden Group)"
                             }
                             else {
                                 $gUsers = Get-CACGroupUsers -GroupName $m.memberName
@@ -342,8 +342,8 @@ function Export-CACConsolidatedReport {
                             $usersToProcess += $m.memberName
                         }
                         elseif ($m.memberType -eq "Group") {
-                            $isDefault = $m.memberName -in $defaultGroups
-                            if ($isDefault -and $includeDefaultGroupUsers -ne 'y') {
+                            $isHidden = $m.memberName -in $groupsToHide
+                            if ($isHidden -and $includeHiddenGroupUsers -ne 'y') {
                                 # Skip processing
                                 $status = "SkippedGroup"
                             }
@@ -364,7 +364,7 @@ function Export-CACConsolidatedReport {
                             $row = $baseRow.Clone()
                             $row["OriginalMember"] = $m.memberName
                             $row["Type"] = $m.memberType
-                            $row["ActualUser"] = if ($status -eq "SkippedGroup") { "(Default Group Skipped)" }else { "-" }
+                            $row["ActualUser"] = if ($status -eq "SkippedGroup") { "(Hidden Group Skipped)" }else { "-" }
                             $row["FullName"] = ""
                             $row["Email"] = ""
                             $row["Department"] = ""

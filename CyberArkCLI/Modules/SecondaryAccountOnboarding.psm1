@@ -295,10 +295,9 @@ function Invoke-CACSecondaryAccountOnboarding {
             
             # Static data paths (relative to CyberArkCLI folder)
             $staticDataDir = Join-Path (Split-Path $PSScriptRoot -Parent) "Static_Data"
-            $imagePath = Join-Path $staticDataDir "RDP-Connect.png"
             $attachmentPath = Join-Path $staticDataDir "CyberArk_PSM_Guide.docx"
             
-            $emailBody = New-CACSecondaryAccountEmailBody -UserFullName $empFullName -Accounts $empResults -ImagePath $imagePath
+            $emailBody = New-CACSecondaryAccountEmailBody -UserFullName $empFullName -Accounts $empResults
             
             $emailParams = @{
                 To          = $empEmail
@@ -420,32 +419,10 @@ function Invoke-CACSecondaryAccountOnboarding {
 function New-CACSecondaryAccountEmailBody {
     param(
         [string]$UserFullName,
-        [array]$Accounts,
-        [string]$ImagePath = ""  # Optional: Path to image file to embed in PSM section
+        [array]$Accounts
     )
 
     $successAccounts = $Accounts | Where-Object { $_.OnboardingStatus -eq "Success" }
-
-    # Prepare Base64 image tag if image path provided
-    $imageHtml = ""
-    if (-not [string]::IsNullOrWhiteSpace($ImagePath) -and (Test-Path $ImagePath)) {
-        try {
-            $imageBytes = [System.IO.File]::ReadAllBytes($ImagePath)
-            $base64Image = [Convert]::ToBase64String($imageBytes)
-            $extension = [System.IO.Path]::GetExtension($ImagePath).TrimStart('.').ToLower()
-            $mimeType = switch ($extension) {
-                "png" { "image/png" }
-                "jpg" { "image/jpeg" }
-                "jpeg" { "image/jpeg" }
-                "gif" { "image/gif" }
-                default { "image/png" }
-            }
-            $imageHtml = "<br><img src='data:$mimeType;base64,$base64Image' alt='PSM Guide' style='max-width: 100%; margin-top: 10px;' />"
-        }
-        catch {
-            Write-Log "Failed to embed image: $($_.Exception.Message)" "WARN"
-        }
-    }
 
     $html = @"
 <!DOCTYPE html>
@@ -488,11 +465,10 @@ function New-CACSecondaryAccountEmailBody {
     </table>
     
     <div class="highlight">
-        <strong>PSM Recommendation:</strong> As we continue to progressively adopt CyberArk PSM, 
-        we recommend using <strong>CyberArk PSM (RDP)</strong> for accessing Windows machines 
-        wherever possible, instead of copying or manually using passwords for connectivity. 
-        This will help ensure that access is properly monitored and aligned with privileged 
-        access best practices.$imageHtml
+        <strong>PSM Access Option:</strong> You also have the option to use <strong>CyberArk PSM (RDP)</strong> 
+        for accessing Windows machines, which eliminates the need to copy or manually enter passwords. 
+        Please note that PSM support may vary depending on the account type. We have attached a step-by-step 
+        guide for your reference on how to use PSM RDP. Feel free to reach out if you'd like to try PSM access.
     </div>
     
     <p>Please let us know if you have any questions or need any assistance with CyberArk or PSM access.</p>

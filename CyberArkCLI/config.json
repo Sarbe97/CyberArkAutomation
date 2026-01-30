@@ -7,12 +7,9 @@
     "SmtpPort": 25,
     "SmtpFrom": "cyberark-noreply@yourdomain.com",
     "SmtpUseSSL": false,
-    "DefaultCC": [
-      "cyberark-admin@yourdomain.com",
-      "security-team@yourdomain.com"
-    ]
+    "DefaultCC": []
   },
-  "DefaultGroups": [
+  "GroupsToHide": [
     "Vault Admins",
     "PVWAMonitor",
     "PasswordManager",

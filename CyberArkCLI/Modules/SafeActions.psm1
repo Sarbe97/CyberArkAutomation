@@ -826,26 +826,83 @@ function New-CACSafeCreationTemplate {
     [CmdletBinding()]
     param([string]$Path)
 
+    # Prompt for Safe Name
+    Write-Host ""
+    $safeName = Read-Host "Enter Safe Name for template (or press Enter for 'Example_Safe')"
+    if ([string]::IsNullOrWhiteSpace($safeName)) { $safeName = "Example_Safe" }
+
     if ([string]::IsNullOrWhiteSpace($Path)) {
         $Path = Join-Path (Get-CACOutputDir) "SafeCreation_Template_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
     }
 
-    $template = [ordered]@{
-        SafeName                  = "Example_Safe"
+    # Load config for DefaultSafeMembers
+    $config = Get-CACConfig
+    $defaultSafeMembers = $config.DefaultSafeMembers
+
+    # Build template rows
+    $templateRows = @()
+
+    # Row 1: Main safe entry with primary group (KA_R)
+    $templateRows += [pscustomobject][ordered]@{
+        SafeName                  = $safeName
         SafeDescription           = "Safe Description"
         ManagingCPM               = "PasswordManager"
         NumberOfDaysRetention     = "7"
         NumberOfVersionsRetention = ""
-        SafeMember                = "Domain\SafeGroup"
+        SafeMember                = "KA_${safeName}_R"
         MemberType                = "Group"
-        GroupDescription          = "Group description for CyberArk"
-        GroupMembers              = "user1;user2;user3"
+        GroupDescription          = "Read-only access group for $safeName"
+        GroupMembers              = "user1;user2"
         PermissionKey             = "SAFE_READ"
         Permissions               = ""
     }
 
-    @([pscustomobject]$template) | Export-Csv -Path $Path -NoTypeInformation -Encoding UTF8
+    # Row 2: KA_RW group
+    $templateRows += [pscustomobject][ordered]@{
+        SafeName                  = $safeName
+        SafeDescription           = ""
+        ManagingCPM               = ""
+        NumberOfDaysRetention     = ""
+        NumberOfVersionsRetention = ""
+        SafeMember                = "KA_${safeName}_RW"
+        MemberType                = "Group"
+        GroupDescription          = "Read-write access group for $safeName"
+        GroupMembers              = "admin1;admin2"
+        PermissionKey             = "SAFE_READ_WRITE"
+        Permissions               = ""
+    }
+
+    # Add DefaultSafeMembers from config
+    if ($defaultSafeMembers) {
+        foreach ($memberName in $defaultSafeMembers.PSObject.Properties.Name) {
+            $permKey = $defaultSafeMembers.$memberName
+            $templateRows += [pscustomobject][ordered]@{
+                SafeName                  = $safeName
+                SafeDescription           = ""
+                ManagingCPM               = ""
+                NumberOfDaysRetention     = ""
+                NumberOfVersionsRetention = ""
+                SafeMember                = $memberName
+                MemberType                = "Group"
+                GroupDescription          = ""
+                GroupMembers              = ""
+                PermissionKey             = $permKey
+                Permissions               = ""
+            }
+        }
+    }
+
+    $templateRows | Export-Csv -Path $Path -NoTypeInformation -Encoding UTF8
     Write-Host "Template created: $Path" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "Template includes:" -ForegroundColor Cyan
+    Write-Host "  - KA_${safeName}_R (Read group)" -ForegroundColor Gray
+    Write-Host "  - KA_${safeName}_RW (Read-Write group)" -ForegroundColor Gray
+    if ($defaultSafeMembers) {
+        foreach ($m in $defaultSafeMembers.PSObject.Properties.Name) {
+            Write-Host "  - $m (from DefaultSafeMembers)" -ForegroundColor Gray
+        }
+    }
     return $Path
 }
 

@@ -182,7 +182,7 @@ function Show-MainMenu {
         Write-Host "7. Platform Management"
         Write-Host "8. Discovery & Onboarding"
         Write-Host "9. Application Management"
-        # Write-Host "10. Logout"
+        Write-Host "R. Reload Modules (Dev Only)" -ForegroundColor DarkGray
         Write-Host "0. Exit"
 
         $choice = Read-Host "Select an option"
@@ -197,6 +197,13 @@ function Show-MainMenu {
             '7' { Show-PlatformMenu }
             '8' { Show-DiscoveryMenu }
             '9' { Show-ApplicationMenu }
+
+            'R' { 
+                Reload-CACModules
+                Write-Host ""
+                Write-Host "Session preserved. You are still logged in." -ForegroundColor Green
+                Pause
+            }
 
             '0' {
                 Invoke-CACLogout

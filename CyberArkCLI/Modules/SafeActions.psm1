@@ -513,9 +513,18 @@ function Invoke-CACBatchSafeRename {
         if ($defaultSafeMembers) {
             Write-Host " -> Syncing Default Members..." -ForegroundColor Cyan
             $syncLog = @()
-            foreach ($memberName in $defaultSafeMembers.Keys) {
+            foreach ($memberName in $defaultSafeMembers.PSObject.Properties.Name) {
                 try {
-                    $permSetKey = $defaultSafeMembers[$memberName]
+                    $memberConfig = $defaultSafeMembers.$memberName
+                    
+                    # Handle both old format (string) and new format (object)
+                    if ($memberConfig -is [string]) {
+                        $permSetKey = $memberConfig
+                    }
+                    else {
+                        $permSetKey = $memberConfig.PermissionKey
+                    }
+                    
                     $permSource = $permissionSets.$permSetKey
                     if (-not $permSource) { continue }
 
@@ -828,7 +837,7 @@ function New-CACSafeCreationTemplate {
 
     # Prompt for Safe Name
     Write-Host ""
-    $safeName = Read-Host "Enter Safe Name for template (or press Enter for 'Example_Safe')"
+    $safeName = (Read-Host "Enter Safe Name for template (or press Enter for 'Example_Safe')").Trim()
     if ([string]::IsNullOrWhiteSpace($safeName)) { $safeName = "Example_Safe" }
 
     if ([string]::IsNullOrWhiteSpace($Path)) {
@@ -875,7 +884,18 @@ function New-CACSafeCreationTemplate {
     # Add DefaultSafeMembers from config
     if ($defaultSafeMembers) {
         foreach ($memberName in $defaultSafeMembers.PSObject.Properties.Name) {
-            $permKey = $defaultSafeMembers.$memberName
+            $memberConfig = $defaultSafeMembers.$memberName
+            
+            # Handle both old format (string) and new format (object)
+            if ($memberConfig -is [string]) {
+                $permKey = $memberConfig
+                $memberType = "Group"  # Default for old format
+            }
+            else {
+                $permKey = $memberConfig.PermissionKey
+                $memberType = if ($memberConfig.MemberType) { $memberConfig.MemberType } else { "Group" }
+            }
+            
             $templateRows += [pscustomobject][ordered]@{
                 SafeName                  = $safeName
                 SafeDescription           = ""
@@ -883,7 +903,7 @@ function New-CACSafeCreationTemplate {
                 NumberOfDaysRetention     = ""
                 NumberOfVersionsRetention = ""
                 SafeMember                = $memberName
-                MemberType                = "Group"
+                MemberType                = $memberType
                 GroupDescription          = ""
                 GroupMembers              = ""
                 PermissionKey             = $permKey

@@ -19,8 +19,14 @@
     "Notification Engines"
   ],
   "DefaultSafeMembers": {
-    "Vault Admins": "VAULT_ADMIN",
-    "PasswordManager": "CCP_PROVIDER"
+    "Vault Admins": {
+      "PermissionKey": "VAULT_ADMIN",
+      "MemberType": "Group"
+    },
+    "Sailpoint": {
+      "PermissionKey": "SAILPOINT",
+      "MemberType": "Group"
+    }
   },
   "SafePermissionSets": {
     "SAFE_READ": [

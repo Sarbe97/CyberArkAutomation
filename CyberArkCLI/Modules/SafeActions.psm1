@@ -850,21 +850,7 @@ function New-CACSafeCreationTemplate {
 
     # Build template rows
     $templateRows = @()
-
-    # Row 1: Main safe entry (no member - just safe properties)
-    $templateRows += [pscustomobject][ordered]@{
-        SafeName                  = $safeName
-        SafeDescription           = "Safe Description"
-        ManagingCPM               = "PasswordManager"
-        NumberOfDaysRetention     = "7"
-        NumberOfVersionsRetention = ""
-        SafeMember                = ""
-        MemberType                = ""
-        GroupDescription          = ""
-        GroupMembers              = ""
-        PermissionKey             = ""
-        Permissions               = ""
-    }
+    $isFirstRow = $true
 
     # Add DefaultSafeMembers from config first
     if ($defaultSafeMembers) {
@@ -881,18 +867,37 @@ function New-CACSafeCreationTemplate {
                 $memberType = if ($memberConfig.MemberType) { $memberConfig.MemberType } else { "Group" }
             }
             
-            $templateRows += [pscustomobject][ordered]@{
-                SafeName                  = $safeName
-                SafeDescription           = ""
-                ManagingCPM               = ""
-                NumberOfDaysRetention     = ""
-                NumberOfVersionsRetention = ""
-                SafeMember                = $memberName
-                MemberType                = $memberType
-                GroupDescription          = ""
-                GroupMembers              = ""
-                PermissionKey             = $permKey
-                Permissions               = ""
+            if ($isFirstRow) {
+                # First row includes safe properties
+                $templateRows += [pscustomobject][ordered]@{
+                    SafeName                  = $safeName
+                    SafeDescription           = "Safe Description"
+                    ManagingCPM               = "PasswordManager"
+                    NumberOfDaysRetention     = "7"
+                    NumberOfVersionsRetention = ""
+                    SafeMember                = $memberName
+                    MemberType                = $memberType
+                    GroupDescription          = ""
+                    GroupMembers              = ""
+                    PermissionKey             = $permKey
+                    Permissions               = ""
+                }
+                $isFirstRow = $false
+            }
+            else {
+                $templateRows += [pscustomobject][ordered]@{
+                    SafeName                  = $safeName
+                    SafeDescription           = ""
+                    ManagingCPM               = ""
+                    NumberOfDaysRetention     = ""
+                    NumberOfVersionsRetention = ""
+                    SafeMember                = $memberName
+                    MemberType                = $memberType
+                    GroupDescription          = ""
+                    GroupMembers              = ""
+                    PermissionKey             = $permKey
+                    Permissions               = ""
+                }
             }
         }
     }

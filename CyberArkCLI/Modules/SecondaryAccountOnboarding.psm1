@@ -187,7 +187,7 @@ function Invoke-CACSecondaryAccountOnboarding {
                 $item.Name 
             }
             else { 
-                "$userName@$address" 
+                $null 
             }
             $password = if ($item.PSObject.Properties['Password']) { $item.Password } else { $null }
 
@@ -210,15 +210,20 @@ function Invoke-CACSecondaryAccountOnboarding {
                 continue
             }
 
-            Write-Host "  $name ... " -NoNewline
+            $displayName = if ($name) { $name } else { "$userName@$address" }
+            Write-Host "  $displayName ... " -NoNewline
 
             try {
                 $accountBody = @{
                     safeName   = $safeName
                     platformId = $platformId
-                    name       = $name
                     address    = $address
                     userName   = $userName
+                }
+
+                # Only add name if provided
+                if (-not [string]::IsNullOrWhiteSpace($name)) {
+                    $accountBody["name"] = $name
                 }
 
                 if (-not [string]::IsNullOrWhiteSpace($password)) {

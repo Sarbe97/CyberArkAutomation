@@ -851,37 +851,22 @@ function New-CACSafeCreationTemplate {
     # Build template rows
     $templateRows = @()
 
-    # Row 1: Main safe entry with primary group (KA_R)
+    # Row 1: Main safe entry (no member - just safe properties)
     $templateRows += [pscustomobject][ordered]@{
         SafeName                  = $safeName
         SafeDescription           = "Safe Description"
         ManagingCPM               = "PasswordManager"
         NumberOfDaysRetention     = "7"
         NumberOfVersionsRetention = ""
-        SafeMember                = "KA_${safeName}_R"
-        MemberType                = "Group"
-        GroupDescription          = "Read-only access group for $safeName"
-        GroupMembers              = "user1;user2"
-        PermissionKey             = "SAFE_READ"
+        SafeMember                = ""
+        MemberType                = ""
+        GroupDescription          = ""
+        GroupMembers              = ""
+        PermissionKey             = ""
         Permissions               = ""
     }
 
-    # Row 2: KA_RW group
-    $templateRows += [pscustomobject][ordered]@{
-        SafeName                  = $safeName
-        SafeDescription           = ""
-        ManagingCPM               = ""
-        NumberOfDaysRetention     = ""
-        NumberOfVersionsRetention = ""
-        SafeMember                = "KA_${safeName}_RW"
-        MemberType                = "Group"
-        GroupDescription          = "Read-write access group for $safeName"
-        GroupMembers              = "admin1;admin2"
-        PermissionKey             = "SAFE_READ_WRITE"
-        Permissions               = ""
-    }
-
-    # Add DefaultSafeMembers from config
+    # Add DefaultSafeMembers from config first
     if ($defaultSafeMembers) {
         foreach ($memberName in $defaultSafeMembers.PSObject.Properties.Name) {
             $memberConfig = $defaultSafeMembers.$memberName
@@ -910,6 +895,36 @@ function New-CACSafeCreationTemplate {
                 Permissions               = ""
             }
         }
+    }
+
+    # KA_R group (Read-only)
+    $templateRows += [pscustomobject][ordered]@{
+        SafeName                  = $safeName
+        SafeDescription           = ""
+        ManagingCPM               = ""
+        NumberOfDaysRetention     = ""
+        NumberOfVersionsRetention = ""
+        SafeMember                = "KA_${safeName}_R"
+        MemberType                = "Group"
+        GroupDescription          = "Read-only access group for $safeName"
+        GroupMembers              = "user1;user2"
+        PermissionKey             = "SAFE_READ"
+        Permissions               = ""
+    }
+
+    # KA_RW group (Read-Write)
+    $templateRows += [pscustomobject][ordered]@{
+        SafeName                  = $safeName
+        SafeDescription           = ""
+        ManagingCPM               = ""
+        NumberOfDaysRetention     = ""
+        NumberOfVersionsRetention = ""
+        SafeMember                = "KA_${safeName}_RW"
+        MemberType                = "Group"
+        GroupDescription          = "Read-write access group for $safeName"
+        GroupMembers              = "admin1;admin2"
+        PermissionKey             = "SAFE_READ_WRITE"
+        Permissions               = ""
     }
 
     $templateRows | Export-Csv -Path $Path -NoTypeInformation -Encoding UTF8

@@ -163,29 +163,98 @@ function Invoke-CACLogin {
             # Initialize session with WebSession (for cookies)
             Initialize-CACSession -BaseURI $pvwaBase -Token $token -WebSession $authResult.WebSession
             
-            # Fetch username from API (SAML doesn't provide it directly)
+            # ========================================
+            # DEBUG: Attempt to get username via multiple methods
+            # ========================================
+            
+            # Method 1: Parse username from SAML Response (NameID)
+            Write-Host ""
+            Write-Host "===== DEBUG: Extracting Username from SAML =====" -ForegroundColor Magenta
             try {
-                $userInfo = Invoke-CACAPIRequest -Method GET -Endpoint "/WebServices/PIMServices.svc/User"
+                # Decode the SAMLResponse (it's Base64 encoded)
+                $samlXmlBytes = [System.Convert]::FromBase64String($authResult.SAMLResponse)
+                $samlXml = [System.Text.Encoding]::UTF8.GetString($samlXmlBytes)
+                
+                Write-Host "SAML Response decoded. Length: $($samlXml.Length) chars" -ForegroundColor Gray
+                Write-Log "SAML XML decoded successfully" "DEBUG"
+                
+                # Parse as XML
+                $xml = [xml]$samlXml
+                
+                # Try to find NameID (username is usually here)
+                $namespaceManager = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
+                $namespaceManager.AddNamespace("saml", "urn:oasis:names:tc:SAML:2.0:assertion")
+                $namespaceManager.AddNamespace("saml2", "urn:oasis:names:tc:SAML:2.0:assertion")
+                
+                $nameIdNode = $xml.SelectSingleNode("//saml:NameID", $namespaceManager)
+                if (-not $nameIdNode) {
+                    $nameIdNode = $xml.SelectSingleNode("//saml2:NameID", $namespaceManager)
+                }
+                if (-not $nameIdNode) {
+                    # Try without namespace
+                    $nameIdNode = $xml.SelectSingleNode("//*[local-name()='NameID']")
+                }
+                
+                if ($nameIdNode -and $nameIdNode.InnerText) {
+                    $samlUserName = $nameIdNode.InnerText.Trim()
+                    Write-Host "SAML NameID found: $samlUserName" -ForegroundColor Green
+                    Write-Log "SAML NameID: $samlUserName" "SUCCESS"
+                    $global:CACApiSession.User = $samlUserName
+                }
+                else {
+                    Write-Host "SAML NameID not found in response" -ForegroundColor Yellow
+                    Write-Log "NameID node not found in SAML response" "WARN"
+                    
+                    # Debug: Show available elements
+                    $allElements = $xml.SelectNodes("//*[local-name()='NameID' or local-name()='Subject' or local-name()='Attribute']")
+                    Write-Host "Found $($allElements.Count) potential identity elements" -ForegroundColor Gray
+                }
+            }
+            catch {
+                Write-Host "SAML parsing failed: $($_.Exception.Message)" -ForegroundColor Red
+                Write-Log "SAML parsing error: $($_.Exception.Message)" "ERROR"
+            }
+            
+            # Method 2: Try PIMServices API (legacy, may not work)
+            Write-Host ""
+            Write-Host "===== DEBUG: Trying PIMServices API =====" -ForegroundColor Magenta
+            try {
+                Write-Host "Calling: /WebServices/PIMServices.svc/User/" -ForegroundColor Gray
+                $userInfo = Invoke-CACAPIRequest -Method GET -Endpoint "/WebServices/PIMServices.svc/User/"
+                
+                Write-Host "PIMServices Response Type: $($userInfo.GetType().Name)" -ForegroundColor Gray
+                Write-Host "PIMServices Response: $($userInfo | ConvertTo-Json -Depth 3 -Compress)" -ForegroundColor Gray
                 Write-Log "PIMServices User API response received" "DEBUG"
                 
                 # Extract username from response (handle different response structures)
                 if ($userInfo) {
                     $userName = if ($userInfo.UserName) { $userInfo.UserName } 
                     elseif ($userInfo.username) { $userInfo.username }
+                    elseif ($userInfo.User) { $userInfo.User }
+                    elseif ($userInfo.user) { $userInfo.user }
                     else { $null }
                     
                     if ($userName) {
                         $global:CACApiSession.User = $userName
+                        Write-Host "Username from PIMServices: $userName" -ForegroundColor Green
                         Write-Log "Logged in as: $userName" "SUCCESS"
                     }
                     else {
+                        Write-Host "PIMServices returned data but no username field found" -ForegroundColor Yellow
                         Write-Log "User info retrieved but username field not found. Response: $($userInfo | ConvertTo-Json -Compress)" "WARN"
                     }
                 }
+                else {
+                    Write-Host "PIMServices returned null/empty" -ForegroundColor Yellow
+                }
             }
             catch {
-                Write-Log "Could not fetch username: $($_.Exception.Message)" "WARN"
+                Write-Host "PIMServices API failed: $($_.Exception.Message)" -ForegroundColor Red
+                Write-Log "Could not fetch username from PIMServices: $($_.Exception.Message)" "WARN"
             }
+            
+            Write-Host "=========================================" -ForegroundColor Magenta
+            Write-Host ""
             
             Write-Log "SAML Login Complete!" "SUCCESS"
             return $true

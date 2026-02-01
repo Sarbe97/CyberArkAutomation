@@ -28,7 +28,7 @@ function Reload-CACModules {
         "Accounts.psm1",
         "SystemHealth.psm1",
         "Users.psm1",
-        "Safes.psm1",
+        "SafeOperations.psm1",
         "Session.psm1",
         "SafeActions.psm1",
         "DiscoveryAndOnboarding.psm1",

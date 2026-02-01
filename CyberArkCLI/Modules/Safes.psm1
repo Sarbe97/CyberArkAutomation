@@ -316,7 +316,7 @@ function Export-CACConsolidatedReport {
                                 $row["SafeUsers"] = "(Skipped - Hidden Group)"
                             }
                             else {
-                                $gUsers = Get-CACGroupUsers -GroupName $m.memberName
+                                $gUsers = Get-CACMembersOfGroup -GroupName $m.memberName
                                 if ($gUsers) { $row["SafeUsers"] = ($gUsers.UserName -join ";") }
                                 else { $row["SafeUsers"] = "-" }
                             }
@@ -348,7 +348,7 @@ function Export-CACConsolidatedReport {
                                 $status = "SkippedGroup"
                             }
                             else {
-                                $gUsers = Get-CACGroupUsers -GroupName $m.memberName
+                                $gUsers = Get-CACMembersOfGroup -GroupName $m.memberName
                                 if ($gUsers) { 
                                     $usersToProcess += $gUsers.UserName 
                                     $status = "GroupMember"

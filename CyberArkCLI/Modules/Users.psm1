@@ -241,7 +241,7 @@ function Get-CACUserDetailsFromStore {
 # ============================================================
 # GROUPS - Get Group Members (Core function)
 # ============================================================
-function Get-CACGroupUsers {
+function Get-CACMembersOfGroup {
     <#
     .SYNOPSIS
         Retrieves members of a specific group (programmatic/lightweight).
@@ -293,58 +293,84 @@ function Get-CACGroupUsers {
     }
 }
 
+
 # ============================================================
-# GROUPS - Get Group Members (Interactive)
+# USERS - Get User's Group Memberships
 # ============================================================
-function Get-CACGroupMembers {
+function Get-CACGroupsOfUser {
     <#
     .SYNOPSIS
-        Retrieves and displays members of a specific group (interactive).
-    .PARAMETER GroupName
-        Name of the group. If not provided, prompts for input.
+        Retrieves and displays the groups a user belongs to.
     #>
     [CmdletBinding()]
-    param(
-        [string]$GroupName
-    )
+    param()
 
-    Write-Log "Started Get-CACGroupMembers()" "DEBUG"
+    Write-Log "Started Get-CACUserGroups()" "DEBUG"
 
     try {
-        if ([string]::IsNullOrWhiteSpace($GroupName)) {
-            $GroupName = Read-Host "Enter Group Name"
-            if ([string]::IsNullOrWhiteSpace($GroupName)) {
-                Write-Host "Group name cannot be empty." -ForegroundColor Yellow
-                return
+        # Prompt for username
+        $userName = Read-Host "Enter Username"
+        if ([string]::IsNullOrWhiteSpace($userName)) {
+            Write-Host "Username cannot be empty." -ForegroundColor Yellow
+            return
+        }
+
+        Write-Host "Searching for user: $userName..." -ForegroundColor Cyan
+
+        # First, search for the user to get their ID
+        $searchEndpoint = "/API/Users?search=$([System.Web.HttpUtility]::UrlEncode($userName))"
+        $searchResponse = Invoke-CACAPIRequest -Method GET -Endpoint $searchEndpoint
+
+        $users = ConvertTo-CACResponseArray -Response $searchResponse -PropertyName "Users"
+        
+        if (-not $users -or $users.Count -eq 0) {
+            Write-Host "User '$userName' not found." -ForegroundColor Yellow
+            return
+        }
+
+        # Find exact match or first result
+        $user = $users | Where-Object { $_.username -eq $userName } | Select-Object -First 1
+        if (-not $user) {
+            $user = $users | Select-Object -First 1
+            Write-Host "Exact match not found. Using closest match: $($user.username)" -ForegroundColor Yellow
+        }
+
+        Write-Host "Found user: $($user.username) (ID: $($user.id))" -ForegroundColor Green
+
+        # Get full user details including group memberships
+        $detailsEndpoint = "/API/Users/$($user.id)"
+        $userDetails = Invoke-CACAPIRequest -Method GET -Endpoint $detailsEndpoint
+
+        # Extract group memberships
+        $groups = $userDetails.groupsMembership
+
+        if (-not $groups -or $groups.Count -eq 0) {
+            Write-Host ""
+            Write-Host "User '$($user.username)' is not a member of any groups." -ForegroundColor Yellow
+            return
+        }
+
+        # Display results
+        Write-Host ""
+        Write-Host "===== Groups for User: $($user.username) =====" -ForegroundColor Cyan
+        Write-Host "Total Groups: $($groups.Count)"
+        Write-Host ""
+
+        # Format and display
+        $groupList = $groups | ForEach-Object {
+            [PSCustomObject]@{
+                GroupID   = $_.groupID
+                GroupName = $_.groupName
             }
         }
 
-        Write-Host "Fetching members for group: $GroupName..." -ForegroundColor Cyan
+        $groupList | Format-Table -AutoSize
 
-        # Use the core function
-        $members = Get-CACGroupUsers -GroupName $GroupName
-
-        if ($null -eq $members) {
-            Write-Host "Group '$GroupName' not found." -ForegroundColor Yellow
-            return
-        }
-
-        if ($members.Count -eq 0) {
-            Write-Host "Group '$GroupName' has no members." -ForegroundColor Yellow
-            return
-        }
-
-        Write-Host ""
-        Write-Host "===== Members of '$GroupName' =====" -ForegroundColor Cyan
-        Write-Host "Total Members: $($members.Count)"
-        Write-Host ""
-
-        $members | Format-Table -AutoSize
-
-        return $members
+        Write-Log "Retrieved $($groups.Count) groups for user $($user.username)" "INFO"
+        return $groupList
     }
     catch {
-        Write-Log "Error in Get-CACGroupMembers(): $($_.Exception.Message)" "ERROR"
+        Write-Log "Error in Get-CACUserGroups(): $($_.Exception.Message)" "ERROR"
         Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
@@ -355,27 +381,19 @@ function Get-CACGroupMembers {
 function Get-CACAllGroups {
     <#
     .SYNOPSIS
-        Retrieves all groups from CyberArk with optional filtering.
-    .PARAMETER GroupType
-        Filter by group type: All, Vault, or Directory.
-    .PARAMETER IncludeMembers
-        Include member details in the response.
-    .PARAMETER ExportToCSV
-        Export results to CSV file.
+        Retrieves all groups from CyberArk with optional filtering and member display.
     #>
     [CmdletBinding()]
-    param(
-        [ValidateSet("All", "Vault", "Directory")]
-        [string]$GroupType = "All",
-
-        [switch]$IncludeMembers,
-
-        [bool]$ExportToCSV = $true
-    )
+    param()
 
     Write-Log "Started Get-CACAllGroups()" "DEBUG"
 
     try {
+        # Interactive prompts
+        Write-Host "Include group members in output? (Y/N)" -ForegroundColor Cyan
+        $includeMembersChoice = Read-Host "Choice"
+        $includeMembers = ($includeMembersChoice -match '^[Yy]$')
+
         Write-Host "Fetching groups from CyberArk..." -ForegroundColor Cyan
 
         # Use List<T> for better performance
@@ -387,11 +405,7 @@ function Get-CACAllGroups {
         do {
             $queryParams = @("limit=$limit", "offset=$offset")
             
-            if ($GroupType -ne "All") {
-                $queryParams += "filter=groupType eq $GroupType"
-            }
-            
-            if ($IncludeMembers) {
+            if ($includeMembers) {
                 $queryParams += "includeMembers=true"
             }
 
@@ -428,13 +442,21 @@ function Get-CACAllGroups {
             $counter++
             Write-Progress -Activity "Processing Groups" -Status "$counter of $($allGroups.Count)" -PercentComplete (($counter / $allGroups.Count) * 100)
 
-            $groupRecord = New-CACGroupObject `
-                -Id $group.id `
-                -GroupName $group.groupName `
-                -Description $group.description `
-                -GroupType $group.groupType `
-                -Directory $group.directory `
-                -MemberCount $(if ($group.members) { $group.members.Count } else { 0 })
+            # Format members as "Id:UserName" comma-separated
+            $membersStr = ""
+            if ($includeMembers -and $group.members -and $group.members.Count -gt 0) {
+                $membersStr = ($group.members | ForEach-Object { "$($_.id):$($_.userName)" }) -join ", "
+            }
+
+            $groupRecord = [PSCustomObject]@{
+                Id          = $group.id
+                GroupName   = $group.groupName
+                Description = $group.description
+                GroupType   = $group.groupType
+                Directory   = $group.directory
+                MemberCount = $(if ($group.members) { $group.members.Count } else { 0 })
+                Members     = $membersStr
+            }
 
             $formattedGroups.Add($groupRecord)
         }
@@ -453,16 +475,20 @@ function Get-CACAllGroups {
         Write-Host "  Directory (LDAP): $directoryCount"
         Write-Host ""
 
-        $formattedGroups | Format-Table GroupName, GroupType, Description, MemberCount -AutoSize
-
-        if ($ExportToCSV) {
-            $outputDir = Get-CACOutputDir
-            $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-            $outputFile = "$outputDir/groups_$timestamp.csv"
-
-            $formattedGroups | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
-            Write-Host "Export File: $outputFile" -ForegroundColor Green
+        if ($includeMembers) {
+            $formattedGroups | Format-Table GroupName, GroupType, MemberCount, Members -AutoSize -Wrap
         }
+        else {
+            $formattedGroups | Format-Table GroupName, GroupType, Description, MemberCount -AutoSize
+        }
+
+        # Always export to CSV
+        $outputDir = Get-CACOutputDir
+        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+        $outputFile = "$outputDir/groups_$timestamp.csv"
+
+        $formattedGroups | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
+        Write-Host "Export File: $outputFile" -ForegroundColor Green
 
         return $formattedGroups.ToArray()
     }
@@ -681,7 +707,7 @@ Export-ModuleMember -Function `
     New-CACUserStore, `
     Get-CACUserDetailsFromStore, `
     Get-CACAllGroups, `
-    Get-CACGroupMembers, `
-    Get-CACGroupUsers, `
+    Get-CACMembersOfGroup, `
+    Get-CACGroupsOfUser, `
     Remove-CACGroup, `
     Invoke-CACBatchGroupDeletion

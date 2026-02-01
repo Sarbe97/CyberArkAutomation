@@ -312,21 +312,20 @@ function Show-UserMenu {
         Write-Host "============================================="
         Write-Host ""
         Write-Host "--- USER UTILITIES ---" -ForegroundColor Yellow
-        Write-Host "1. Get All Groups (Vault + LDAP)"
-        Write-Host "2. Get Group Members"
-        Write-Host "3. Refresh User Cache"
-        Write-Host "4. Lookup User (from Cache)"
-        Write-Host "5. Delete Group"
-        Write-Host "6. Batch Delete Groups"
+        Write-Host "1. Refresh User Cache"
+        Write-Host "2. Lookup User (from Cache)"
+        Write-Host "3. Get All Groups (Vault + LDAP)"
+        Write-Host "4. Get Members of a Group"
+        Write-Host "5. Get Groups of a User"
+        Write-Host "6. Delete Group"
+        Write-Host "7. Batch Delete Groups"
         Write-Host "0. Back"
 
         $choice = Read-Host "Enter Choice"
 
         switch ($choice) {
-            '1' { Get-CACAllGroups; Pause }
-            '2' { Get-CACGroupMembers; Pause }
-            '3' { New-CACUserStore; Pause }
-            '4' {
+            '1' { New-CACUserStore; Pause }
+            '2' {
                 $user = Read-Host "Enter Username or ID"
                 if (-not [string]::IsNullOrWhiteSpace($user)) {
                     $result = Get-CACUserDetailsFromStore -InputValue $user
@@ -334,8 +333,34 @@ function Show-UserMenu {
                 }
                 Pause
             }
-            '5' { Remove-CACGroup; Pause }
-            '6' { Invoke-CACBatchGroupDeletion; Pause }
+            '3' { Get-CACAllGroups; Pause }
+            '4' {
+                $groupName = Read-Host "Enter Group Name"
+                if (-not [string]::IsNullOrWhiteSpace($groupName)) {
+                    Write-Host "Fetching members for group: $groupName..." -ForegroundColor Cyan
+                    $members = Get-CACMembersOfGroup -GroupName $groupName
+                    if ($null -eq $members) {
+                        Write-Host "Group '$groupName' not found." -ForegroundColor Yellow
+                    }
+                    elseif ($members.Count -eq 0) {
+                        Write-Host "Group '$groupName' has no members." -ForegroundColor Yellow
+                    }
+                    else {
+                        Write-Host ""
+                        Write-Host "===== Members of '$groupName' =====" -ForegroundColor Cyan
+                        Write-Host "Total Members: $($members.Count)"
+                        Write-Host ""
+                        $members | Format-Table -AutoSize
+                    }
+                }
+                else {
+                    Write-Host "Group name cannot be empty." -ForegroundColor Yellow
+                }
+                Pause
+            }
+            '5' { Get-CACGroupsOfUser; Pause }
+            '6' { Remove-CACGroup; Pause }
+            '7' { Invoke-CACBatchGroupDeletion; Pause }
             '0' { return }
 
             default {

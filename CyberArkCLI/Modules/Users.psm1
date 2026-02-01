@@ -700,6 +700,118 @@ function Invoke-CACBatchGroupDeletion {
 }
 
 # ============================================================
+# USERS - Reset User Password
+# ============================================================
+function Reset-CACUserPassword {
+    <#
+    .SYNOPSIS
+        Resets a Vault user's password.
+    .DESCRIPTION
+        Prompts for username, searches for the user, and resets their password.
+        Requires "Audit users" and "Reset Users' Passwords" permissions.
+    #>
+    [CmdletBinding()]
+    param()
+
+    Write-Log "Started Reset-CACUserPassword()" "DEBUG"
+
+    try {
+        # Prompt for username
+        $userName = Read-Host "Enter Username to reset password"
+        if ([string]::IsNullOrWhiteSpace($userName)) {
+            Write-Host "Username cannot be empty." -ForegroundColor Yellow
+            return
+        }
+
+        Write-Host "Searching for user: $userName..." -ForegroundColor Cyan
+
+        # Search for the user to get their ID
+        $searchEndpoint = "/API/Users?search=$([System.Web.HttpUtility]::UrlEncode($userName))"
+        $searchResponse = Invoke-CACAPIRequest -Method GET -Endpoint $searchEndpoint
+
+        $users = ConvertTo-CACResponseArray -Response $searchResponse -PropertyName "Users"
+        
+        if (-not $users -or $users.Count -eq 0) {
+            Write-Host "User '$userName' not found." -ForegroundColor Yellow
+            return
+        }
+
+        # Find exact match or first result
+        $user = $users | Where-Object { $_.username -eq $userName } | Select-Object -First 1
+        if (-not $user) {
+            $user = $users | Select-Object -First 1
+            Write-Host "Exact match not found. Using closest match: $($user.username)" -ForegroundColor Yellow
+        }
+
+        Write-Host ""
+        Write-Host "===== User Found =====" -ForegroundColor Cyan
+        Write-Host "User ID:   $($user.id)"
+        Write-Host "Username:  $($user.username)"
+        Write-Host "Source:    $($user.source)"
+        Write-Host ""
+
+        # Confirm action
+        $confirm = Read-Host "Reset password for this user? (Y/N)"
+        if ($confirm -notmatch '^[Yy]$') {
+            Write-Host "Password reset cancelled." -ForegroundColor Yellow
+            return
+        }
+
+        # Prompt for new password (masked input)
+        Write-Host ""
+        Write-Host "Enter new password (max 39 characters, must meet policy requirements):" -ForegroundColor Cyan
+        $securePassword = Read-Host -AsSecureString "New Password"
+        
+        # Convert secure string to plain text for API
+        $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
+        $newPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR)
+
+        if ([string]::IsNullOrWhiteSpace($newPassword)) {
+            Write-Host "Password cannot be empty." -ForegroundColor Yellow
+            return
+        }
+
+        if ($newPassword.Length -gt 39) {
+            Write-Host "Password exceeds maximum length of 39 characters." -ForegroundColor Yellow
+            return
+        }
+
+        # Confirm password
+        $secureConfirm = Read-Host -AsSecureString "Confirm New Password"
+        $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureConfirm)
+        $confirmPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR)
+
+        if ($newPassword -ne $confirmPassword) {
+            Write-Host "Passwords do not match." -ForegroundColor Yellow
+            return
+        }
+
+        Write-Host ""
+        Write-Host "Resetting password..." -ForegroundColor Cyan
+
+        # Build request body
+        $body = @{
+            id          = $user.id
+            newPassword = $newPassword
+        }
+
+        # Call the API
+        $endpoint = "/API/Users/$($user.id)/ResetPassword/"
+        $response = Invoke-CACAPIRequest -Method POST -Endpoint $endpoint -Body $body
+
+        Write-Host ""
+        Write-Host "Password reset successful for user: $($user.username)" -ForegroundColor Green
+        Write-Log "Password reset successful for user: $($user.username) (ID: $($user.id))" "SUCCESS"
+    }
+    catch {
+        Write-Log "Error in Reset-CACUserPassword(): $($_.Exception.Message)" "ERROR"
+        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+# ============================================================
 # EXPORT
 # ============================================================
 Export-ModuleMember -Function `
@@ -709,5 +821,6 @@ Export-ModuleMember -Function `
     Get-CACAllGroups, `
     Get-CACMembersOfGroup, `
     Get-CACGroupsOfUser, `
+    Reset-CACUserPassword, `
     Remove-CACGroup, `
     Invoke-CACBatchGroupDeletion

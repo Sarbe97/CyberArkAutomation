@@ -317,8 +317,9 @@ function Show-UserMenu {
         Write-Host "3. Get All Groups (Vault + LDAP)"
         Write-Host "4. Get Members of a Group"
         Write-Host "5. Get Groups of a User"
-        Write-Host "6. Delete Group"
-        Write-Host "7. Batch Delete Groups"
+        Write-Host "6. Reset User Password"
+        Write-Host "7. Delete Group"
+        Write-Host "8. Batch Delete Groups"
         Write-Host "0. Back"
 
         $choice = Read-Host "Enter Choice"
@@ -359,8 +360,9 @@ function Show-UserMenu {
                 Pause
             }
             '5' { Get-CACGroupsOfUser; Pause }
-            '6' { Remove-CACGroup; Pause }
-            '7' { Invoke-CACBatchGroupDeletion; Pause }
+            '6' { Reset-CACUserPassword; Pause }
+            '7' { Remove-CACGroup; Pause }
+            '8' { Invoke-CACBatchGroupDeletion; Pause }
             '0' { return }
 
             default {

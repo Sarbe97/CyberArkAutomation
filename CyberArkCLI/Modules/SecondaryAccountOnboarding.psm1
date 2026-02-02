@@ -97,6 +97,42 @@ function Invoke-CACSecondaryAccountOnboarding {
         }
     }
 
+    # ============================================================
+    # BCC Address Configuration
+    # ============================================================
+    $defaultBCC = if ($mailConfig -and $mailConfig.DefaultBCC) { @($mailConfig.DefaultBCC) } else { @() }
+    
+    Write-Host ""
+    Write-Host "===== Email BCC Configuration =====" -ForegroundColor Cyan
+    if ($defaultBCC.Count -gt 0) {
+        Write-Host "Default BCC addresses from config:" -ForegroundColor White
+        foreach ($bcc in $defaultBCC) {
+            Write-Host "  - $bcc" -ForegroundColor Gray
+        }
+    }
+    else {
+        Write-Host "No default BCC addresses configured." -ForegroundColor Yellow
+    }
+    
+    Write-Host ""
+    $changeBCCInput = Read-Host "Change BCC addresses? (Y/N)"
+    
+    $bccAddresses = $defaultBCC
+    if ($changeBCCInput -eq 'Y' -or $changeBCCInput -eq 'y') {
+        $bccInput = Read-Host "Enter BCC addresses (comma-separated, or leave empty for none)"
+        if ([string]::IsNullOrWhiteSpace($bccInput)) {
+            $bccAddresses = @()
+            Write-Host "BCC addresses cleared." -ForegroundColor Yellow
+        }
+        else {
+            $bccAddresses = $bccInput -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+            Write-Host "BCC addresses updated:" -ForegroundColor Green
+            foreach ($bcc in $bccAddresses) {
+                Write-Host "  - $bcc" -ForegroundColor Gray
+            }
+        }
+    }
+
     # Group by employee and sort
     $employeeGroups = $itemsToProcess | Group-Object -Property EmpNbr | Sort-Object Name
     $totalEmployees = $employeeGroups.Count
@@ -315,6 +351,11 @@ function Invoke-CACSecondaryAccountOnboarding {
             # Add CC if configured
             if ($ccAddresses -and $ccAddresses.Count -gt 0) {
                 $emailParams["CC"] = $ccAddresses
+            }
+            
+            # Add BCC if configured
+            if ($bccAddresses -and $bccAddresses.Count -gt 0) {
+                $emailParams["BCC"] = $bccAddresses
             }
             
             $emailResult = Send-CACEmail @emailParams

@@ -1,6 +1,6 @@
 # ============================================================================
 # MODULE: Login.psm1
-# DESCRIPTION: Authentication module for CyberArk CLI (Standard and SAML)
+# DESCRIPTION: Authentication module for CyberArk CLI (CyberArk, LDAP, and SAML)
 # ============================================================================
 
 # Force TLS 1.2
@@ -18,14 +18,17 @@ if (-not (Test-Path $loginFormScript)) {
 function Invoke-CACLogin {
     <#
     .SYNOPSIS
-        Authenticates to CyberArk using standard or SAML authentication.
+        Authenticates to CyberArk using CyberArk, LDAP, or SAML authentication.
+    .PARAMETER LDAP
+        Use LDAP authentication instead of standard CyberArk.
     .PARAMETER SAML
-        Use SAML authentication instead of standard.
+        Use SAML authentication instead of standard CyberArk.
     .OUTPUTS
         $true on success, $false on failure.
     #>
     [CmdletBinding()]
     param(
+        [switch]$LDAP,
         [switch]$SAML
     )
 
@@ -33,8 +36,10 @@ function Invoke-CACLogin {
 
     if (-not $SAML) {
         # ========================================
-        # STANDARD AUTHENTICATION FLOW
+        # STANDARD/LDAP AUTHENTICATION FLOW
         # ========================================
+        $authType = if ($LDAP) { "LDAP" } else { "CyberArk" }
+        
         $result = Show-CACLoginForm -PVWAURL $cfg.PVWAURL
         if (-not $result) { return $false }
 
@@ -47,9 +52,9 @@ function Invoke-CACLogin {
 
         $baseUrl = $result.Url.TrimEnd('/')
         $pvwaBase = "$baseUrl/PasswordVault"
-        $loginUrl = "$pvwaBase/api/Auth/CyberArk/Logon"
+        $loginUrl = "$pvwaBase/api/Auth/$authType/Logon"
 
-        Write-Log "Attempting standard login to $loginUrl" "INFO"
+        Write-Log "Attempting $authType login to $loginUrl" "INFO"
 
         try {
             # Build credentials body
@@ -72,7 +77,7 @@ function Invoke-CACLogin {
             # Initialize session
             Initialize-CACSession -BaseURI $pvwaBase -Token $token -User $result.Username
 
-            Write-Log "Standard Login Successful!" "SUCCESS"
+            Write-Log "$authType Login Successful!" "SUCCESS"
             return $true
         }
         catch {

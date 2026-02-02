@@ -140,6 +140,8 @@ function Send-CACEmail {
         Email body content (HTML supported).
     .PARAMETER CC
         CC recipients (array of email addresses). If not provided, uses DefaultCC from config.
+    .PARAMETER BCC
+        BCC recipients (array of email addresses). If not provided, uses DefaultBCC from config.
     .PARAMETER Attachments
         Array of file paths to attach to the email.
     .PARAMETER IsHtml
@@ -157,6 +159,8 @@ function Send-CACEmail {
         [string]$Body,
 
         [string[]]$CC = $null,
+
+        [string[]]$BCC = $null,
 
         [string[]]$Attachments = $null,
 
@@ -205,6 +209,13 @@ function Send-CACEmail {
         if ($ccList -and $ccList.Count -gt 0) {
             $smtpParams["Cc"] = $ccList
             Write-Log "CC recipients: $($ccList -join ', ')" "DEBUG"
+        }
+
+        # Add BCC - use provided BCC or default from config
+        $bccList = if ($BCC -and $BCC.Count -gt 0) { $BCC } elseif ($mailConfig.DefaultBCC) { @($mailConfig.DefaultBCC) } else { $null }
+        if ($bccList -and $bccList.Count -gt 0) {
+            $smtpParams["Bcc"] = $bccList
+            Write-Log "BCC recipients: $($bccList -join ', ')" "DEBUG"
         }
 
         # Add attachments if provided

@@ -122,15 +122,15 @@ function Show-LoginMenu {
                 Write-Host ""
                 Write-Host "Select Login Mode:" -ForegroundColor Cyan
                 Write-Host "  1. CyberArk (Username/Password)"
-                Write-Host "  2. SAML (SSO)"
-                $loginMode = Read-Host "Enter mode (1/2)"
+                Write-Host "  2. LDAP (Domain Credentials)"
+                Write-Host "  3. SAML (SSO)"
+                $loginMode = Read-Host "Enter mode (1/2/3)"
 
                 $loginSuccess = $false
-                if ($loginMode -eq '2') {
-                    $loginSuccess = Invoke-CACLogin -SAML
-                }
-                else {
-                    $loginSuccess = Invoke-CACLogin
+                switch ($loginMode) {
+                    '2' { $loginSuccess = Invoke-CACLogin -LDAP }
+                    '3' { $loginSuccess = Invoke-CACLogin -SAML }
+                    default { $loginSuccess = Invoke-CACLogin }
                 }
 
                 if ($loginSuccess) {

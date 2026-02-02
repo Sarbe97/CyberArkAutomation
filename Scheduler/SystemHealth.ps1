@@ -38,26 +38,24 @@ if (-not $config.Features.SystemHealth.Enabled) {
 }
 
 # ------------------------
-# Get Credential from CCP
+# Get Credential from CCP and Login
 # ------------------------
 $Credential = Get-CCPCredential -CCPConfig $config.CCP -ScriptName $ScriptName -LogPath $LogPath
+Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential -ScriptName $ScriptName -LogPath $LogPath
 
 # ------------------------
 # Call System Health APIs
 # ------------------------
 try {
     Write-Log -Message "Calling System Summary API" -ScriptName $ScriptName -LogPath $LogPath
-    $Summary = Invoke-CyberArkApi `
-        -Uri "$BaseUrl$SystemSummaryApi" `
-        -Credential $Credential
+    $Summary = Invoke-CyberArkApi -Uri "$BaseUrl$SystemSummaryApi"
 
     Write-Log -Message "Calling System Details API" -ScriptName $ScriptName -LogPath $LogPath
-    $Details = Invoke-CyberArkApi `
-        -Uri "$BaseUrl$SystemDetailsApi" `
-        -Credential $Credential
+    $Details = Invoke-CyberArkApi -Uri "$BaseUrl$SystemDetailsApi"
 }
 catch {
     Write-Log -Message "System Health API call failed: $_" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
+    Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
     exit 1
 }
 
@@ -102,4 +100,8 @@ Send-SchedulerEmail `
     -ScriptName $ScriptName `
     -LogPath $LogPath
 
+# ------------------------
+# Cleanup
+# ------------------------
+Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
 Write-Log -Message "Execution completed" -ScriptName $ScriptName -LogPath $LogPath

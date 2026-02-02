@@ -92,7 +92,7 @@ function Test-ShouldExclude {
 
 # Get all CyberArk users (paginated)
 function Get-CyberArkUsers {
-    param ([string]$BaseUrl, [pscredential]$Credential)
+    param ([string]$BaseUrl)
     
     Write-Log -Message "Fetching all CyberArk users..." -ScriptName $ScriptName -LogPath $LogPath
     
@@ -102,7 +102,7 @@ function Get-CyberArkUsers {
     
     do {
         $uri = "$BaseUrl/PasswordVault/api/Users?limit=$limit&offset=$offset"
-        $response = Invoke-CyberArkApi -Uri $uri -Credential $Credential
+        $response = Invoke-CyberArkApi -Uri $uri
         $users = if ($response.Users) { $response.Users } else { @() }
         
         foreach ($user in $users) { $allUsers.Add($user) }
@@ -116,7 +116,7 @@ function Get-CyberArkUsers {
 
 # Get all CyberArk accounts (paginated)
 function Get-AllCyberArkAccounts {
-    param ([string]$BaseUrl, [pscredential]$Credential)
+    param ([string]$BaseUrl)
     
     Write-Log -Message "Fetching all CyberArk accounts..." -ScriptName $ScriptName -LogPath $LogPath
     
@@ -126,7 +126,7 @@ function Get-AllCyberArkAccounts {
     
     do {
         $uri = "$BaseUrl/PasswordVault/api/Accounts?limit=$limit&offset=$offset"
-        $response = Invoke-CyberArkApi -Uri $uri -Credential $Credential
+        $response = Invoke-CyberArkApi -Uri $uri
         $accounts = if ($response.value) { $response.value } else { @() }
         
         foreach ($acc in $accounts) { $allAccounts.Add($acc) }
@@ -216,8 +216,11 @@ try {
     # Get Credential from CCP
     $Credential = Get-CCPCredential -CCPConfig $config.CCP -ScriptName $ScriptName -LogPath $LogPath
     
+    # Login to CyberArk (get token)
+    Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential -ScriptName $ScriptName -LogPath $LogPath
+    
     # Step 1: Get all CyberArk LDAP users
-    $allCyberArkUsers = Get-CyberArkUsers -BaseUrl $BaseUrl -Credential $Credential
+    $allCyberArkUsers = Get-CyberArkUsers -BaseUrl $BaseUrl
     $targetUsers = Get-LDAPEPVUsers -AllUsers $allCyberArkUsers
     
     if ($targetUsers.Count -eq 0) {
@@ -233,7 +236,7 @@ try {
     }
     
     # Step 2: Fetch all CyberArk accounts and filter personal safes
-    $allCyberArkAccounts = Get-AllCyberArkAccounts -BaseUrl $BaseUrl -Credential $Credential
+    $allCyberArkAccounts = Get-AllCyberArkAccounts -BaseUrl $BaseUrl
     $personalSafeAccounts = Get-PersonalSafeAccounts -AllAccounts $allCyberArkAccounts -SafePattern $featureConfig.PersonalSafePattern
     
     # Save CyberArk personal accounts to CSV (date-based filename)
@@ -338,4 +341,8 @@ try {
 catch {
     Write-Log -Message "Execution failed: $($_.Exception.Message)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
     exit 1
+}
+finally {
+    # Always logoff to clean up session
+    Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
 }

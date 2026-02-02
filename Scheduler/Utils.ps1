@@ -35,6 +35,11 @@ function Write-Log {
 }
 
 # ------------------------
+# Script-level session variable
+# ------------------------
+$script:CyberArkSession = $null
+
+# ------------------------
 # Get Credential from CCP
 # ------------------------
 function Get-CCPCredential {
@@ -47,7 +52,9 @@ function Get-CCPCredential {
     )
 
     try {
-        $uri = "$($CCPConfig.Url)?AppID=$($CCPConfig.AppId)&Safe=$($CCPConfig.Safe)"
+        # Build CCP URL with proper Query format: Safe=xxx;Object=xxx
+        $query = "Safe=$($CCPConfig.Safe);Object=$($CCPConfig.Object)"
+        $uri = "$($CCPConfig.Url)?AppID=$($CCPConfig.AppId)&Query=$query"
         
         if ($LogPath) {
             Write-Log -Message "Retrieving credential from CCP" -ScriptName $ScriptName -LogPath $LogPath
@@ -55,10 +62,11 @@ function Get-CCPCredential {
 
         $resp = Invoke-RestMethod -Uri $uri -Method Get -ErrorAction Stop
 
-        return New-Object PSCredential (
-            $resp.UserName,
-            (ConvertTo-SecureString $resp.Content -AsPlainText -Force)
-        )
+        # CCP returns: UserName ± Content (password)
+        return @{
+            Username = $resp.UserName
+            Password = $resp.Content
+        }
     }
     catch {
         if ($LogPath) {
@@ -69,15 +77,95 @@ function Get-CCPCredential {
 }
 
 # ------------------------
-# REST API Call Wrapper
+# CyberArk Logon (Get Token)
+# ------------------------
+function Connect-CyberArkApi {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$BaseUrl,
+
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Credential,
+
+        [string]$ScriptName = "Unknown",
+        [string]$LogPath
+    )
+
+    try {
+        $loginUri = "$BaseUrl/PasswordVault/API/Auth/CyberArk/Logon"
+        
+        $body = @{
+            username = $Credential.Username
+            password = $Credential.Password
+        } | ConvertTo-Json
+
+        if ($LogPath) {
+            Write-Log -Message "Logging in to CyberArk API..." -ScriptName $ScriptName -LogPath $LogPath
+        }
+
+        $response = Invoke-RestMethod -Uri $loginUri -Method Post -Body $body -ContentType "application/json" -ErrorAction Stop
+
+        # Response is the token string (quoted)
+        $token = $response -replace '"', ''
+        
+        # Store session
+        $script:CyberArkSession = @{
+            BaseUrl = $BaseUrl
+            Token   = $token
+        }
+
+        if ($LogPath) {
+            Write-Log -Message "Successfully authenticated to CyberArk" -ScriptName $ScriptName -LogPath $LogPath
+        }
+
+        return $token
+    }
+    catch {
+        if ($LogPath) {
+            Write-Log -Message "CyberArk logon failed: $_" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
+        }
+        throw
+    }
+}
+
+# ------------------------
+# CyberArk Logoff
+# ------------------------
+function Disconnect-CyberArkApi {
+    param (
+        [string]$ScriptName = "Unknown",
+        [string]$LogPath
+    )
+
+    if (-not $script:CyberArkSession) { return }
+
+    try {
+        $logoffUri = "$($script:CyberArkSession.BaseUrl)/PasswordVault/API/Auth/Logoff"
+        $headers = @{ Authorization = $script:CyberArkSession.Token }
+
+        Invoke-RestMethod -Uri $logoffUri -Method Post -Headers $headers -ErrorAction SilentlyContinue
+
+        if ($LogPath) {
+            Write-Log -Message "Logged off from CyberArk" -ScriptName $ScriptName -LogPath $LogPath
+        }
+    }
+    catch {
+        if ($LogPath) {
+            Write-Log -Message "Logoff warning: $_" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+        }
+    }
+    finally {
+        $script:CyberArkSession = $null
+    }
+}
+
+# ------------------------
+# REST API Call Wrapper (Token-based)
 # ------------------------
 function Invoke-CyberArkApi {
     param (
         [Parameter(Mandatory = $true)]
         [string]$Uri,
-
-        [Parameter(Mandatory = $true)]
-        [pscredential]$Credential,
 
         [ValidateSet("Get", "Post", "Put", "Delete")]
         [string]$Method = "Get",
@@ -85,16 +173,24 @@ function Invoke-CyberArkApi {
         [object]$Body = $null
     )
 
+    if (-not $script:CyberArkSession) {
+        throw "CyberArk session not initialized. Call Connect-CyberArkApi first."
+    }
+
+    $headers = @{
+        Authorization = $script:CyberArkSession.Token
+    }
+
     $params = @{
         Uri         = $Uri
         Method      = $Method
-        Credential  = $Credential
+        Headers     = $headers
+        ContentType = "application/json"
         ErrorAction = "Stop"
     }
 
     if ($Body) {
         $params.Body = $Body | ConvertTo-Json -Depth 10
-        $params.ContentType = "application/json"
     }
 
     Invoke-RestMethod @params

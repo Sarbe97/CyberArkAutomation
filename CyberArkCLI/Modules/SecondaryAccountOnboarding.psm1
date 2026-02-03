@@ -514,7 +514,7 @@ function New-CACSecondaryAccountEmailBody {
         <strong>PSM Access Option:</strong> You also have the option to use <strong>CyberArk PSM (RDP)</strong> 
         for accessing Windows machines, which eliminates the need to copy or manually enter passwords. 
         Please note that PSM support may vary depending on the account type. We have attached a step-by-step 
-        guide for your reference on how to use PSM RDP. Feel free to reach out if you'd like to try PSM access.
+        guide for your reference on how to use PSM RDP.
     </div>
     
     <p>Please let us know if you have any questions or need any assistance with CyberArk or PSM access.</p>

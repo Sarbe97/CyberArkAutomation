@@ -334,18 +334,13 @@ function Invoke-CACSecondaryAccountOnboarding {
             Write-Host ""
             Write-Host "Sending email to $empEmail... " -NoNewline
             
-            # Static data paths (relative to CyberArkCLI folder)
-            $staticDataDir = Join-Path (Split-Path $PSScriptRoot -Parent) "Static_Data"
-            $attachmentPath = Join-Path $staticDataDir "CyberArk_PSM_Guide.docx"
-            
             $emailBody = New-CACSecondaryAccountEmailBody -UserFullName $empFullName -Accounts $empResults
             
             $emailParams = @{
-                To          = $empEmail
-                Subject     = "CyberArk Secondary Account Onboarding Notification - $empNbr"
-                Body        = $emailBody
-                IsHtml      = $true
-                Attachments = @($attachmentPath)
+                To      = $empEmail
+                Subject = "CyberArk Secondary Account Onboarding Notification - $empNbr"
+                Body    = $emailBody
+                IsHtml  = $true
             }
             
             # Add CC if configured
@@ -513,8 +508,9 @@ function New-CACSecondaryAccountEmailBody {
     <div class="highlight">
         <strong>PSM Access Option:</strong> You also have the option to use <strong>CyberArk PSM (RDP)</strong> 
         for accessing Windows machines, which eliminates the need to copy or manually enter passwords. 
-        Please note that PSM support may vary depending on the account type. We have attached a step-by-step 
-        guide for your reference on how to use PSM RDP.
+        Please note that PSM support may vary depending on the account type.<br><br>
+        <strong>User Guide:</strong> For step-by-step instructions on how to use PSM RDP, please refer to our 
+        <a href="https://yourcompany.service-now.com/kb_view.do?sysparm_article=KB0012345" target="_blank">CyberArk PSM User Guide (KB0012345)</a>.
     </div>
     
     <p>Please let us know if you have any questions or need any assistance with CyberArk or PSM access.</p>

@@ -12,3 +12,19 @@ if ($Service) {
 } else {
     Write-Host "Could not find any running service with 'BES' in the name." -ForegroundColor Red
 }
+
+
+Here is the refined summary for your manager, incorporating your feedback about the existing Secondary Account logic and the specific drawback regarding empty safes.
+Subject: Options to Fix CyberArk Provisioning Error (Shadow Users)
+The Problem
+SailPoint currently fails with a "500 Error" when adding new users to CyberArk Internal Groups. This happens because the user object does not exist in the Vault until the user logs in for the first time or is explicitly onboarded.
+Option 1: The "Login First" Rule (Process Change)
+We configure SailPoint to check if the user exists before granting access. If they haven't logged in, the request is automatically rejected, and the user receives an email instructing them to log in manually. This keeps license usage low but creates a poor user experience where users have to request access twice.
+Option 2: The "Dummy Safe" Method (Backend Fix)
+In this approach, the CyberArk team creates a single "Dummy Safe" (e.g., SP_Onboarding). We then configure SailPoint to make an API call to add every new LDAP user to this safe during the provisioning process. This action forces CyberArk to create the user object immediately, allowing the subsequent Internal Group request to succeed. The CyberArk team can simply clear users from this safe periodically.
+Option 3: The "Personal Safe" Method (Recommended Alternative)
+This uses the same technical method as Option 2—forcing user creation via Safe addition—but applies it to the user's Personal Safe. We can implement this by leveraging the proven API logic we already use in our "Secondary Account" onboarding task. By triggering this logic during initial provisioning, we fix the error and proactively prepare the safe for the 90% of users who will eventually need it.
+ * Drawback: It creates a Personal Safe for every user. If a user never requests a secondary account, this safe remains empty and unused.
+ * Mitigation: The CyberArk team can run periodic cleanup scripts to identify and delete these empty "orphan" safes if necessary.
+Recommendation
+I recommend Option 3. It resolves the root cause efficiently by utilizing a method already proven in our environment (Secondary Account onboarding). While it may create some unused safes, this is a manageable operational task compared to the poor user experience of Option 1 or the custom maintenance required for Option 2.

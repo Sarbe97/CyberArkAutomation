@@ -1,5 +1,6 @@
 ﻿{
   "PVWAURL": "http://localhost:8080",
+  "IgnoreSSLErrors": false,
   "UserCacheTTL": 30,
   "LogLevel": "INFO",
   "Mail": {

@@ -9,6 +9,50 @@ if ([Net.ServicePointManager]::SecurityProtocol -notmatch 'Tls12') {
 }
 
 # ============================================================================
+# SSL CERTIFICATE BYPASS (for dev/test environments)
+# ============================================================================
+
+function Initialize-CACSSLBypass {
+    <#
+    .SYNOPSIS
+        Bypasses SSL certificate validation if IgnoreSSLErrors is enabled in config.
+    .DESCRIPTION
+        WARNING: Only use in dev/test environments with self-signed certificates.
+        This function checks config.json for IgnoreSSLErrors flag and disables
+        certificate validation when set to true.
+    #>
+    [CmdletBinding()]
+    param()
+
+    try {
+        $cfg = Get-CACConfig
+        if ($cfg.IgnoreSSLErrors -eq $true) {
+            # Check if already bypassed
+            if (-not ([System.Management.Automation.PSTypeName]'TrustAllCertsPolicy').Type) {
+                Add-Type @"
+                    using System.Net;
+                    using System.Security.Cryptography.X509Certificates;
+                    public class TrustAllCertsPolicy : ICertificatePolicy {
+                        public bool CheckValidationResult(
+                            ServicePoint srvPoint, X509Certificate certificate,
+                            WebRequest request, int certificateProblem) {
+                            return true;
+                        }
+                    }
+"@
+            }
+            [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+            Write-Host "[WARNING] SSL certificate validation DISABLED (IgnoreSSLErrors=true)" -ForegroundColor Yellow
+            Write-Log "SSL certificate validation bypassed (IgnoreSSLErrors=true)" "WARN"
+        }
+    }
+    catch {
+        # Config not loaded yet or IgnoreSSLErrors not set - skip silently
+        Write-Log "Could not check IgnoreSSLErrors config: $($_.Exception.Message)" "DEBUG"
+    }
+}
+
+# ============================================================================
 # SESSION MANAGEMENT
 # ============================================================================
 
@@ -273,5 +317,5 @@ function ConvertTo-CACResponseArray {
 }
 
 Export-ModuleMember -Function Initialize-CACSession, Get-CACSession, Test-CACSession, Clear-CACSession, 
-Invoke-CACAPIRequest, ConvertTo-CACResponseArray
+Invoke-CACAPIRequest, ConvertTo-CACResponseArray, Initialize-CACSSLBypass
 

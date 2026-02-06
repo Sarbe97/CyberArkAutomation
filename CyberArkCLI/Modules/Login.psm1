@@ -34,6 +34,9 @@ function Invoke-CACLogin {
 
     $cfg = Get-CACConfig
 
+    # Initialize SSL bypass if configured (for dev/test environments)
+    Initialize-CACSSLBypass
+
     if (-not $SAML) {
         # ========================================
         # STANDARD/LDAP AUTHENTICATION FLOW

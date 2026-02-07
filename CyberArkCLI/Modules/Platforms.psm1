@@ -18,7 +18,14 @@ function Get-CACAllPlatforms {
         Write-Host "1. Active Platforms Only"
         Write-Host "2. Inactive Platforms Only"
         Write-Host "3. All Platforms"
-        $filterChoice = Read-Host "Select filter (1/2/3)"
+        Write-Host "4. Get Platform Details (Manual/CSV)" -ForegroundColor Yellow
+        $filterChoice = Read-Host "Select filter (1/2/3/4)"
+
+        # Option 4: Call Get-CACPlatformDetails and return
+        if ($filterChoice -eq '4') {
+            Get-CACPlatformDetails
+            return
+        }
 
         $endpoint = "/API/Platforms"
         switch ($filterChoice) {
@@ -161,7 +168,163 @@ function Get-CACAllPlatforms {
 }
 
 # ============================================================
-# 2. Export Platform Package (ZIP)
+# 2. Get Platform Details (Manual or CSV Input)
+# ============================================================
+function Get-CACPlatformDetails {
+    <#
+    .SYNOPSIS
+        Fetches platform details by name (manual input or CSV) with error tracking.
+    .DESCRIPTION
+        Workaround for the 500 error when fetching all platforms.
+        Allows you to provide platform names manually or via CSV and fetches details for each.
+        Saves each platform's details to a separate txt file and generates a status CSV.
+    #>
+    [CmdletBinding()]
+    param()
+
+    Write-Log "Started Get-CACPlatformDetails()" "DEBUG"
+
+    try {
+        Write-Host ""
+        Write-Host "===== Get Platform Details =====" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "Options:" -ForegroundColor Yellow
+        Write-Host "  1. Enter platform name manually"
+        Write-Host "  2. Import from CSV (Column: PlatformID or PlatformName)"
+        Write-Host ""
+        
+        $mode = Read-Host "Select mode (1/2)"
+
+        $platformNames = @()
+
+        if ($mode -eq '1') {
+            Write-Host ""
+            Write-Host "Enter platform names (one per line). Type 'done' when finished:" -ForegroundColor Yellow
+            while ($true) {
+                $userInput = Read-Host "Platform Name"
+                if ($userInput -eq 'done' -or [string]::IsNullOrWhiteSpace($userInput)) {
+                    break
+                }
+                $platformNames += $userInput.Trim()
+            }
+        }
+        elseif ($mode -eq '2') {
+            $csvPath = Read-Host "Enter CSV Path"
+            if ([string]::IsNullOrWhiteSpace($csvPath) -or -not (Test-Path $csvPath)) {
+                Write-Host "File not found." -ForegroundColor Red
+                return
+            }
+            $csvData = Import-Csv $csvPath
+            $platformNames = $csvData | ForEach-Object { 
+                if ($_.PlatformID) { $_.PlatformID } 
+                elseif ($_.PlatformName) { $_.PlatformName }
+                elseif ($_.Platform) { $_.Platform }
+                elseif ($_.ID) { $_.ID }
+                elseif ($_.Name) { $_.Name }
+            } | Where-Object { $_ }
+        }
+        else {
+            Write-Host "Invalid option." -ForegroundColor Yellow
+            return
+        }
+
+        if ($platformNames.Count -eq 0) {
+            Write-Host "No platform names provided." -ForegroundColor Yellow
+            return
+        }
+
+        Write-Host ""
+        Write-Host "Processing $($platformNames.Count) platform(s)..." -ForegroundColor Cyan
+
+        # Prepare output directory
+        $outputDir = Get-CACOutputDir
+        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+        $platformsDir = Join-Path $outputDir "PlatformDetails_$timestamp"
+        if (-not (Test-Path $platformsDir)) {
+            New-Item -ItemType Directory -Path $platformsDir | Out-Null
+        }
+
+        # Results tracking
+        $results = [System.Collections.Generic.List[PSCustomObject]]::new()
+        $successCount = 0
+        $failCount = 0
+
+        foreach ($platformName in $platformNames) {
+            Write-Host ""
+            Write-Host "Fetching: $platformName" -ForegroundColor Cyan
+            
+            $status = "Success"
+            $errorMessage = ""
+            $platformData = $null
+
+            try {
+                # Try to get platform details using the platform ID/name
+                $endpoint = "/API/Platforms/$([System.Web.HttpUtility]::UrlEncode($platformName))"
+                Write-Log "Calling endpoint: $endpoint" "DEBUG"
+                
+                $platformData = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint
+                
+                if ($platformData) {
+                    # Save to txt file
+                    $safeFileName = $platformName -replace '[\\/*?:"<>|]', '_'
+                    $outputFile = Join-Path $platformsDir "${safeFileName}.txt"
+                    
+                    # Format the platform data nicely
+                    $platformJson = $platformData | ConvertTo-Json -Depth 10
+                    $platformJson | Out-File -FilePath $outputFile -Encoding UTF8
+                    
+                    Write-Host "  [SUCCESS] Saved to: ${safeFileName}.txt" -ForegroundColor Green
+                    $successCount++
+                }
+                else {
+                    $status = "Failed"
+                    $errorMessage = "Empty response"
+                    Write-Host "  [FAILED] Empty response" -ForegroundColor Red
+                    $failCount++
+                }
+            }
+            catch {
+                $status = "Failed"
+                $errorMessage = $_.Exception.Message
+                Write-Host "  [FAILED] $errorMessage" -ForegroundColor Red
+                Write-Log "Failed to get platform '$platformName': $errorMessage" "ERROR"
+                $failCount++
+            }
+
+            # Track result
+            $results.Add([PSCustomObject]@{
+                    PlatformName = $platformName
+                    Status       = $status
+                    Error        = $errorMessage
+                    Timestamp    = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                })
+        }
+
+        # Generate status CSV
+        $statusFile = Join-Path $platformsDir "_status_report.csv"
+        $results | Export-Csv -Path $statusFile -NoTypeInformation -Encoding UTF8
+
+        # Summary
+        Write-Host ""
+        Write-Host "===== Summary =====" -ForegroundColor Cyan
+        Write-Host "Total Platforms: $($platformNames.Count)"
+        Write-Host "  Success: $successCount" -ForegroundColor Green
+        Write-Host "  Failed:  $failCount" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "Green" })
+        Write-Host ""
+        Write-Host "Output Directory: $platformsDir" -ForegroundColor Yellow
+        Write-Host "Status Report:    _status_report.csv" -ForegroundColor Yellow
+        Write-Log "Platform details fetch completed. Success: $successCount, Failed: $failCount" "INFO"
+
+        return $results
+    }
+    catch {
+        Write-Log "Error in Get-CACPlatformDetails(): $($_.Exception.Message)" "ERROR"
+        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+# ============================================================
+# 3. Export Platform Package (ZIP)
 # ============================================================
 function Export-CACPlatform {
     [CmdletBinding()]
@@ -258,4 +421,5 @@ function Export-CACPlatform {
 # ============================================================
 Export-ModuleMember -Function `
     Get-CACAllPlatforms, `
+    Get-CACPlatformDetails, `
     Export-CACPlatform

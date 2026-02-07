@@ -274,7 +274,7 @@ function Export-CACConsolidatedReport {
                     $members = @(Get-CACResponseData -Response $membersResponse -PropertyNames @("value", "members"))
                     
                     if ($members.Count -eq 0) {
-                        $row = $baseRow.Clone(); $row["MemberInfo"] = "NO MEMBERS"; $results.Add([PSCustomObject]$row)
+                        $row = Copy-OrderedHashtable $baseRow; $row["MemberInfo"] = "NO MEMBERS"; $results.Add([PSCustomObject]$row)
                     }
                     else {
                         foreach ($m in $members) {
@@ -305,7 +305,7 @@ function Export-CACConsolidatedReport {
                     $members = @(Get-CACResponseData -Response $membersResponse -PropertyNames @("value", "members"))
 
                     foreach ($m in $members) {
-                        $row = $baseRow.Clone()
+                        $row = Copy-OrderedHashtable $baseRow
                         $row["MemberName"] = $m.memberName
                         $row["MemberType"] = $m.memberType
                         
@@ -361,7 +361,7 @@ function Export-CACConsolidatedReport {
 
                         # Handle Skipped/Empty Groups (1 row)
                         if ($status -eq "SkippedGroup" -or $status -eq "EmptyGroup") {
-                            $row = $baseRow.Clone()
+                            $row = Copy-OrderedHashtable $baseRow
                             $row["OriginalMember"] = $m.memberName
                             $row["Type"] = $m.memberType
                             $row["ActualUser"] = if ($status -eq "SkippedGroup") { "(Hidden Group Skipped)" }else { "-" }
@@ -376,7 +376,7 @@ function Export-CACConsolidatedReport {
                         foreach ($uName in $usersToProcess) {
                             $uDetails = Get-CACUserDetailsFromStore -InputValue $uName
                             
-                            $row = $baseRow.Clone()
+                            $row = Copy-OrderedHashtable $baseRow
                             $row["OriginalMember"] = $m.memberName
                             $row["Type"] = $m.memberType
                             
@@ -484,6 +484,18 @@ function New-CACSafeMemberDetailedRow {
     $finalObj["RequestsAuthorizationLevel2"] = Get-Perm $perms "requestsAuthorizationLevel2"
 
     return [PSCustomObject]$finalObj
+}
+
+# =========================================================
+# HELPER: Copy ordered hashtable (workaround for .Clone() issues)
+# =========================================================
+function Copy-OrderedHashtable {
+    param([System.Collections.Specialized.OrderedDictionary]$Source)
+    $copy = [ordered]@{}
+    foreach ($key in $Source.Keys) {
+        $copy[$key] = $Source[$key]
+    }
+    return $copy
 }
 
 # =========================================================

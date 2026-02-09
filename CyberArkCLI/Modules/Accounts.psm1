@@ -983,17 +983,20 @@ function Invoke-CACPSMConnect {
 }
 
 # ============================================================
-# 11. Batch Account Onboarding
+# 11. Batch Account Onboarding (Create/Update)
 # ============================================================
 function Invoke-CACBatchAccountOnboarding {
     <#
     .SYNOPSIS
-        Onboard multiple accounts to CyberArk from a CSV file.
+        Onboard or update multiple accounts from a CSV file.
     .DESCRIPTION
-        Reads account details from CSV and creates accounts via REST API.
-        Required CSV columns: SafeName, PlatformId, Address, UserName
-        Optional CSV columns: Name, Password (secret)
-        Output CSV includes all input columns plus OnboardingStatus and Message.
+        - If AccountID is provided: UPDATE existing account (only non-empty fields)
+        - If AccountID is empty: CREATE new account
+        
+        Supports extended properties via column prefixes:
+        - Prop_*  : Platform Account Properties (e.g., Prop_LogonDomain, Prop_Port)
+        - SM_*    : Secret Management (e.g., SM_AutomaticManagementEnabled)
+        - RMA_*   : Remote Machine Access (e.g., RMA_RemoteMachines)
     #>
     [CmdletBinding()]
     param()
@@ -1004,22 +1007,39 @@ function Invoke-CACBatchAccountOnboarding {
 
     Write-Log "Started Invoke-CACBatchAccountOnboarding()" "DEBUG"
 
-    # Prompt for CSV path
-    Write-Host "===== Batch Account Onboarding =====" -ForegroundColor Cyan
+    # Menu
+    Write-Host "===== Batch Account Onboarding/Update =====" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "Required CSV columns: SafeName, PlatformId, Address, UserName" -ForegroundColor Yellow
-    Write-Host "Optional CSV columns: Name, Password" -ForegroundColor Yellow
+    Write-Host "Options:" -ForegroundColor Yellow
+    Write-Host "  1. Process CSV file"
+    Write-Host "  2. Generate CSV template"
+    Write-Host ""
+
+    $menuChoice = Read-Host "Select option (1/2)"
+
+    if ($menuChoice -eq '2') {
+        New-CACAccountOnboardingTemplate
+        return
+    }
+
+    if ($menuChoice -ne '1') {
+        Write-Host "Invalid option." -ForegroundColor Yellow
+        return
+    }
+
+    # CSV processing
+    Write-Host ""
+    Write-Host "CSV Column Guide:" -ForegroundColor Yellow
+    Write-Host "  Core:    AccountID (for update), SafeName, PlatformId, Address, UserName, Name, Password"
+    Write-Host "  Props:   Prop_LogonDomain, Prop_Port, Prop_Database, Prop_Index, etc."
+    Write-Host "  SecMgmt: SM_AutomaticManagementEnabled, SM_ManualManagementReason"
+    Write-Host "  RMA:     RMA_RemoteMachines, RMA_AccessRestrictedToRemoteMachines"
     Write-Host ""
 
     $CsvPath = Read-Host "Enter CSV Path"
     
-    if ([string]::IsNullOrWhiteSpace($CsvPath)) {
-        Write-Host "CSV path cannot be empty." -ForegroundColor Yellow
-        return
-    }
-
-    if (-not (Test-Path $CsvPath)) {
-        Write-Host "CSV file not found: $CsvPath" -ForegroundColor Red
+    if ([string]::IsNullOrWhiteSpace($CsvPath) -or -not (Test-Path $CsvPath)) {
+        Write-Host "CSV file not found." -ForegroundColor Red
         return
     }
 
@@ -1038,17 +1058,21 @@ function Invoke-CACBatchAccountOnboarding {
         return
     }
 
+    # Count creates vs updates
+    $createCount = ($itemsToProcess | Where-Object { [string]::IsNullOrWhiteSpace($_.AccountID) }).Count
+    $updateCount = ($itemsToProcess | Where-Object { -not [string]::IsNullOrWhiteSpace($_.AccountID) }).Count
+
     Write-Host ""
-    Write-Host "Found $($itemsToProcess.Count) account(s) to onboard." -ForegroundColor Cyan
+    Write-Host "Found $($itemsToProcess.Count) row(s): $createCount CREATE, $updateCount UPDATE" -ForegroundColor Cyan
     Write-Host ""
 
-    $confirm = Read-Host "Proceed with onboarding? (Y/N)"
+    $confirm = Read-Host "Proceed? (Y/N)"
     if ($confirm -ne 'Y' -and $confirm -ne 'y') {
-        Write-Host "Onboarding cancelled." -ForegroundColor Yellow
+        Write-Host "Cancelled." -ForegroundColor Yellow
         return
     }
 
-    # Process onboarding
+    # Process
     $results = @()
     $total = $itemsToProcess.Count
     $current = 0
@@ -1058,101 +1082,239 @@ function Invoke-CACBatchAccountOnboarding {
     foreach ($item in $itemsToProcess) {
         $current++
         $resObj = $item | Select-Object *
+        $isUpdate = -not [string]::IsNullOrWhiteSpace($item.AccountID)
+        $operationType = if ($isUpdate) { "Update" } else { "Create" }
+        $displayName = if ($item.Name) { $item.Name } elseif ($item.UserName -and $item.Address) { "$($item.UserName)@$($item.Address)" } else { "Row $current" }
 
-        # Get required fields
-        $safeName = $item.SafeName
-        $platformId = $item.PlatformId
-        $address = $item.Address
-        $userName = $item.UserName
-        
-        # Get optional fields
-        $name = if ($item.PSObject.Properties['Name'] -and -not [string]::IsNullOrWhiteSpace($item.Name)) { 
-            $item.Name 
-        }
-        else { 
-            "$userName@$address" 
-        }
-        $password = if ($item.PSObject.Properties['Password']) { $item.Password } else { $null }
-
-        # Validate required fields
-        $missingFields = @()
-        if ([string]::IsNullOrWhiteSpace($safeName)) { $missingFields += "SafeName" }
-        if ([string]::IsNullOrWhiteSpace($platformId)) { $missingFields += "PlatformId" }
-        if ([string]::IsNullOrWhiteSpace($address)) { $missingFields += "Address" }
-        if ([string]::IsNullOrWhiteSpace($userName)) { $missingFields += "UserName" }
-
-        if ($missingFields.Count -gt 0) {
-            Write-Host "[$current/$total] $userName@$address ... " -NoNewline
-            Write-Host "Skipped (Missing: $($missingFields -join ', '))" -ForegroundColor Yellow
-            
-            $resObj | Add-Member -MemberType NoteProperty -Name "OnboardingStatus" -Value "Skipped" -Force
-            $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Missing required fields: $($missingFields -join ', ')" -Force
-            $resObj | Add-Member -MemberType NoteProperty -Name "AccountId" -Value "" -Force
-            $results += $resObj
-            $failCount++
-            continue
-        }
-
-        Write-Progress -Activity "Onboarding Accounts" -Status "Processing: $name" -PercentComplete (($current / $total) * 100)
-        Write-Host "[$current/$total] $name ... " -NoNewline
+        Write-Progress -Activity "Processing Accounts" -Status "[$operationType] $displayName" -PercentComplete (($current / $total) * 100)
+        Write-Host "[$current/$total] [$operationType] $displayName ... " -NoNewline
 
         try {
-            # Build account body
-            $accountBody = @{
-                safeName   = $safeName
-                platformId = $platformId
-                name       = $name
-                address    = $address
-                userName   = $userName
+            if ($isUpdate) {
+                # ========== UPDATE MODE ==========
+                $patchOps = @()
+                
+                # Core fields (only if non-empty)
+                if (-not [string]::IsNullOrWhiteSpace($item.Name)) {
+                    $patchOps += @{ op = "replace"; path = "/name"; value = $item.Name }
+                }
+                if (-not [string]::IsNullOrWhiteSpace($item.Address)) {
+                    $patchOps += @{ op = "replace"; path = "/address"; value = $item.Address }
+                }
+                if (-not [string]::IsNullOrWhiteSpace($item.UserName)) {
+                    $patchOps += @{ op = "replace"; path = "/userName"; value = $item.UserName }
+                }
+                if (-not [string]::IsNullOrWhiteSpace($item.PlatformId)) {
+                    $patchOps += @{ op = "replace"; path = "/platformId"; value = $item.PlatformId }
+                }
+                if (-not [string]::IsNullOrWhiteSpace($item.Password)) {
+                    $patchOps += @{ op = "replace"; path = "/secret"; value = $item.Password }
+                }
+
+                # Platform Account Properties (Prop_*)
+                foreach ($prop in $item.PSObject.Properties) {
+                    if ($prop.Name -like "Prop_*" -and -not [string]::IsNullOrWhiteSpace($prop.Value)) {
+                        $propName = $prop.Name.Substring(5)  # Remove "Prop_" prefix
+                        $patchOps += @{ op = "replace"; path = "/platformAccountProperties/$propName"; value = $prop.Value }
+                    }
+                }
+
+                # Secret Management (SM_*)
+                if (-not [string]::IsNullOrWhiteSpace($item.SM_AutomaticManagementEnabled)) {
+                    $boolVal = $item.SM_AutomaticManagementEnabled -match '^(true|1|yes)$'
+                    $patchOps += @{ op = "replace"; path = "/secretManagement/automaticManagementEnabled"; value = $boolVal }
+                }
+                if (-not [string]::IsNullOrWhiteSpace($item.SM_ManualManagementReason)) {
+                    $patchOps += @{ op = "replace"; path = "/secretManagement/manualManagementReason"; value = $item.SM_ManualManagementReason }
+                }
+
+                # Remote Machine Access (RMA_*)
+                if (-not [string]::IsNullOrWhiteSpace($item.RMA_RemoteMachines)) {
+                    $patchOps += @{ op = "replace"; path = "/remoteMachinesAccess/remoteMachines"; value = $item.RMA_RemoteMachines }
+                }
+                if (-not [string]::IsNullOrWhiteSpace($item.RMA_AccessRestrictedToRemoteMachines)) {
+                    $boolVal = $item.RMA_AccessRestrictedToRemoteMachines -match '^(true|1|yes)$'
+                    $patchOps += @{ op = "replace"; path = "/remoteMachinesAccess/accessRestrictedToRemoteMachines"; value = $boolVal }
+                }
+
+                if ($patchOps.Count -eq 0) {
+                    Write-Host "Skipped (no fields to update)" -ForegroundColor Yellow
+                    $resObj | Add-Member -MemberType NoteProperty -Name "Status" -Value "Skipped" -Force
+                    $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "No non-empty fields to update" -Force
+                    $results += $resObj
+                    continue
+                }
+
+                # Call PATCH API
+                $result = Invoke-CACAPIRequest -Method PATCH -Endpoint "/API/Accounts/$($item.AccountID)" -Body $patchOps -ContentType "application/json-patch+json"
+                Write-Host "Success" -ForegroundColor Green
+                
+                $resObj | Add-Member -MemberType NoteProperty -Name "Status" -Value "Updated" -Force
+                $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Updated $($patchOps.Count) field(s)" -Force
+                $successCount++
             }
+            else {
+                # ========== CREATE MODE ==========
+                # Validate required fields
+                $missingFields = @()
+                if ([string]::IsNullOrWhiteSpace($item.SafeName)) { $missingFields += "SafeName" }
+                if ([string]::IsNullOrWhiteSpace($item.PlatformId)) { $missingFields += "PlatformId" }
+                if ([string]::IsNullOrWhiteSpace($item.Address)) { $missingFields += "Address" }
+                if ([string]::IsNullOrWhiteSpace($item.UserName)) { $missingFields += "UserName" }
 
-            # Add password if provided
-            if (-not [string]::IsNullOrWhiteSpace($password)) {
-                $accountBody["secret"] = $password
+                if ($missingFields.Count -gt 0) {
+                    Write-Host "Skipped (Missing: $($missingFields -join ', '))" -ForegroundColor Yellow
+                    $resObj | Add-Member -MemberType NoteProperty -Name "Status" -Value "Skipped" -Force
+                    $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Missing: $($missingFields -join ', ')" -Force
+                    $resObj | Add-Member -MemberType NoteProperty -Name "AccountID" -Value "" -Force
+                    $results += $resObj
+                    $failCount++
+                    continue
+                }
+
+                # Build account body
+                $accountBody = @{
+                    safeName   = $item.SafeName
+                    platformId = $item.PlatformId
+                    address    = $item.Address
+                    userName   = $item.UserName
+                    name       = if ($item.Name) { $item.Name } else { "$($item.UserName)@$($item.Address)" }
+                }
+
+                if (-not [string]::IsNullOrWhiteSpace($item.Password)) {
+                    $accountBody["secret"] = $item.Password
+                }
+
+                # Platform Account Properties (Prop_*)
+                $platformProps = @{}
+                foreach ($prop in $item.PSObject.Properties) {
+                    if ($prop.Name -like "Prop_*" -and -not [string]::IsNullOrWhiteSpace($prop.Value)) {
+                        $propName = $prop.Name.Substring(5)
+                        $platformProps[$propName] = $prop.Value
+                    }
+                }
+                if ($platformProps.Count -gt 0) {
+                    $accountBody["platformAccountProperties"] = $platformProps
+                }
+
+                # Secret Management (SM_*)
+                $secretMgmt = @{}
+                if (-not [string]::IsNullOrWhiteSpace($item.SM_AutomaticManagementEnabled)) {
+                    $secretMgmt["automaticManagementEnabled"] = $item.SM_AutomaticManagementEnabled -match '^(true|1|yes)$'
+                }
+                if (-not [string]::IsNullOrWhiteSpace($item.SM_ManualManagementReason)) {
+                    $secretMgmt["manualManagementReason"] = $item.SM_ManualManagementReason
+                }
+                if ($secretMgmt.Count -gt 0) {
+                    $accountBody["secretManagement"] = $secretMgmt
+                }
+
+                # Remote Machine Access (RMA_*)
+                $rma = @{}
+                if (-not [string]::IsNullOrWhiteSpace($item.RMA_RemoteMachines)) {
+                    $rma["remoteMachines"] = $item.RMA_RemoteMachines
+                }
+                if (-not [string]::IsNullOrWhiteSpace($item.RMA_AccessRestrictedToRemoteMachines)) {
+                    $rma["accessRestrictedToRemoteMachines"] = $item.RMA_AccessRestrictedToRemoteMachines -match '^(true|1|yes)$'
+                }
+                if ($rma.Count -gt 0) {
+                    $accountBody["remoteMachinesAccess"] = $rma
+                }
+
+                # Call POST API
+                $result = Invoke-CACAPIRequest -Method POST -Endpoint "/API/Accounts" -Body $accountBody
+                Write-Host "Success (ID: $($result.id))" -ForegroundColor Green
+                
+                $resObj | Add-Member -MemberType NoteProperty -Name "Status" -Value "Created" -Force
+                $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Account created" -Force
+                $resObj | Add-Member -MemberType NoteProperty -Name "AccountID" -Value $result.id -Force
+                $successCount++
             }
-
-            # Create account via API
-            $result = Invoke-CACAPIRequest -Method POST -Endpoint "/API/Accounts" -Body $accountBody
-
-            Write-Host "Success (ID: $($result.id))" -ForegroundColor Green
-            
-            $resObj | Add-Member -MemberType NoteProperty -Name "OnboardingStatus" -Value "Success" -Force
-            $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Account created" -Force
-            $resObj | Add-Member -MemberType NoteProperty -Name "AccountId" -Value $result.id -Force
-            
-            Write-Log "Account created: $name (ID: $($result.id))" "SUCCESS"
-            $successCount++
         }
         catch {
             $errMsg = $_.Exception.Message
             Write-Host "Failed ($errMsg)" -ForegroundColor Red
             
-            $resObj | Add-Member -MemberType NoteProperty -Name "OnboardingStatus" -Value "Failed" -Force
+            $resObj | Add-Member -MemberType NoteProperty -Name "Status" -Value "Failed" -Force
             $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value $errMsg -Force
-            $resObj | Add-Member -MemberType NoteProperty -Name "AccountId" -Value "" -Force
+            if (-not $isUpdate) {
+                $resObj | Add-Member -MemberType NoteProperty -Name "AccountID" -Value "" -Force
+            }
             
-            Write-Log "Failed to create $name : $errMsg" "ERROR"
+            Write-Log "Failed [$operationType] $displayName : $errMsg" "ERROR"
             $failCount++
         }
 
         $results += $resObj
     }
 
-    Write-Progress -Activity "Onboarding Accounts" -Completed
+    Write-Progress -Activity "Processing Accounts" -Completed
 
     # Export results
     $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
 
-    # Display summary
+    # Summary
     Write-Host ""
-    Write-Host "===== Onboarding Summary =====" -ForegroundColor Cyan
+    Write-Host "===== Summary =====" -ForegroundColor Cyan
     Write-Host "  Total:     $total"
     Write-Host "  Success:   $successCount" -ForegroundColor Green
     Write-Host "  Failed:    $failCount" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "White" })
     Write-Host ""
-    Write-Host "Results saved to: $OutputCsvPath" -ForegroundColor Green
+    Write-Host "Results: $OutputCsvPath" -ForegroundColor Green
 
-    Write-Log "Batch Account Onboarding Complete. Success: $successCount, Failed: $failCount. Results: $OutputCsvPath" "INFO"
+    Write-Log "Batch Account Processing Complete. Success: $successCount, Failed: $failCount" "INFO"
+}
+
+# ============================================================
+# 11b. Generate Account Onboarding CSV Template
+# ============================================================
+function New-CACAccountOnboardingTemplate {
+    <#
+    .SYNOPSIS
+        Generates a CSV template for batch account onboarding/update.
+    #>
+    $outputDir = Get-CACOutputDir
+    $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $templatePath = "$outputDir/AccountOnboarding_Template_$timestamp.csv"
+
+    $template = @(
+        [PSCustomObject]@{
+            AccountID                            = ""  # Empty = CREATE, Filled = UPDATE
+            SafeName                             = "MySafe"
+            PlatformId                           = "WinServerLocal"
+            Address                              = "server01.domain.com"
+            UserName                             = "admin"
+            Name                                 = "admin@server01"
+            Password                             = "MySecretPassword"
+            Prop_LogonDomain                     = "DOMAIN"
+            Prop_Port                            = ""
+            Prop_Database                        = ""
+            SM_AutomaticManagementEnabled        = "true"
+            SM_ManualManagementReason            = ""
+            RMA_RemoteMachines                   = "host1;host2"
+            RMA_AccessRestrictedToRemoteMachines = "false"
+        }
+    )
+
+    $template | Export-Csv -Path $templatePath -NoTypeInformation -Encoding UTF8
+
+    Write-Host ""
+    Write-Host "Template created: $templatePath" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "Column Guide:" -ForegroundColor Yellow
+    Write-Host "  AccountID           : Leave empty to CREATE, or provide ID to UPDATE"
+    Write-Host "  SafeName            : Target safe (required for CREATE)"
+    Write-Host "  PlatformId          : Platform ID (required for CREATE)"
+    Write-Host "  Address             : Target address (required for CREATE)"
+    Write-Host "  UserName            : Account username (required for CREATE)"
+    Write-Host "  Name                : Display name (optional)"
+    Write-Host "  Password            : Account secret (optional)"
+    Write-Host "  Prop_*              : Platform properties (Prop_LogonDomain, Prop_Port, etc.)"
+    Write-Host "  SM_*                : Secret management settings"
+    Write-Host "  RMA_*               : Remote machine access settings"
+    Write-Host ""
+
+    return $templatePath
 }
 
 # ============================================================
@@ -1169,4 +1331,6 @@ Export-ModuleMember -Function `
     Remove-CACAccount, `
     Invoke-CACBatchAccountDeletion, `
     Invoke-CACPSMConnect, `
-    Invoke-CACBatchAccountOnboarding
+    Invoke-CACBatchAccountOnboarding, `
+    New-CACAccountOnboardingTemplate
+

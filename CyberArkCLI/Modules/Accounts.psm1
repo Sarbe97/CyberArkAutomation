@@ -71,11 +71,15 @@ function Get-CACAccounts {
 
         if (-not $searchQueries) { throw "No valid search criteria provided." }
 
-        # ---------- 3. PASSWORD OPTION ----------
-        $retrievePassword = ((Read-Host "Retrieve passwords? (Y/N)") -match '^[Yy]$')
-        if ($retrievePassword) {
-            Write-Log "Password retrieval enabled for all accounts." "WARN"
-        }
+        # ---------- 3. PASSWORD OPTION (TEMPORARILY DISABLED) ----------
+        # $retrievePassword = ((Read-Host "Retrieve passwords? (Y/N)") -match '^[Yy]$')
+        # if ($retrievePassword) {
+        #     Write-Log "Password retrieval enabled for all accounts." "WARN"
+        # }
+        $retrievePassword = $false
+
+        # ---------- 3b. JSON OUTPUT OPTION ----------
+        $exportJson = ((Read-Host "Also export raw JSON output? (Y/N)") -match '^[Yy]$')
 
         # ---------- 4. OUTPUT SETUP ----------
         $outputDir = Get-CACOutputDir
@@ -228,11 +232,37 @@ function Get-CACAccounts {
         Write-Progress -Activity "Formatting Output" -Completed
 
         # ---------- 7. EXPORT ----------
-        $file = "$outputDir/accounts_Batch_Search_$($allResults.Count)_$(Get-Date -Format yyyyMMdd_HHmmss).csv"
-        $formatted | Export-Csv $file -NoTypeInformation -Encoding UTF8
+        $timestamp = Get-Date -Format yyyyMMdd_HHmmss
+        
+        # CSV Export (Always generated - mandatory for validation/error tracking)
+        $csvFile = "$outputDir/accounts_Batch_Search_$($allResults.Count)_$timestamp.csv"
+        $formatted | Export-Csv $csvFile -NoTypeInformation -Encoding UTF8
+        Write-Log "CSV Export successful: $csvFile" "SUCCESS"
+        Write-Host "CSV Report: $csvFile" -ForegroundColor Green
 
-        Write-Log "Export successful: $file" "SUCCESS"
-        Write-Host "Exported $($allResults.Count) rows to $file" -ForegroundColor Green
+        # JSON Export (Optional - only if user confirmed)
+        if ($exportJson) {
+            $jsonFile = "$outputDir/accounts_Batch_Search_$($allResults.Count)_$timestamp.json"
+            
+            # Build raw JSON data with all account details
+            $jsonData = @{
+                ExportedAt   = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+                TotalResults = $allResults.Count
+                Accounts     = @($allResults | Where-Object { $_.Found -eq $true } | ForEach-Object { $_.Account })
+                Errors       = @($allResults | Where-Object { $_.Found -eq $false } | ForEach-Object { 
+                        @{
+                            Query = @{ Search = $_.Query.Search; Safe = $_.Query.Safe }
+                            Error = $_.Error
+                        }
+                    })
+            }
+            $jsonData | ConvertTo-Json -Depth 10 | Out-File -FilePath $jsonFile -Encoding UTF8
+            Write-Log "JSON Export successful: $jsonFile" "SUCCESS"
+            Write-Host "JSON Report: $jsonFile" -ForegroundColor Green
+        }
+
+        Write-Host ""
+        Write-Host "Exported $($allResults.Count) rows" -ForegroundColor Cyan
 
         return $formatted
     }

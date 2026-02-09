@@ -3,6 +3,7 @@
   "IgnoreSSLErrors": false,
   "UserCacheTTL": 30,
   "LogLevel": "INFO",
+  "LDAPDomain": "YOURDOMAIN.COM",
   "Mail": {
     "SmtpServer": "smtp.yourdomain.com",
     "SmtpPort": 25,

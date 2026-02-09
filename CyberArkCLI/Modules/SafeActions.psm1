@@ -62,6 +62,16 @@ function Invoke-CACBatchSafeCreation {
         $safeName = $row.SafeName.Trim()
         $safeMember = if ($row.PSObject.Properties['SafeMember']) { $row.SafeMember.Trim() } else { "" }
         $memberType = if ($row.PSObject.Properties['MemberType']) { $row.MemberType.Trim() } else { "Group" }
+        $memberSourceRaw = if ($row.PSObject.Properties['MemberSource']) { $row.MemberSource.Trim() } else { "Vault" }
+        
+        # Resolve 'Domain' keyword to actual domain from config
+        $memberSource = if ($memberSourceRaw -ieq "Domain") {
+            if ($config.LDAPDomain) { $config.LDAPDomain } else { "Vault" }
+        }
+        else {
+            $memberSourceRaw
+        }
+        
         $groupMembers = if ($row.PSObject.Properties['GroupMembers']) { $row.GroupMembers.Trim() } else { "" }
         $groupDescription = if ($row.PSObject.Properties['GroupDescription']) { $row.GroupDescription.Trim() } else { "" }
 
@@ -287,6 +297,10 @@ function Invoke-CACBatchSafeCreation {
             $safeMemberBody = @{
                 memberName  = $safeMember
                 permissions = $permissions
+            }
+            # Add searchIn for domain users (Vault is default)
+            if (-not [string]::IsNullOrWhiteSpace($memberSource) -and $memberSource -ne "Vault") {
+                $safeMemberBody["searchIn"] = $memberSource
             }
             Log "POST /API/Safes/$safeName/Members - Body: $($safeMemberBody | ConvertTo-Json -Compress -Depth 3)" "DEBUG"
             
@@ -877,6 +891,7 @@ function New-CACSafeCreationTemplate {
                     NumberOfVersionsRetention = ""
                     SafeMember                = $memberName
                     MemberType                = $memberType
+                    MemberSource              = "Vault"
                     GroupDescription          = ""
                     GroupMembers              = ""
                     PermissionKey             = $permKey
@@ -893,6 +908,7 @@ function New-CACSafeCreationTemplate {
                     NumberOfVersionsRetention = ""
                     SafeMember                = $memberName
                     MemberType                = $memberType
+                    MemberSource              = "Vault"
                     GroupDescription          = ""
                     GroupMembers              = ""
                     PermissionKey             = $permKey
@@ -911,6 +927,7 @@ function New-CACSafeCreationTemplate {
         NumberOfVersionsRetention = ""
         SafeMember                = "KA_${safeName}_R"
         MemberType                = "Group"
+        MemberSource              = "Vault"
         GroupDescription          = "Read-only access group for $safeName"
         GroupMembers              = "user1;user2"
         PermissionKey             = "SAFE_READ"
@@ -926,6 +943,7 @@ function New-CACSafeCreationTemplate {
         NumberOfVersionsRetention = ""
         SafeMember                = "KA_${safeName}_RW"
         MemberType                = "Group"
+        MemberSource              = "Vault"
         GroupDescription          = "Read-write access group for $safeName"
         GroupMembers              = "admin1;admin2"
         PermissionKey             = "SAFE_READ_WRITE"

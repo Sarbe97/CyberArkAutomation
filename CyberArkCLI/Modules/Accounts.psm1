@@ -1179,8 +1179,9 @@ function Invoke-CACBatchAccountOnboarding {
                 }
 
                 # Call PATCH API - Body must be a JSON array per CyberArk API spec
-                # Use ConvertTo-Json -InputObject to preserve array structure (pipeline unwraps single-element arrays)
-                $patchBody = ConvertTo-Json -InputObject $patchOps -Depth 10 -Compress
+                # Manually build JSON array to guarantee array format (PowerShell can unwrap single-element arrays)
+                $jsonItems = @($patchOps | ForEach-Object { ConvertTo-Json $_ -Depth 10 -Compress })
+                $patchBody = '[' + ($jsonItems -join ',') + ']'
                 Write-Log "PATCH body: $patchBody" "DEBUG"
                 $result = Invoke-CACAPIRequest -Method PATCH -Endpoint "/API/Accounts/$($item.AccountID)" -Body $patchBody -ContentType "application/json-patch+json"
                 Write-Host "Success" -ForegroundColor Green

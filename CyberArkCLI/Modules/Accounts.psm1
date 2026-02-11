@@ -1046,7 +1046,7 @@ function Invoke-CACBatchAccountOnboarding {
     Write-Log "Processing CSV: $CsvPath" "INFO"
     
     try {
-        $itemsToProcess = Import-Csv $CsvPath
+        $itemsToProcess = @(Import-Csv $CsvPath)
     }
     catch {
         Write-Host "Error reading CSV: $($_.Exception.Message)" -ForegroundColor Red
@@ -1094,6 +1094,14 @@ function Invoke-CACBatchAccountOnboarding {
                 # ========== UPDATE MODE ==========
                 $patchOps = @()
                 
+                # SafeName and PlatformId cannot be changed via update - warn and ignore
+                if (-not [string]::IsNullOrWhiteSpace($item.SafeName)) {
+                    Write-Log "Row $current : SafeName='$($item.SafeName)' ignored for update (safe cannot be changed)" "WARN"
+                }
+                if (-not [string]::IsNullOrWhiteSpace($item.PlatformId)) {
+                    Write-Log "Row $current : PlatformId='$($item.PlatformId)' ignored for update (platform cannot be changed)" "WARN"
+                }
+
                 # Core fields (only if non-empty)
                 if (-not [string]::IsNullOrWhiteSpace($item.Name)) {
                     $patchOps += @{ op = "replace"; path = "/name"; value = $item.Name }
@@ -1103,9 +1111,6 @@ function Invoke-CACBatchAccountOnboarding {
                 }
                 if (-not [string]::IsNullOrWhiteSpace($item.UserName)) {
                     $patchOps += @{ op = "replace"; path = "/userName"; value = $item.UserName }
-                }
-                if (-not [string]::IsNullOrWhiteSpace($item.PlatformId)) {
-                    $patchOps += @{ op = "replace"; path = "/platformId"; value = $item.PlatformId }
                 }
                 if (-not [string]::IsNullOrWhiteSpace($item.Password)) {
                     $patchOps += @{ op = "replace"; path = "/secret"; value = $item.Password }
@@ -1278,8 +1283,26 @@ function New-CACAccountOnboardingTemplate {
     $templatePath = "$outputDir/AccountOnboarding_Template_$timestamp.csv"
 
     $template = @(
+        # Row 1: Remarks / Instructions (delete this row before processing)
         [PSCustomObject]@{
-            AccountID                            = ""  # Empty = CREATE, Filled = UPDATE
+            AccountID                            = "REMARKS: Leave EMPTY to CREATE a new account. Provide an existing Account ID to UPDATE."
+            SafeName                             = "REMARKS: Required for CREATE. Ignored for UPDATE (safe cannot be changed)."
+            PlatformId                           = "REMARKS: Required for CREATE. Ignored for UPDATE (platform cannot be changed)."
+            Address                              = "REMARKS: Required for CREATE. Optional for UPDATE (updates address if provided)."
+            UserName                             = "REMARKS: Required for CREATE. Optional for UPDATE (updates username if provided)."
+            Name                                 = "REMARKS: Optional display name. Auto-generated as UserName@Address if left empty on CREATE."
+            Password                             = "REMARKS: Optional. Sets the account secret/password."
+            Prop_LogonDomain                     = "REMARKS: Platform property - Logon domain. Use Prop_ prefix for any platform-specific property."
+            Prop_Port                            = "REMARKS: Platform property - Port number. Leave empty if not applicable."
+            Prop_Database                        = "REMARKS: Platform property - Database name. Leave empty if not applicable."
+            SM_AutomaticManagementEnabled        = "REMARKS: true/false - Enable or disable automatic password management by CPM."
+            SM_ManualManagementReason            = "REMARKS: Required when SM_AutomaticManagementEnabled is false. Reason for manual management."
+            RMA_RemoteMachines                   = "REMARKS: Semicolon-separated list of remote machines (e.g. host1;host2)."
+            RMA_AccessRestrictedToRemoteMachines = "REMARKS: true/false - Restrict access to the listed remote machines only."
+        }
+        # Row 2: Sample data for CREATE (new account)
+        [PSCustomObject]@{
+            AccountID                            = ""
             SafeName                             = "MySafe"
             PlatformId                           = "WinServerLocal"
             Address                              = "server01.domain.com"
@@ -1294,6 +1317,23 @@ function New-CACAccountOnboardingTemplate {
             RMA_RemoteMachines                   = "host1;host2"
             RMA_AccessRestrictedToRemoteMachines = "false"
         }
+        # Row 3: Sample data for UPDATE (existing account)
+        [PSCustomObject]@{
+            AccountID                            = "123_45"
+            SafeName                             = ""
+            PlatformId                           = ""
+            Address                              = "newserver.domain.com"
+            UserName                             = ""
+            Name                                 = ""
+            Password                             = ""
+            Prop_LogonDomain                     = "NEWDOMAIN"
+            Prop_Port                            = ""
+            Prop_Database                        = ""
+            SM_AutomaticManagementEnabled        = ""
+            SM_ManualManagementReason            = ""
+            RMA_RemoteMachines                   = ""
+            RMA_AccessRestrictedToRemoteMachines = ""
+        }
     )
 
     $template | Export-Csv -Path $templatePath -NoTypeInformation -Encoding UTF8
@@ -1302,16 +1342,19 @@ function New-CACAccountOnboardingTemplate {
     Write-Host "Template created: $templatePath" -ForegroundColor Green
     Write-Host ""
     Write-Host "Column Guide:" -ForegroundColor Yellow
-    Write-Host "  AccountID           : Leave empty to CREATE, or provide ID to UPDATE"
-    Write-Host "  SafeName            : Target safe (required for CREATE)"
-    Write-Host "  PlatformId          : Platform ID (required for CREATE)"
-    Write-Host "  Address             : Target address (required for CREATE)"
-    Write-Host "  UserName            : Account username (required for CREATE)"
-    Write-Host "  Name                : Display name (optional)"
-    Write-Host "  Password            : Account secret (optional)"
-    Write-Host "  Prop_*              : Platform properties (Prop_LogonDomain, Prop_Port, etc.)"
-    Write-Host "  SM_*                : Secret management settings"
-    Write-Host "  RMA_*               : Remote machine access settings"
+    Write-Host "  AccountID           : Leave empty to CREATE new account, or provide existing ID to UPDATE" -ForegroundColor White
+    Write-Host "  SafeName            : Target safe name (Required for CREATE | Ignored for UPDATE)" -ForegroundColor White
+    Write-Host "  PlatformId          : Platform ID e.g. WinServerLocal (Required for CREATE | Ignored for UPDATE)" -ForegroundColor White
+    Write-Host "  Address             : Target machine address (Required for CREATE | Optional for UPDATE)" -ForegroundColor White
+    Write-Host "  UserName            : Account username (Required for CREATE | Optional for UPDATE)" -ForegroundColor White
+    Write-Host "  Name                : Display name - auto-generated if empty (Optional)" -ForegroundColor White
+    Write-Host "  Password            : Account secret/password (Optional)" -ForegroundColor White
+    Write-Host "  Prop_*              : Platform-specific properties (Prop_LogonDomain, Prop_Port, Prop_Database, etc.)" -ForegroundColor White
+    Write-Host "  SM_*                : Secret management (SM_AutomaticManagementEnabled, SM_ManualManagementReason)" -ForegroundColor White
+    Write-Host "  RMA_*               : Remote machine access (RMA_RemoteMachines, RMA_AccessRestrictedToRemoteMachines)" -ForegroundColor White
+    Write-Host ""
+    Write-Host "NOTE: Row 1 in the template contains REMARKS/instructions. Delete it before processing." -ForegroundColor Magenta
+    Write-Host "      Row 2 is a sample CREATE entry. Row 3 is a sample UPDATE entry." -ForegroundColor Magenta
     Write-Host ""
 
     return $templatePath

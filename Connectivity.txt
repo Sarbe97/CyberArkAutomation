@@ -3,7 +3,7 @@ $InputFile = ".\servers.txt"
 $OutputFile = ".\CPM_Matrix_Report.csv"
 
 # Define the ports to test
-$PortsToTest = @{
+$PortsToTest = [ordered]@{
     "SMB_445"    = 445
     "RPC_135"    = 135
     "LDAP_389"   = 389
@@ -11,59 +11,69 @@ $PortsToTest = @{
 }
 
 if (-not (Test-Path $InputFile)) {
-    Write-Host "Error: $InputFile not found! Please create it." -ForegroundColor Red
+    Write-Host "Error: $InputFile not found!" -ForegroundColor Red
     return
 }
 
-$Servers = Get-Content -Path $InputFile | Where-Object { $_ -ne "" }
+$Servers = Get-Content -Path $InputFile | Where-Object { $_.Trim() -ne "" }
+$TotalServers = $Servers.Count
+$CurrentCount = 0
 $FinalReport = New-Object System.Collections.Generic.List[PSObject]
 
+Write-Host "Starting CyberArk Connectivity Scan..." -ForegroundColor Green
+
 foreach ($S in $Servers) {
+    $CurrentCount++
     $Server = $S.Trim()
-    Write-Host "Processing: $Server" -ForegroundColor Cyan
     
-    # Initialize the server object with safe property names (no spaces)
+    # Update the Progress Bar
+    $PercentComplete = ($CurrentCount / $TotalServers) * 100
+    Write-Progress -Activity "Scanning Servers for CyberArk Ports" `
+                   -Status "Processing: $Server ($CurrentCount of $TotalServers)" `
+                   -PercentComplete $PercentComplete
+
+    # Initialize the server object
     $ServerObj = [PSCustomObject]@{
         ServerName  = $Server
         Ping_Status = "Offline"
     }
 
-    # 1. Ping Test (using -Count 1 for speed)
+    # 1. Ping Test
     if (Test-Connection -ComputerName $Server -Count 1 -Quiet -ErrorAction SilentlyContinue) {
         $ServerObj.Ping_Status = "Online"
     }
 
     # 2. Port Tests
-    foreach ($Key in $PortsToTest.Keys) {
-        $Port = $PortsToTest[$Key]
-        try {
-            # We use -InformationLevel Quiet to keep it clean and return a Boolean
-            $Check = Test-NetConnection -ComputerName $Server -Port $Port -InformationLevel Quiet -ErrorAction SilentlyContinue
-            $Status = if ($Check) { "OPEN" } else { "BLOCKED" }
-        } catch {
-            $Status = "ERROR"
-        }
+    foreach ($Entry in $PortsToTest.GetEnumerator()) {
+        $Key = $Entry.Key
+        $Port = $Entry.Value
+        
+        $Check = Test-NetConnection -ComputerName $Server -Port $Port -InformationLevel Quiet -ErrorAction SilentlyContinue
+        $Status = if ($Check) { "OPEN" } else { "BLOCKED" }
+        
         $ServerObj | Add-Member -MemberType NoteProperty -Name $Key -Value $Status
     }
 
-    # 3. WMI / RPC Dynamic Range Check
-    try {
-        # Attempting a quick WMI query to see if dynamic ports are open
-        $Wmi = Get-WmiObject -ComputerName $Server -Class Win32_OperatingSystem -ErrorAction Stop -ConnectTimeout 3
-        $ServerObj | Add-Member -MemberType NoteProperty -Name "WMI_Dynamic_RPC" -Value "SUCCESS"
-    } catch {
-        # If 135 is open but this fails, it's almost certainly the dynamic port range
-        $ServerObj | Add-Member -MemberType NoteProperty -Name "WMI_Dynamic_RPC" -Value "FAILED"
+    # 3. WMI / RPC Dynamic Range Check (The "CyberArk Killer")
+    if ($ServerObj.RPC_135 -eq "OPEN") {
+        try {
+            # Attempt a tiny WMI query to verify high ports are open
+            $Wmi = Get-WmiObject -ComputerName $Server -Class Win32_OperatingSystem -ErrorAction Stop -ConnectTimeout 3
+            $ServerObj | Add-Member -MemberType NoteProperty -Name "WMI_Dynamic_RPC" -Value "SUCCESS"
+        } catch {
+            $ServerObj | Add-Member -MemberType NoteProperty -Name "WMI_Dynamic_RPC" -Value "FAILED"
+        }
+    } else {
+        $ServerObj | Add-Member -MemberType NoteProperty -Name "WMI_Dynamic_RPC" -Value "N/A (135 Blocked)"
     }
 
     $FinalReport.Add($ServerObj)
 }
 
-# --- Output ---
-if ($FinalReport.Count -gt 0) {
-    $FinalReport | Export-Csv -Path $OutputFile -NoTypeInformation -Force
-    $FinalReport | Format-Table -AutoSize
-    Write-Host "`nSuccessfully saved to: $OutputFile" -ForegroundColor Green
-} else {
-    Write-Host "No data processed." -ForegroundColor Yellow
-}
+# --- Finalizing ---
+Write-Progress -Activity "Scanning Servers" -Completed
+$FinalReport | Export-Csv -Path $OutputFile -NoTypeInformation -Force
+$FinalReport | Format-Table -AutoSize
+
+Write-Host "`nScan Complete!" -ForegroundColor Green
+Write-Host "Results saved to: $OutputFile" -ForegroundColor White

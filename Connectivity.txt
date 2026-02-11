@@ -1,69 +1,61 @@
 # --- Configuration ---
-$InputFile = "servers.txt"  # Path to your list of servers
-$OutputFile = "CPM_Connectivity_Report.csv"
+$InputFile = ".\servers.txt"
+$OutputFile = ".\CPM_Matrix_Report.csv"
 
-# Define ports based on CyberArk requirements
-$StandardPorts = @{
-    445  = "SMB (Password Management)"
-    135  = "RPC Endpoint Mapper (Management/Discovery)"
-    389  = "LDAP (Discovery - DC only)"
-    636  = "LDAPS (Discovery - DC only)"
-    5986 = "WinRM HTTPS (Optional Management)"
+# Define the ports we care about
+$PortsToTest = @{
+    "SMB_445"    = 445
+    "RPC_135"    = 135
+    "LDAP_389"   = 389
+    "WinRM_5986" = 5986
 }
 
-$Results = @()
-
 if (-not (Test-Path $InputFile)) {
-    Write-Error "Could not find $InputFile. Please create it with a list of server names."
+    Write-Host "Error: $InputFile not found!" -ForegroundColor Red
     return
 }
 
-$Servers = Get-Content $InputFile
+$Servers = Get-Content -Path $InputFile
+$FinalReport = @()
 
 foreach ($Server in $Servers) {
     $Server = $Server.Trim()
     if ([string]::IsNullOrWhiteSpace($Server)) { continue }
     
-    Write-Host "Checking $Server..." -ForegroundColor Cyan
+    Write-Host "Processing $Server..." -ForegroundColor Cyan
     
-    foreach ($Port in $StandardPorts.Keys) {
-        $Description = $StandardPorts[$Port]
-        $Check = Test-NetConnection -ComputerName $Server -Port $Port -InformationLevel Quiet -ErrorAction SilentlyContinue
-        
-        $Status = if ($Check) { "SUCCESS" } else { "FAILED" }
-        
-        $Results += [PSCustomObject]@{
-            Server      = $Server
-            Port        = $Port
-            Service     = $Description
-            Status      = $Status
-            Message     = if ($Check) { "Port is reachable" } else { "Port blocked or service down" }
-        }
+    # Create a custom object for this specific server
+    $ServerObj = [PSCustomObject]@{
+        ServerName = $Server
+        Ping Status = "Unknown"
     }
 
-    # Special Check: RPC Dynamic Ports / WMI Test
-    # This checks if the CPM can actually talk to the WMI service
-    try {
-        $WmiCheck = Get-WmiObject -ComputerName $Server -Class Win32_OperatingSystem -ErrorAction Stop -ConnectTimeout 5
-        $Results += [PSCustomObject]@{
-            Server      = $Server
-            Port        = "Dynamic"
-            Service     = "WMI/RPC Dynamic Range"
-            Status      = "SUCCESS"
-            Message     = "WMI query successful (Dynamic ports likely open)"
-        }
-    } catch {
-        $Results += [PSCustomObject]@{
-            Server      = $Server
-            Port        = "Dynamic"
-            Service     = "WMI/RPC Dynamic Range"
-            Status      = "FAILED"
-            Message     = "WMI Failed: $($_.Exception.Message)"
-        }
+    # 1. Quick Ping Test
+    if (Test-Connection -ComputerName $Server -Count 1 -Quiet) {
+        $ServerObj.'Ping Status' = "Online"
+    } else {
+        $ServerObj.'Ping Status' = "Offline/No Reply"
     }
+
+    # 2. Test each Port and add as a column
+    foreach ($Key in $PortsToTest.Keys) {
+        $Port = $PortsToTest[$Key]
+        $Check = Test-NetConnection -ComputerName $Server -Port $Port -InformationLevel Quiet -WarningAction SilentlyContinue
+        $ServerObj | Add-Member -MemberType NoteProperty -Name $Key -Value (if ($Check) { "OPEN" } else { "BLOCKED" })
+    }
+
+    # 3. WMI/RPC Dynamic Range Check
+    try {
+        $Wmi = Get-WmiObject -ComputerName $Server -Class Win32_OperatingSystem -ErrorAction Stop -ConnectTimeout 3
+        $ServerObj | Add-Member -MemberType NoteProperty -Name "WMI_Dynamic_RPC" -Value "SUCCESS"
+    } catch {
+        $ServerObj | Add-Member -MemberType NoteProperty -Name "WMI_Dynamic_RPC" -Value "FAILED"
+    }
+
+    $FinalReport += $ServerObj
 }
 
-# Output to Screen and File
-$Results | Out-GridView -Title "CPM Connectivity Results" # Pop-up window for easy viewing
-$Results | Export-Csv -Path $OutputFile -NoTypeInformation
-Write-Host "Scan Complete. Report saved to $OutputFile" -ForegroundColor Green
+# Export to CSV and Display
+$FinalReport | Export-Csv -Path $OutputFile -NoTypeInformation
+$FinalReport | Format-Table -AutoSize
+Write-Host "`nReport generated: $OutputFile" -ForegroundColor Green

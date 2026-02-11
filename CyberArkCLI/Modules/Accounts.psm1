@@ -1178,8 +1178,11 @@ function Invoke-CACBatchAccountOnboarding {
                     continue
                 }
 
-                # Call PATCH API
-                $result = Invoke-CACAPIRequest -Method PATCH -Endpoint "/API/Accounts/$($item.AccountID)" -Body $patchOps -ContentType "application/json-patch+json"
+                # Call PATCH API - Body must be a JSON array per CyberArk API spec
+                # Use ConvertTo-Json -InputObject to preserve array structure (pipeline unwraps single-element arrays)
+                $patchBody = ConvertTo-Json -InputObject $patchOps -Depth 10 -Compress
+                Write-Log "PATCH body: $patchBody" "DEBUG"
+                $result = Invoke-CACAPIRequest -Method PATCH -Endpoint "/API/Accounts/$($item.AccountID)" -Body $patchBody -ContentType "application/json-patch+json"
                 Write-Host "Success" -ForegroundColor Green
                 
                 $resObj | Add-Member -MemberType NoteProperty -Name "Status" -Value "Updated" -Force

@@ -1,0 +1,69 @@
+# --- Configuration ---
+$InputFile = "servers.txt"  # Path to your list of servers
+$OutputFile = "CPM_Connectivity_Report.csv"
+
+# Define ports based on CyberArk requirements
+$StandardPorts = @{
+    445  = "SMB (Password Management)"
+    135  = "RPC Endpoint Mapper (Management/Discovery)"
+    389  = "LDAP (Discovery - DC only)"
+    636  = "LDAPS (Discovery - DC only)"
+    5986 = "WinRM HTTPS (Optional Management)"
+}
+
+$Results = @()
+
+if (-not (Test-Path $InputFile)) {
+    Write-Error "Could not find $InputFile. Please create it with a list of server names."
+    return
+}
+
+$Servers = Get-Content $InputFile
+
+foreach ($Server in $Servers) {
+    $Server = $Server.Trim()
+    if ([string]::IsNullOrWhiteSpace($Server)) { continue }
+    
+    Write-Host "Checking $Server..." -ForegroundColor Cyan
+    
+    foreach ($Port in $StandardPorts.Keys) {
+        $Description = $StandardPorts[$Port]
+        $Check = Test-NetConnection -ComputerName $Server -Port $Port -InformationLevel Quiet -ErrorAction SilentlyContinue
+        
+        $Status = if ($Check) { "SUCCESS" } else { "FAILED" }
+        
+        $Results += [PSCustomObject]@{
+            Server      = $Server
+            Port        = $Port
+            Service     = $Description
+            Status      = $Status
+            Message     = if ($Check) { "Port is reachable" } else { "Port blocked or service down" }
+        }
+    }
+
+    # Special Check: RPC Dynamic Ports / WMI Test
+    # This checks if the CPM can actually talk to the WMI service
+    try {
+        $WmiCheck = Get-WmiObject -ComputerName $Server -Class Win32_OperatingSystem -ErrorAction Stop -ConnectTimeout 5
+        $Results += [PSCustomObject]@{
+            Server      = $Server
+            Port        = "Dynamic"
+            Service     = "WMI/RPC Dynamic Range"
+            Status      = "SUCCESS"
+            Message     = "WMI query successful (Dynamic ports likely open)"
+        }
+    } catch {
+        $Results += [PSCustomObject]@{
+            Server      = $Server
+            Port        = "Dynamic"
+            Service     = "WMI/RPC Dynamic Range"
+            Status      = "FAILED"
+            Message     = "WMI Failed: $($_.Exception.Message)"
+        }
+    }
+}
+
+# Output to Screen and File
+$Results | Out-GridView -Title "CPM Connectivity Results" # Pop-up window for easy viewing
+$Results | Export-Csv -Path $OutputFile -NoTypeInformation
+Write-Host "Scan Complete. Report saved to $OutputFile" -ForegroundColor Green

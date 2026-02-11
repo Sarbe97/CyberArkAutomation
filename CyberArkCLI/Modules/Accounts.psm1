@@ -111,21 +111,49 @@ function Get-CACAccounts {
                     $endpoint += "?" + ($queryParams -join "&")
                 }
 
-                Write-Log "Calling endpoint: $endpoint" "DEBUG"
-
-                # Call API
-                $response = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint
-
-                # Parse accounts from response
+                # Paginated API calls - follow nextLink until all pages retrieved
                 $accounts = @()
-                if ($response.value) {
-                    $accounts = @($response.value)
-                }
-                elseif ($response -is [array]) {
-                    $accounts = @($response)
-                }
+                $pageNum = 0
+
+                do {
+                    $pageNum++
+                    Write-Log "Calling endpoint (page $pageNum): $endpoint" "DEBUG"
+                    Write-Host "  Fetching page $pageNum ..." -ForegroundColor Gray -NoNewline
+
+                    $response = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint
+
+                    # Parse accounts from response
+                    $pageAccounts = @()
+                    if ($response.value) {
+                        $pageAccounts = @($response.value)
+                    }
+                    elseif ($response -is [array]) {
+                        $pageAccounts = @($response)
+                    }
+
+                    $accounts += $pageAccounts
+                    Write-Host " $($pageAccounts.Count) account(s)" -ForegroundColor Gray
+                    Write-Log "Page $pageNum returned $($pageAccounts.Count) account(s). Total so far: $($accounts.Count)" "INFO"
+
+                    # Check for next page
+                    $endpoint = $null
+                    if ($response.nextLink) {
+                        # nextLink is a full URL - extract the relative endpoint path
+                        $baseUri = $global:CACApiSession.BaseURI
+                        if ($response.nextLink.StartsWith($baseUri)) {
+                            $endpoint = $response.nextLink.Substring($baseUri.Length)
+                        }
+                        else {
+                            # If nextLink is already relative, use as-is
+                            $endpoint = $response.nextLink
+                        }
+                        Write-Log "nextLink found, fetching next page..." "DEBUG"
+                    }
+
+                } while ($endpoint)
 
                 if ($accounts.Count -gt 0) {
+                    Write-Host "  Total: $($accounts.Count) account(s) retrieved" -ForegroundColor Cyan
                     foreach ($acc in $accounts) {
                         $allResults += [PSCustomObject]@{
                             Query   = $query

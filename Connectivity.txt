@@ -2,7 +2,7 @@
 $InputFile = ".\servers.txt"
 $OutputFile = ".\CPM_Matrix_Report.csv"
 
-# Define the ports we care about
+# Define the ports to test
 $PortsToTest = @{
     "SMB_445"    = 445
     "RPC_135"    = 135
@@ -11,51 +11,59 @@ $PortsToTest = @{
 }
 
 if (-not (Test-Path $InputFile)) {
-    Write-Host "Error: $InputFile not found!" -ForegroundColor Red
+    Write-Host "Error: $InputFile not found! Please create it." -ForegroundColor Red
     return
 }
 
-$Servers = Get-Content -Path $InputFile
-$FinalReport = @()
+$Servers = Get-Content -Path $InputFile | Where-Object { $_ -ne "" }
+$FinalReport = New-Object System.Collections.Generic.List[PSObject]
 
-foreach ($Server in $Servers) {
-    $Server = $Server.Trim()
-    if ([string]::IsNullOrWhiteSpace($Server)) { continue }
+foreach ($S in $Servers) {
+    $Server = $S.Trim()
+    Write-Host "Processing: $Server" -ForegroundColor Cyan
     
-    Write-Host "Processing $Server..." -ForegroundColor Cyan
-    
-    # Create a custom object for this specific server
+    # Initialize the server object with safe property names (no spaces)
     $ServerObj = [PSCustomObject]@{
-        ServerName = $Server
-        Ping Status = "Unknown"
+        ServerName  = $Server
+        Ping_Status = "Offline"
     }
 
-    # 1. Quick Ping Test
-    if (Test-Connection -ComputerName $Server -Count 1 -Quiet) {
-        $ServerObj.'Ping Status' = "Online"
-    } else {
-        $ServerObj.'Ping Status' = "Offline/No Reply"
+    # 1. Ping Test (using -Count 1 for speed)
+    if (Test-Connection -ComputerName $Server -Count 1 -Quiet -ErrorAction SilentlyContinue) {
+        $ServerObj.Ping_Status = "Online"
     }
 
-    # 2. Test each Port and add as a column
+    # 2. Port Tests
     foreach ($Key in $PortsToTest.Keys) {
         $Port = $PortsToTest[$Key]
-        $Check = Test-NetConnection -ComputerName $Server -Port $Port -InformationLevel Quiet -WarningAction SilentlyContinue
-        $ServerObj | Add-Member -MemberType NoteProperty -Name $Key -Value (if ($Check) { "OPEN" } else { "BLOCKED" })
+        try {
+            # We use -InformationLevel Quiet to keep it clean and return a Boolean
+            $Check = Test-NetConnection -ComputerName $Server -Port $Port -InformationLevel Quiet -ErrorAction SilentlyContinue
+            $Status = if ($Check) { "OPEN" } else { "BLOCKED" }
+        } catch {
+            $Status = "ERROR"
+        }
+        $ServerObj | Add-Member -MemberType NoteProperty -Name $Key -Value $Status
     }
 
-    # 3. WMI/RPC Dynamic Range Check
+    # 3. WMI / RPC Dynamic Range Check
     try {
+        # Attempting a quick WMI query to see if dynamic ports are open
         $Wmi = Get-WmiObject -ComputerName $Server -Class Win32_OperatingSystem -ErrorAction Stop -ConnectTimeout 3
         $ServerObj | Add-Member -MemberType NoteProperty -Name "WMI_Dynamic_RPC" -Value "SUCCESS"
     } catch {
+        # If 135 is open but this fails, it's almost certainly the dynamic port range
         $ServerObj | Add-Member -MemberType NoteProperty -Name "WMI_Dynamic_RPC" -Value "FAILED"
     }
 
-    $FinalReport += $ServerObj
+    $FinalReport.Add($ServerObj)
 }
 
-# Export to CSV and Display
-$FinalReport | Export-Csv -Path $OutputFile -NoTypeInformation
-$FinalReport | Format-Table -AutoSize
-Write-Host "`nReport generated: $OutputFile" -ForegroundColor Green
+# --- Output ---
+if ($FinalReport.Count -gt 0) {
+    $FinalReport | Export-Csv -Path $OutputFile -NoTypeInformation -Force
+    $FinalReport | Format-Table -AutoSize
+    Write-Host "`nSuccessfully saved to: $OutputFile" -ForegroundColor Green
+} else {
+    Write-Host "No data processed." -ForegroundColor Yellow
+}

@@ -1094,12 +1094,9 @@ function Invoke-CACBatchAccountOnboarding {
                 # ========== UPDATE MODE ==========
                 $patchOps = @()
                 
-                # SafeName and PlatformId cannot be changed via update - warn and ignore
+                # SafeName cannot be changed via update - warn and ignore
                 if (-not [string]::IsNullOrWhiteSpace($item.SafeName)) {
                     Write-Log "Row $current : SafeName='$($item.SafeName)' ignored for update (safe cannot be changed)" "WARN"
-                }
-                if (-not [string]::IsNullOrWhiteSpace($item.PlatformId)) {
-                    Write-Log "Row $current : PlatformId='$($item.PlatformId)' ignored for update (platform cannot be changed)" "WARN"
                 }
 
                 # Core fields (only if non-empty)
@@ -1111,6 +1108,9 @@ function Invoke-CACBatchAccountOnboarding {
                 }
                 if (-not [string]::IsNullOrWhiteSpace($item.UserName)) {
                     $patchOps += @{ op = "replace"; path = "/userName"; value = $item.UserName }
+                }
+                if (-not [string]::IsNullOrWhiteSpace($item.PlatformId)) {
+                    $patchOps += @{ op = "replace"; path = "/platformId"; value = $item.PlatformId }
                 }
                 if (-not [string]::IsNullOrWhiteSpace($item.Password)) {
                     $patchOps += @{ op = "replace"; path = "/secret"; value = $item.Password }
@@ -1287,7 +1287,7 @@ function New-CACAccountOnboardingTemplate {
         [PSCustomObject]@{
             AccountID                            = "REMARKS: Leave EMPTY to CREATE a new account. Provide an existing Account ID to UPDATE."
             SafeName                             = "REMARKS: Required for CREATE. Ignored for UPDATE (safe cannot be changed)."
-            PlatformId                           = "REMARKS: Required for CREATE. Ignored for UPDATE (platform cannot be changed)."
+            PlatformId                           = "REMARKS: Required for CREATE. Optional for UPDATE (updates platform if provided)."
             Address                              = "REMARKS: Required for CREATE. Optional for UPDATE (updates address if provided)."
             UserName                             = "REMARKS: Required for CREATE. Optional for UPDATE (updates username if provided)."
             Name                                 = "REMARKS: Optional display name. Auto-generated as UserName@Address if left empty on CREATE."
@@ -1321,7 +1321,7 @@ function New-CACAccountOnboardingTemplate {
         [PSCustomObject]@{
             AccountID                            = "123_45"
             SafeName                             = ""
-            PlatformId                           = ""
+            PlatformId                           = "WinDomain"
             Address                              = "newserver.domain.com"
             UserName                             = ""
             Name                                 = ""
@@ -1343,8 +1343,8 @@ function New-CACAccountOnboardingTemplate {
     Write-Host ""
     Write-Host "Column Guide:" -ForegroundColor Yellow
     Write-Host "  AccountID           : Leave empty to CREATE new account, or provide existing ID to UPDATE" -ForegroundColor White
-    Write-Host "  SafeName            : Target safe name (Required for CREATE | Ignored for UPDATE)" -ForegroundColor White
-    Write-Host "  PlatformId          : Platform ID e.g. WinServerLocal (Required for CREATE | Ignored for UPDATE)" -ForegroundColor White
+    Write-Host "  SafeName            : Target safe name (Required for CREATE | Ignored for UPDATE - safe cannot be changed)" -ForegroundColor White
+    Write-Host "  PlatformId          : Platform ID e.g. WinServerLocal (Required for CREATE | Optional for UPDATE)" -ForegroundColor White
     Write-Host "  Address             : Target machine address (Required for CREATE | Optional for UPDATE)" -ForegroundColor White
     Write-Host "  UserName            : Account username (Required for CREATE | Optional for UPDATE)" -ForegroundColor White
     Write-Host "  Name                : Display name - auto-generated if empty (Optional)" -ForegroundColor White

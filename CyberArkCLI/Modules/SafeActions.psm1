@@ -549,9 +549,23 @@ function Invoke-CACBatchSafeRename {
                         if ($match) { $permissions[$match] = $true }
                     }
 
+                    # Resolve MemberSource from config (supports "Domain" keyword)
+                    $memberSourceRaw = if ($memberConfig -is [string]) { "Vault" } 
+                    elseif ($memberConfig.MemberSource) { $memberConfig.MemberSource } 
+                    else { "Vault" }
+                    $memberSource = if ($memberSourceRaw -ieq "Domain") {
+                        if ($config.LDAPDomain) { $config.LDAPDomain } else { "Vault" }
+                    }
+                    else { $memberSourceRaw }
+
                     # Add or Update
                     try {
-                        Invoke-CACAPIRequest -Method POST -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($newSafeName))/Members" -Body @{ memberName = $memberName; permissions = $permissions } -ErrorAction Stop | Out-Null
+                        $safeMemberBody = @{ memberName = $memberName; permissions = $permissions }
+                        if (-not [string]::IsNullOrWhiteSpace($memberSource) -and $memberSource -ne "Vault") {
+                            $safeMemberBody["searchIn"] = $memberSource
+                        }
+                        Log "Adding default member $memberName (Source: $memberSource)" "DEBUG"
+                        Invoke-CACAPIRequest -Method POST -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($newSafeName))/Members" -Body $safeMemberBody -ErrorAction Stop | Out-Null
                         $syncLog += "$memberName(Added)"
                     }
                     catch {
@@ -709,9 +723,18 @@ function Invoke-CACBatchSafeMember {
         $safeName = $row.SafeName.Trim()
         $memberName = $row.MemberName.Trim()
         $type = $row.MemberType.Trim() # User or Group
+        $memberSourceRaw = if ($row.PSObject.Properties['MemberSource']) { $row.MemberSource.Trim() } else { "Vault" }
+        
+        # Resolve 'Domain' keyword to actual domain from config
+        $memberSource = if ($memberSourceRaw -ieq "Domain") {
+            if ($config.LDAPDomain) { $config.LDAPDomain } else { "Vault" }
+        }
+        else {
+            $memberSourceRaw
+        }
 
-        Write-Host "`n[$safeName] + [$memberName] ($type)" -ForegroundColor Cyan
-        Log "Processing $safeName + $memberName" "INFO"
+        Write-Host "`n[$safeName] + [$memberName] ($type) [Source: $memberSource]" -ForegroundColor Cyan
+        Log "Processing $safeName + $memberName (Source: $memberSource)" "INFO"
 
         $result = [ordered]@{
             SafeName     = $safeName
@@ -807,7 +830,12 @@ function Invoke-CACBatchSafeMember {
 
         try {
             Write-Host " -> Adding to Safe..." -NoNewline
-            Invoke-CACAPIRequest -Method POST -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members" -Body @{ memberName = $memberName; permissions = $permissions } -ErrorAction Stop | Out-Null
+            $safeMemberBody = @{ memberName = $memberName; permissions = $permissions }
+            if (-not [string]::IsNullOrWhiteSpace($memberSource) -and $memberSource -ne "Vault") {
+                $safeMemberBody["searchIn"] = $memberSource
+            }
+            Log "POST Body: $($safeMemberBody | ConvertTo-Json -Compress -Depth 3)" "DEBUG"
+            Invoke-CACAPIRequest -Method POST -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members" -Body $safeMemberBody -ErrorAction Stop | Out-Null
             $result.ActionStatus = "Added"
             Write-Host " [ADDED]" -ForegroundColor Green
         }
@@ -849,10 +877,29 @@ function New-CACSafeCreationTemplate {
     [CmdletBinding()]
     param([string]$Path)
 
-    # Prompt for Safe Name
+    # Prompt for Safe Names (comma-separated)
     Write-Host ""
-    $safeName = (Read-Host "Enter Safe Name for template (or press Enter for 'Example_Safe')").Trim()
-    if ([string]::IsNullOrWhiteSpace($safeName)) { $safeName = "Example_Safe" }
+    $safeNameInput = (Read-Host "Enter Safe Name(s) - comma-separated (or press Enter for 'Example_Safe')").Trim()
+    if ([string]::IsNullOrWhiteSpace($safeNameInput)) { $safeNameInput = "Example_Safe" }
+    $safeNames = $safeNameInput -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+
+    # Prompt for Safe Type
+    Write-Host ""
+    Write-Host "Safe Type:" -ForegroundColor Cyan
+    Write-Host "  [A] Account Safe  - KA_R/KA_RW groups will be added" -ForegroundColor Gray
+    Write-Host "  [P] Personal Safe - User added directly (no KA groups)" -ForegroundColor Gray
+    $safeType = (Read-Host "Select type (A/P)").Trim().ToUpper()
+    if ($safeType -ne "P") { $safeType = "A" }  # Default to Account
+
+    # For Personal safe, prompt for user ID
+    $personalUser = ""
+    if ($safeType -eq "P") {
+        $personalUser = (Read-Host "Enter User ID for personal safe owner").Trim()
+        if ([string]::IsNullOrWhiteSpace($personalUser)) {
+            Write-Host "User ID is required for Personal safe." -ForegroundColor Red
+            return
+        }
+    }
 
     if ([string]::IsNullOrWhiteSpace($Path)) {
         $Path = Join-Path (Get-CACOutputDir) "SafeCreation_Template_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
@@ -862,32 +909,32 @@ function New-CACSafeCreationTemplate {
     $config = Get-CACConfig
     $defaultSafeMembers = $config.DefaultSafeMembers
 
-    # Build template rows
+    # Build template rows for each safe
     $templateRows = @()
-    $isFirstRow = $true
 
-    # Add DefaultSafeMembers from config first
-    if ($defaultSafeMembers) {
-        foreach ($memberName in $defaultSafeMembers.PSObject.Properties.Name) {
-            $memberConfig = $defaultSafeMembers.$memberName
-            
-            # Handle both old format (string) and new format (object)
-            if ($memberConfig -is [string]) {
-                $permKey = $memberConfig
-                $memberType = "Group"  # Default for old format
-            }
-            else {
-                $permKey = $memberConfig.PermissionKey
-                $memberType = if ($memberConfig.MemberType) { $memberConfig.MemberType } else { "Group" }
-            }
-            
-            if ($isFirstRow) {
-                # First row includes safe properties
+    foreach ($safeName in $safeNames) {
+        $isFirstRowForSafe = ($templateRows.Count -eq 0)
+
+        # Add DefaultSafeMembers from config
+        if ($defaultSafeMembers) {
+            foreach ($memberName in $defaultSafeMembers.PSObject.Properties.Name) {
+                $memberConfig = $defaultSafeMembers.$memberName
+                
+                # Handle both old format (string) and new format (object)
+                if ($memberConfig -is [string]) {
+                    $permKey = $memberConfig
+                    $memberType = "Group"
+                }
+                else {
+                    $permKey = $memberConfig.PermissionKey
+                    $memberType = if ($memberConfig.MemberType) { $memberConfig.MemberType } else { "Group" }
+                }
+                
                 $templateRows += [pscustomobject][ordered]@{
                     SafeName                  = $safeName
-                    SafeDescription           = "Safe Description"
-                    ManagingCPM               = "PasswordManager"
-                    NumberOfDaysRetention     = "7"
+                    SafeDescription           = if ($isFirstRowForSafe) { "Safe Description" } else { "" }
+                    ManagingCPM               = if ($isFirstRowForSafe) { "PasswordManager" } else { "" }
+                    NumberOfDaysRetention     = if ($isFirstRowForSafe) { "7" } else { "" }
                     NumberOfVersionsRetention = ""
                     SafeMember                = $memberName
                     MemberType                = $memberType
@@ -897,70 +944,90 @@ function New-CACSafeCreationTemplate {
                     PermissionKey             = $permKey
                     Permissions               = ""
                 }
-                $isFirstRow = $false
-            }
-            else {
-                $templateRows += [pscustomobject][ordered]@{
-                    SafeName                  = $safeName
-                    SafeDescription           = ""
-                    ManagingCPM               = ""
-                    NumberOfDaysRetention     = ""
-                    NumberOfVersionsRetention = ""
-                    SafeMember                = $memberName
-                    MemberType                = $memberType
-                    MemberSource              = "Vault"
-                    GroupDescription          = ""
-                    GroupMembers              = ""
-                    PermissionKey             = $permKey
-                    Permissions               = ""
-                }
+                $isFirstRowForSafe = $false
             }
         }
-    }
 
-    # KA_R group (Read-only)
-    $templateRows += [pscustomobject][ordered]@{
-        SafeName                  = $safeName
-        SafeDescription           = ""
-        ManagingCPM               = ""
-        NumberOfDaysRetention     = ""
-        NumberOfVersionsRetention = ""
-        SafeMember                = "KA_${safeName}_R"
-        MemberType                = "Group"
-        MemberSource              = "Vault"
-        GroupDescription          = "Read-only access group for $safeName"
-        GroupMembers              = "user1;user2"
-        PermissionKey             = "SAFE_READ"
-        Permissions               = ""
-    }
+        if ($safeType -eq "P") {
+            # ---- PERSONAL SAFE: Add user directly (Domain source, no KA groups) ----
+            $templateRows += [pscustomobject][ordered]@{
+                SafeName                  = $safeName
+                SafeDescription           = if ($isFirstRowForSafe) { "Personal Safe" } else { "" }
+                ManagingCPM               = if ($isFirstRowForSafe) { "PasswordManager" } else { "" }
+                NumberOfDaysRetention     = if ($isFirstRowForSafe) { "7" } else { "" }
+                NumberOfVersionsRetention = ""
+                SafeMember                = $personalUser
+                MemberType                = "User"
+                MemberSource              = "Domain"
+                GroupDescription          = ""
+                GroupMembers              = ""
+                PermissionKey             = "SAFE_READ_WRITE"
+                Permissions               = ""
+            }
+        }
+        else {
+            # ---- ACCOUNT SAFE: Add KA_R and KA_RW groups ----
+            # KA_R group (Read-only)
+            $templateRows += [pscustomobject][ordered]@{
+                SafeName                  = $safeName
+                SafeDescription           = if ($isFirstRowForSafe) { "Safe Description" } else { "" }
+                ManagingCPM               = if ($isFirstRowForSafe) { "PasswordManager" } else { "" }
+                NumberOfDaysRetention     = if ($isFirstRowForSafe) { "7" } else { "" }
+                NumberOfVersionsRetention = ""
+                SafeMember                = "KA_${safeName}_R"
+                MemberType                = "Group"
+                MemberSource              = "Vault"
+                GroupDescription          = "Read-only access group for $safeName"
+                GroupMembers              = "user1;user2"
+                PermissionKey             = "SAFE_READ"
+                Permissions               = ""
+            }
 
-    # KA_RW group (Read-Write)
-    $templateRows += [pscustomobject][ordered]@{
-        SafeName                  = $safeName
-        SafeDescription           = ""
-        ManagingCPM               = ""
-        NumberOfDaysRetention     = ""
-        NumberOfVersionsRetention = ""
-        SafeMember                = "KA_${safeName}_RW"
-        MemberType                = "Group"
-        MemberSource              = "Vault"
-        GroupDescription          = "Read-write access group for $safeName"
-        GroupMembers              = "admin1;admin2"
-        PermissionKey             = "SAFE_READ_WRITE"
-        Permissions               = ""
+            # KA_RW group (Read-Write)
+            $templateRows += [pscustomobject][ordered]@{
+                SafeName                  = $safeName
+                SafeDescription           = ""
+                ManagingCPM               = ""
+                NumberOfDaysRetention     = ""
+                NumberOfVersionsRetention = ""
+                SafeMember                = "KA_${safeName}_RW"
+                MemberType                = "Group"
+                MemberSource              = "Vault"
+                GroupDescription          = "Read-write access group for $safeName"
+                GroupMembers              = "admin1;admin2"
+                PermissionKey             = "SAFE_READ_WRITE"
+                Permissions               = ""
+            }
+        }
     }
 
     $templateRows | Export-Csv -Path $Path -NoTypeInformation -Encoding UTF8
+    Write-Host ""
     Write-Host "Template created: $Path" -ForegroundColor Green
     Write-Host ""
-    Write-Host "Template includes:" -ForegroundColor Cyan
-    Write-Host "  - KA_${safeName}_R (Read group)" -ForegroundColor Gray
-    Write-Host "  - KA_${safeName}_RW (Read-Write group)" -ForegroundColor Gray
-    if ($defaultSafeMembers) {
-        foreach ($m in $defaultSafeMembers.PSObject.Properties.Name) {
-            Write-Host "  - $m (from DefaultSafeMembers)" -ForegroundColor Gray
+    Write-Host "Template Summary:" -ForegroundColor Cyan
+    Write-Host "  Type : $(if ($safeType -eq 'P') { 'Personal Safe' } else { 'Account Safe' })" -ForegroundColor White
+    Write-Host "  Safes: $($safeNames -join ', ')" -ForegroundColor White
+    Write-Host ""
+    foreach ($sn in $safeNames) {
+        Write-Host "  [$sn]" -ForegroundColor Yellow
+        if ($defaultSafeMembers) {
+            foreach ($m in $defaultSafeMembers.PSObject.Properties.Name) {
+                Write-Host "    - $m (DefaultSafeMembers)" -ForegroundColor Gray
+            }
+        }
+        if ($safeType -eq "P") {
+            Write-Host "    - $personalUser (Personal Owner - Domain)" -ForegroundColor Gray
+        }
+        else {
+            Write-Host "    - KA_${sn}_R (Read group)" -ForegroundColor Gray
+            Write-Host "    - KA_${sn}_RW (Read-Write group)" -ForegroundColor Gray
         }
     }
+    Write-Host ""
+    Write-Host "MemberSource options:" -ForegroundColor Cyan
+    Write-Host "  Vault   = Vault internal user/group (default)" -ForegroundColor Gray
+    Write-Host "  Domain  = LDAP domain user/group (resolved from config.LDAPDomain)" -ForegroundColor Gray
     return $Path
 }
 
@@ -1001,6 +1068,7 @@ function New-CACSafeMemberTemplate {
         SafeName         = "Existing_Safe_Name"
         MemberName       = "Domain\GroupOrUser"
         MemberType       = "Group"
+        MemberSource     = "Vault"
         GroupDescription = "Group description (only used if MemberType=Group and group is created)"
         PermissionKey    = "SAFE_READ"
         Permissions      = ""
@@ -1008,6 +1076,10 @@ function New-CACSafeMemberTemplate {
 
     @([pscustomobject]$template) | Export-Csv -Path $Path -NoTypeInformation -Encoding UTF8
     Write-Host "Template created: $Path" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "MemberSource options:" -ForegroundColor Cyan
+    Write-Host "  Vault   = Vault internal user/group (default)" -ForegroundColor Gray
+    Write-Host "  Domain  = LDAP domain user/group (resolved from config.LDAPDomain)" -ForegroundColor Gray
     return $Path
 }
 

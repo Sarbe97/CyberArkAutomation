@@ -1190,22 +1190,8 @@ function Invoke-CACBatchAccountOnboarding {
                 Write-Host "    Body: $patchBody" -ForegroundColor DarkGray
                 Write-Log "PATCH body: $patchBody" "DEBUG"
 
-                # PATCH API call (using Invoke-RestMethod with explicit headers - matches working format)
-                $session = Get-CACSession
-                $patchUrl = "$($session.BaseURI)/API/Accounts/$($item.AccountID)"
-
-                $patchHeaders = @{
-                    "authorization" = $session.Token
-                    "content-type"  = "application/json"
-                }
-
-                Write-Log "PATCH URL: $patchUrl" "DEBUG"
-                $result = Invoke-RestMethod -Uri $patchUrl `
-                    -Method PATCH `
-                    -Headers $patchHeaders `
-                    -ContentType 'application/json' `
-                    -Body $patchBody `
-                    -ErrorAction Stop
+                # Call PATCH API (body is pre-serialized as JSON array string)
+                $result = Invoke-CACAPIRequest -Method PATCH -Endpoint "/API/Accounts/$($item.AccountID)" -Body $patchBody
                 Write-Host "Success" -ForegroundColor Green
                 
                 $resObj | Add-Member -MemberType NoteProperty -Name "Status" -Value "Updated" -Force

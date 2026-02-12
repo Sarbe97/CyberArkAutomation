@@ -1192,14 +1192,17 @@ function Invoke-CACBatchAccountOnboarding {
 
                 # Use Invoke-WebRequest directly for PATCH (better control over encoding)
                 $session = Get-CACSession
-                $patchUrl = "$($session.BaseURI)/API/Accounts/$($item.AccountID)"
+                $patchUrl = "$($session.BaseURI)/API/Accounts/$($item.AccountID)/"
                 $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($patchBody)
+
+                # Disable Expect: 100-Continue header (causes 500 on IIS with PATCH)
+                [System.Net.ServicePointManager]::Expect100Continue = $false
 
                 Write-Log "PATCH URL: $patchUrl" "DEBUG"
                 $patchResponse = Invoke-WebRequest -Uri $patchUrl `
                     -Method PATCH `
                     -Body $bodyBytes `
-                    -ContentType "application/json-patch+json" `
+                    -ContentType "application/json-patch+json; charset=utf-8" `
                     -WebSession $session.WebSession `
                     -UseBasicParsing `
                     -ErrorAction Stop

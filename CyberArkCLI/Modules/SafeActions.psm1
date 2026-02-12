@@ -978,7 +978,7 @@ function New-CACSafeCreationTemplate {
             # ---- PERSONAL SAFE: Add user directly (Domain source, no KA groups) ----
             $templateRows += [pscustomobject][ordered]@{
                 SafeName                  = $safeName
-                SafeDescription           = if ($isFirstRowForSafe) { "Personal Safe" } else { "" }
+                SafeDescription           = if ($isFirstRowForSafe) { "pam container" } else { "" }
                 ManagingCPM               = if ($isFirstRowForSafe) { "PasswordManager" } else { "" }
                 NumberOfDaysRetention     = if ($isFirstRowForSafe) { "7" } else { "" }
                 NumberOfVersionsRetention = ""
@@ -987,7 +987,7 @@ function New-CACSafeCreationTemplate {
                 MemberSource              = "Domain"
                 GroupDescription          = ""
                 GroupMembers              = ""
-                PermissionKey             = "SAFE_READ_WRITE"
+                PermissionKey             = "USER_ACCESS"
                 Permissions               = ""
             }
         }

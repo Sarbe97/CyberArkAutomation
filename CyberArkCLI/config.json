@@ -62,6 +62,12 @@
       "UnlockAccounts",
       "MoveAccountsAndFolders"
     ],
+    "USER_ACCESS": [
+      "UseAccounts",
+      "ListAccounts",
+      "RetrieveAccounts",
+      "InitiateCPMAccountManagementOperations"
+    ],
     "CCP_PROVIDER": [
       "RetrieveAccounts",
       "ListAccounts"

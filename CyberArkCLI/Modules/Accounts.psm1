@@ -1179,11 +1179,36 @@ function Invoke-CACBatchAccountOnboarding {
                 }
 
                 # Call PATCH API - Body must be a JSON array per CyberArk API spec
-                # Manually build JSON array to guarantee array format (PowerShell can unwrap single-element arrays)
-                $jsonItems = @($patchOps | ForEach-Object { ConvertTo-Json $_ -Depth 10 -Compress })
-                $patchBody = '[' + ($jsonItems -join ',') + ']'
+                # Build JSON array manually: serialize each op individually, wrap in [...]
+                $jsonParts = [System.Collections.Generic.List[string]]::new()
+                foreach ($op in $patchOps) {
+                    $jsonParts.Add((ConvertTo-Json $op -Depth 10 -Compress))
+                }
+                $patchBody = '[' + ($jsonParts -join ',') + ']'
+
+                Write-Host "" # newline after "..."
+                Write-Host "    Body: $patchBody" -ForegroundColor DarkGray
                 Write-Log "PATCH body: $patchBody" "DEBUG"
-                $result = Invoke-CACAPIRequest -Method PATCH -Endpoint "/API/Accounts/$($item.AccountID)" -Body $patchBody -ContentType "application/json-patch+json"
+
+                # Use Invoke-WebRequest directly for PATCH (better control over encoding)
+                $session = Get-CACSession
+                $patchUrl = "$($session.BaseURI)/API/Accounts/$($item.AccountID)"
+                $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($patchBody)
+
+                $patchHeaders = @{
+                    "Authorization" = $session.Token
+                }
+
+                Write-Log "PATCH URL: $patchUrl" "DEBUG"
+                $patchResponse = Invoke-WebRequest -Uri $patchUrl `
+                    -Method PATCH `
+                    -Body $bodyBytes `
+                    -ContentType "application/json-patch+json" `
+                    -Headers $patchHeaders `
+                    -UseBasicParsing `
+                    -ErrorAction Stop
+
+                $result = $patchResponse.Content | ConvertFrom-Json
                 Write-Host "Success" -ForegroundColor Green
                 
                 $resObj | Add-Member -MemberType NoteProperty -Name "Status" -Value "Updated" -Force

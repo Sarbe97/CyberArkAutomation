@@ -1195,16 +1195,12 @@ function Invoke-CACBatchAccountOnboarding {
                 $patchUrl = "$($session.BaseURI)/API/Accounts/$($item.AccountID)"
                 $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($patchBody)
 
-                $patchHeaders = @{
-                    "Authorization" = $session.Token
-                }
-
                 Write-Log "PATCH URL: $patchUrl" "DEBUG"
                 $patchResponse = Invoke-WebRequest -Uri $patchUrl `
                     -Method PATCH `
                     -Body $bodyBytes `
                     -ContentType "application/json-patch+json" `
-                    -Headers $patchHeaders `
+                    -WebSession $session.WebSession `
                     -UseBasicParsing `
                     -ErrorAction Stop
 

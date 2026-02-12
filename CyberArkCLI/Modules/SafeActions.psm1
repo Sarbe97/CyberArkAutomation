@@ -939,7 +939,7 @@ function New-CACSafeCreationTemplate {
     $templateRows = @()
 
     foreach ($safeName in $safeNames) {
-        $isFirstRowForSafe = ($templateRows.Count -eq 0)
+        $isFirstRowForSafe = $true
 
         # Add DefaultSafeMembers from config
         if ($defaultSafeMembers) {

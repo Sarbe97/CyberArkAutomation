@@ -1190,24 +1190,22 @@ function Invoke-CACBatchAccountOnboarding {
                 Write-Host "    Body: $patchBody" -ForegroundColor DarkGray
                 Write-Log "PATCH body: $patchBody" "DEBUG"
 
-                # Use Invoke-WebRequest directly for PATCH (better control over encoding)
+                # PATCH API call (using Invoke-RestMethod with explicit headers - matches working format)
                 $session = Get-CACSession
-                $patchUrl = "$($session.BaseURI)/API/Accounts/$($item.AccountID)/"
-                $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($patchBody)
+                $patchUrl = "$($session.BaseURI)/API/Accounts/$($item.AccountID)"
 
-                # Disable Expect: 100-Continue header (causes 500 on IIS with PATCH)
-                [System.Net.ServicePointManager]::Expect100Continue = $false
+                $patchHeaders = @{
+                    "authorization" = $session.Token
+                    "content-type"  = "application/json"
+                }
 
                 Write-Log "PATCH URL: $patchUrl" "DEBUG"
-                $patchResponse = Invoke-WebRequest -Uri $patchUrl `
+                $result = Invoke-RestMethod -Uri $patchUrl `
                     -Method PATCH `
-                    -Body $bodyBytes `
-                    -ContentType "application/json-patch+json; charset=utf-8" `
-                    -WebSession $session.WebSession `
-                    -UseBasicParsing `
+                    -Headers $patchHeaders `
+                    -ContentType 'application/json' `
+                    -Body $patchBody `
                     -ErrorAction Stop
-
-                $result = $patchResponse.Content | ConvertFrom-Json
                 Write-Host "Success" -ForegroundColor Green
                 
                 $resObj | Add-Member -MemberType NoteProperty -Name "Status" -Value "Updated" -Force

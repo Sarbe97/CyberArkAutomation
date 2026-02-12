@@ -4,6 +4,7 @@
   "UserCacheTTL": 30,
   "LogLevel": "INFO",
   "LDAPDomain": "YOURDOMAIN.COM",
+  "PersonalSafePattern": "WI-A-SVC-{userid}",
   "Mail": {
     "SmtpServer": "smtp.yourdomain.com",
     "SmtpPort": 25,

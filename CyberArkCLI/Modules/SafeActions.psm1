@@ -877,13 +877,7 @@ function New-CACSafeCreationTemplate {
     [CmdletBinding()]
     param([string]$Path)
 
-    # Prompt for Safe Names (comma-separated)
-    Write-Host ""
-    $safeNameInput = (Read-Host "Enter Safe Name(s) - comma-separated (or press Enter for 'Example_Safe')").Trim()
-    if ([string]::IsNullOrWhiteSpace($safeNameInput)) { $safeNameInput = "Example_Safe" }
-    $safeNames = $safeNameInput -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ }
-
-    # Prompt for Safe Type
+    # --- Step 1: Prompt for Safe Type ---
     Write-Host ""
     Write-Host "Safe Type:" -ForegroundColor Cyan
     Write-Host "  [A] Account Safe  - KA_R/KA_RW groups will be added" -ForegroundColor Gray
@@ -891,14 +885,46 @@ function New-CACSafeCreationTemplate {
     $safeType = (Read-Host "Select type (A/P)").Trim().ToUpper()
     if ($safeType -ne "P") { $safeType = "A" }  # Default to Account
 
-    # For Personal safe, prompt for user ID
-    $personalUser = ""
+    # --- Step 2: Get safe names based on type ---
+    $safeNames = @()
+    $personalUsers = @{}  # Map: safeName -> userId
+
     if ($safeType -eq "P") {
-        $personalUser = (Read-Host "Enter User ID for personal safe owner").Trim()
-        if ([string]::IsNullOrWhiteSpace($personalUser)) {
-            Write-Host "User ID is required for Personal safe." -ForegroundColor Red
+        # Personal Safe: Accept user IDs, generate safe names from config pattern
+        $config = Get-CACConfig
+        $pattern = $config.PersonalSafePattern
+        if ([string]::IsNullOrWhiteSpace($pattern)) {
+            Write-Host "PersonalSafePattern not configured in config.json (e.g., 'WI-A-SVC-{userid}')" -ForegroundColor Red
             return
         }
+
+        Write-Host ""
+        Write-Host "Safe name pattern: $pattern" -ForegroundColor Gray
+        $userIdInput = (Read-Host "Enter User ID(s) - comma-separated").Trim()
+        if ([string]::IsNullOrWhiteSpace($userIdInput)) {
+            Write-Host "At least one User ID is required." -ForegroundColor Red
+            return
+        }
+
+        $userIds = $userIdInput -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+        foreach ($uid in $userIds) {
+            $safeName = $pattern -replace "\{userid\}", $uid
+            $safeNames += $safeName
+            $personalUsers[$safeName] = $uid
+        }
+
+        Write-Host ""
+        Write-Host "Generated safe names:" -ForegroundColor Cyan
+        foreach ($sn in $safeNames) {
+            Write-Host "  $sn -> $($personalUsers[$sn])" -ForegroundColor Gray
+        }
+    }
+    else {
+        # Account Safe: Accept safe names directly
+        Write-Host ""
+        $safeNameInput = (Read-Host "Enter Safe Name(s) - comma-separated (or press Enter for 'Example_Safe')").Trim()
+        if ([string]::IsNullOrWhiteSpace($safeNameInput)) { $safeNameInput = "Example_Safe" }
+        $safeNames = $safeNameInput -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ }
     }
 
     if ([string]::IsNullOrWhiteSpace($Path)) {
@@ -906,7 +932,7 @@ function New-CACSafeCreationTemplate {
     }
 
     # Load config for DefaultSafeMembers
-    $config = Get-CACConfig
+    if (-not $config) { $config = Get-CACConfig }
     $defaultSafeMembers = $config.DefaultSafeMembers
 
     # Build template rows for each safe
@@ -956,7 +982,7 @@ function New-CACSafeCreationTemplate {
                 ManagingCPM               = if ($isFirstRowForSafe) { "PasswordManager" } else { "" }
                 NumberOfDaysRetention     = if ($isFirstRowForSafe) { "7" } else { "" }
                 NumberOfVersionsRetention = ""
-                SafeMember                = $personalUser
+                SafeMember                = $personalUsers[$safeName]
                 MemberType                = "User"
                 MemberSource              = "Domain"
                 GroupDescription          = ""
@@ -1017,7 +1043,7 @@ function New-CACSafeCreationTemplate {
             }
         }
         if ($safeType -eq "P") {
-            Write-Host "    - $personalUser (Personal Owner - Domain)" -ForegroundColor Gray
+            Write-Host "    - $($personalUsers[$sn]) (Personal Owner - Domain)" -ForegroundColor Gray
         }
         else {
             Write-Host "    - KA_${sn}_R (Read group)" -ForegroundColor Gray

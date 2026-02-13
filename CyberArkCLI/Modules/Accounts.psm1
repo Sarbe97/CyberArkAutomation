@@ -213,18 +213,27 @@ function Get-CACAccounts {
                 $createdStr = Convert-CACTimestamp $account.createdTime
                 $modifiedStr = Convert-CACTimestamp $account.lastModifiedTime
 
+                # Secret Management timestamps
+                $sm = $account.secretManagement
+                $smLastModified = if ($sm.lastModifiedTime) { Convert-CACTimestamp $sm.lastModifiedTime }   else { "" }
+                $smLastReconciled = if ($sm.lastReconciledTime) { Convert-CACTimestamp $sm.lastReconciledTime } else { "" }
+                $smLastVerified = if ($sm.lastVerifiedTime) { Convert-CACTimestamp $sm.lastVerifiedTime }   else { "" }
+
                 $row = [Ordered]@{
-                    InputSearch  = $inputSearch
-                    InputSafe    = $inputSafe
-                    Status       = "Found"
-                    AccountID    = $account.id
-                    AccountName  = $account.name
-                    UserName     = $account.userName
-                    Address      = $account.address
-                    PlatformID   = $account.platformId
-                    SafeName     = $account.safeName
-                    CreatedDate  = $createdStr
-                    ModifiedDate = $modifiedStr
+                    InputSearch    = $inputSearch
+                    InputSafe      = $inputSafe
+                    Status         = "Found"
+                    AccountID      = $account.id
+                    AccountName    = $account.name
+                    UserName       = $account.userName
+                    Address        = $account.address
+                    PlatformID     = $account.platformId
+                    SafeName       = $account.safeName
+                    CreatedDate    = $createdStr
+                    ModifiedDate   = $modifiedStr
+                    LastModified   = $smLastModified
+                    LastReconciled = $smLastReconciled
+                    LastVerified   = $smLastVerified
                 }
 
                 if ($retrievePassword) {
@@ -240,17 +249,20 @@ function Get-CACAccounts {
             }
             else {
                 $row = [Ordered]@{
-                    InputSearch  = $inputSearch
-                    InputSafe    = $inputSafe
-                    Status       = if ($item.Error) { "Error: $($item.Error)" } else { "Not Found" }
-                    AccountID    = ""
-                    AccountName  = ""
-                    UserName     = ""
-                    Address      = ""
-                    PlatformID   = ""
-                    SafeName     = ""
-                    CreatedDate  = ""
-                    ModifiedDate = ""
+                    InputSearch    = $inputSearch
+                    InputSafe      = $inputSafe
+                    Status         = if ($item.Error) { "Error: $($item.Error)" } else { "Not Found" }
+                    AccountID      = ""
+                    AccountName    = ""
+                    UserName       = ""
+                    Address        = ""
+                    PlatformID     = ""
+                    SafeName       = ""
+                    CreatedDate    = ""
+                    ModifiedDate   = ""
+                    LastModified   = ""
+                    LastReconciled = ""
+                    LastVerified   = ""
                 }
                 if ($retrievePassword) { $row['Password'] = "" }
             }

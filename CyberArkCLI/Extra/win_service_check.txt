@@ -1,0 +1,15 @@
+# 1. Get the exact Display Name automatically to avoid spelling errors
+$Service = Get-Service -DisplayName "*BES*" | Select-Object -First 1
+
+if ($Service) {
+    Write-Host "Found Service: $($Service.DisplayName) ($($Service.Status))" -ForegroundColor Cyan
+    
+    # 2. Search logs specifically for this name
+    Get-EventLog -LogName System -Newest 2000 | Where-Object { 
+        $_.EventID -in 7036, 7034 -and 
+        $_.Message -match $Service.DisplayName 
+    } | Select-Object TimeGenerated, EventID, Message | Format-Table -AutoSize -Wrap
+} else {
+    Write-Host "Could not find any running service with 'BES' in the name." -ForegroundColor Red
+}
+

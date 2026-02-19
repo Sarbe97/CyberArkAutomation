@@ -535,6 +535,7 @@ function Export-CACPlatform {
         foreach ($platformId in $platformIds) {
             $counter++
             Write-Progress -Activity "Exporting Platforms" -Status "$counter of $($platformIds.Count): $platformId" -PercentComplete (($counter / $platformIds.Count) * 100)
+            Write-Host "[$counter/$($platformIds.Count)] Exporting: $platformId ... " -NoNewline
 
             try {
                 # Sanitize filename
@@ -549,10 +550,10 @@ function Export-CACPlatform {
                 
                 Invoke-WebRequest -Uri $exportUrl -Method POST -WebSession $session.WebSession -OutFile $outputPath -UseBasicParsing
 
-                Write-Host "  Exported: $outputPath" -ForegroundColor Green
+                Write-Host "Exported" -ForegroundColor Green
             }
             catch {
-                Write-Host "  Failed: $platformId - $($_.Exception.Message)" -ForegroundColor Red
+                Write-Host "Failed ($($_.Exception.Message))" -ForegroundColor Red
             }
         }
 

@@ -79,6 +79,9 @@ function Invoke-CACLogin {
 
             # Initialize session
             Initialize-CACSession -BaseURI $pvwaBase -Token $token -User $result.Username
+            
+            # Store login method for auto-relogin
+            $global:CACLoginMethod = $authType
 
             Write-Log "$authType Login Successful!" "SUCCESS"
             return $true
@@ -170,6 +173,9 @@ function Invoke-CACLogin {
             
             # Initialize session with WebSession (for cookies)
             Initialize-CACSession -BaseURI $pvwaBase -Token $token -WebSession $authResult.WebSession
+            
+            # Store login method for auto-relogin
+            $global:CACLoginMethod = "SAML"
             
             # ========================================
             # DEBUG: Attempt to get username via multiple methods

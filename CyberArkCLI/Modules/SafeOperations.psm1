@@ -25,9 +25,11 @@ function Export-CACAllSafes {
     $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 
     Write-Host "Starting Safe Export..." -ForegroundColor Cyan
+    $pageNum = 0
 
     do {
-        Write-Progress -Activity "Exporting Safes" -Status "Fetched: $totalFetched" -CurrentOperation "Querying..."
+        $pageNum++
+        Write-Progress -Activity "Exporting Safes" -Status "Page $pageNum - Fetched $totalFetched safes" -CurrentOperation "Querying..."
         
         try {
             $endpoint = "/API/Safes?limit=$chunkSize&offset=$offset"
@@ -54,6 +56,7 @@ function Export-CACAllSafes {
             }
         }
 
+        Write-Host "  Page $pageNum - Fetched $totalFetched safes" -ForegroundColor DarkGray
         $offset += $chunkSize
 
     } while ($chunkCount -ge $chunkSize)
@@ -61,10 +64,12 @@ function Export-CACAllSafes {
     Write-Progress -Activity "Exporting Safes" -Completed
 
     if ($allFormatted.Count -gt 0) {
-        $outputFile = "$outputDir/all_safes_$timestamp.csv"
+        $outputFile = "$outputDir/AllSafes_$timestamp.csv"
         $allFormatted | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
         Write-Log "Exported $($allFormatted.Count) safes to $outputFile" "SUCCESS"
-        Write-Host "Export Complete: $outputFile" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "Total Safes: $($allFormatted.Count)" -ForegroundColor White
+        Write-Host "Results exported: $outputFile" -ForegroundColor Green
     }
     else {
         Write-Host "No safes found." -ForegroundColor Yellow
@@ -108,13 +113,17 @@ function Export-CACSafeAccountCounts {
         return
     }
 
+    Write-Host "Processing $($safesInput.Count) safe(s)..." -ForegroundColor Cyan
+
     $results = [System.Collections.Generic.List[PSObject]]::new()
     $i = 0
     $total = $safesInput.Count
 
     foreach ($safeName in $safesInput) {
         $i++
-        Write-Progress -Activity "Inventory Scan" -Status "Processing $i/$total : $safeName" -PercentComplete (($i / $total) * 100)
+        $percent = [Math]::Round(($i / $total) * 100, 0)
+        Write-Progress -Activity "Inventory Scan" -Status "[$i/$total] $safeName" -PercentComplete $percent
+        Write-Host "  [$i/$total] $safeName ..." -NoNewline
         
         try {
             # Fetch Safe Details
@@ -131,6 +140,7 @@ function Export-CACSafeAccountCounts {
                 Write-Log "Failed to get account count for $safeName : $($_.Exception.Message)" "WARN"
             }
 
+            Write-Host " $accountCount account(s)" -ForegroundColor Green
             $results.Add([PSCustomObject]@{ 
                     SafeName     = $safeName
                     AccountCount = $accountCount
@@ -139,6 +149,7 @@ function Export-CACSafeAccountCounts {
                 })
         }
         catch {
+            Write-Host " [ERROR]" -ForegroundColor Red
             Write-Log "Error processing $safeName : $($_.Exception.Message)" "WARN"
             $results.Add([PSCustomObject]@{ 
                     SafeName     = $safeName
@@ -152,12 +163,12 @@ function Export-CACSafeAccountCounts {
     
     if ($results.Count -gt 0) {
         $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-        $outFile = "$outPathBase/Safe_Account_Counts_$timestamp.csv"
+        $outFile = "$outPathBase/SafeAccountCounts_$timestamp.csv"
         $results | Export-Csv $outFile -NoTypeInformation -Encoding UTF8
         
         Write-Host ""
         $results | Format-Table -AutoSize
-        Write-Host "Report Generated: $outFile" -ForegroundColor Green
+        Write-Host "Results exported: $outFile" -ForegroundColor Green
     }
     else {
         Write-Host "No data found." -ForegroundColor Yellow
@@ -241,7 +252,9 @@ function Export-CACConsolidatedReport {
 
     foreach ($safeName in $safesInput) {
         $i++
-        Write-Progress -Activity "Generating Report (Mode $reportMode)" -Status "Processing Safe $i/$total : $safeName" -PercentComplete (($i / $total) * 100)
+        $percent = [Math]::Round(($i / $total) * 100, 0)
+        Write-Progress -Activity "Generating Report (Mode $reportMode)" -Status "[$i/$total] $safeName" -PercentComplete $percent
+        Write-Host "  [$i/$total] $safeName ..." -ForegroundColor DarkGray
         Write-Log "Processing Safe: $safeName" "INFO"
 
         try {
@@ -415,7 +428,8 @@ function Export-CACConsolidatedReport {
         
         $results | Export-Csv -Path $outFile -NoTypeInformation -Encoding UTF8
         Write-Host ""
-        Write-Host "Report Generated: $outFile" -ForegroundColor Green
+        Write-Host "Total Rows: $($results.Count)" -ForegroundColor White
+        Write-Host "Results exported: $outFile" -ForegroundColor Green
         Write-Log "Exported $($results.Count) rows to $outFile" "SUCCESS"
     }
     else {

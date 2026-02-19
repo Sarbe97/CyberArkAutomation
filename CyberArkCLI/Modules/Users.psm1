@@ -68,13 +68,15 @@ function New-CACUserStore {
 
     try {
         Write-Progress -Activity "User Cache Refresh" -Status "Fetching user list..." -PercentComplete 0
+        Write-Host "  Fetching user list..." -ForegroundColor DarkGray
         
         $offset = 0
         $limit = 100
-        $totalFetched = 0
+        $pageNum = 0
 
         # Paginate through all users
         do {
+            $pageNum++
             $endpoint = "/API/Users?limit=$limit&offset=$offset"
             $response = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint
             
@@ -86,10 +88,10 @@ function New-CACUserStore {
                 $allUsers.Add($user)
             }
             
-            $totalFetched = $allUsers.Count
             $offset += $limit
             
-            Write-Progress -Activity "User Cache Refresh" -Status "Fetched $totalFetched users..." -PercentComplete 50
+            Write-Progress -Activity "User Cache Refresh" -Status "Fetched $($allUsers.Count) users (page $pageNum)..." -PercentComplete 50
+            Write-Host "  Page $pageNum - Fetched $($allUsers.Count) users so far" -ForegroundColor DarkGray
         } while ($users.Count -eq $limit)
 
         if ($allUsers.Count -eq 0) {
@@ -99,6 +101,7 @@ function New-CACUserStore {
             return
         }
 
+        Write-Host "  Found $($allUsers.Count) users. Fetching details..." -ForegroundColor Cyan
         Write-Log "Found $($allUsers.Count) users. Processing details..." "INFO"
     }
     catch {
@@ -117,7 +120,10 @@ function New-CACUserStore {
     foreach ($u in $allUsers) {
         $counter++
         $percent = [Math]::Round(($counter / $total) * 100, 0)
-        Write-Progress -Activity "User Cache Refresh" -Status "Processing $counter of $total : $($u.username)" -PercentComplete $percent
+        Write-Progress -Activity "User Cache Refresh" -Status "[$counter/$total] $($u.username)" -PercentComplete $percent
+        if ($counter % 25 -eq 0 -or $counter -eq $total) {
+            Write-Host "  [$counter/$total] Processing user details... ($percent%)" -ForegroundColor DarkGray
+        }
 
         # Fetch full details for specific user
         $userDetails = $u
@@ -389,9 +395,8 @@ function Get-CACAllGroups {
     Write-Log "Started Get-CACAllGroups()" "DEBUG"
 
     try {
-        # Interactive prompts
-        Write-Host "Include group members in output? (Y/N)" -ForegroundColor Cyan
-        $includeMembersChoice = Read-Host "Choice"
+        # Interactive prompt
+        $includeMembersChoice = Read-Host "Include group members in output? (Y/N)"
         $includeMembers = ($includeMembersChoice -match '^[Yy]$')
 
         Write-Host "Fetching groups from CyberArk..." -ForegroundColor Cyan
@@ -400,9 +405,11 @@ function Get-CACAllGroups {
         $allGroups = [System.Collections.Generic.List[object]]::new()
         $offset = 0
         $limit = 100
+        $pageNum = 0
 
         # Paginate through all groups
         do {
+            $pageNum++
             $queryParams = @("limit=$limit", "offset=$offset")
             
             if ($includeMembers) {
@@ -422,7 +429,8 @@ function Get-CACAllGroups {
             
             $offset += $limit
             
-            Write-Progress -Activity "Fetching Groups" -Status "Retrieved $($allGroups.Count) groups..." -PercentComplete 50
+            Write-Progress -Activity "Fetching Groups" -Status "Page $pageNum - Retrieved $($allGroups.Count) groups" -PercentComplete 50
+            Write-Host "  Page $pageNum - Retrieved $($allGroups.Count) groups" -ForegroundColor DarkGray
         } while ($groups.Count -eq $limit)
 
         Write-Progress -Activity "Fetching Groups" -Completed
@@ -440,7 +448,11 @@ function Get-CACAllGroups {
 
         foreach ($group in $allGroups) {
             $counter++
-            Write-Progress -Activity "Processing Groups" -Status "$counter of $($allGroups.Count)" -PercentComplete (($counter / $allGroups.Count) * 100)
+            $percent = [Math]::Round(($counter / $allGroups.Count) * 100, 0)
+            Write-Progress -Activity "Processing Groups" -Status "[$counter/$($allGroups.Count)] $($group.groupName)" -PercentComplete $percent
+            if ($counter % 50 -eq 0 -or $counter -eq $allGroups.Count) {
+                Write-Host "  [$counter/$($allGroups.Count)] Processing groups... ($percent%)" -ForegroundColor DarkGray
+            }
 
             # Format members as "Id:UserName" comma-separated
             $membersStr = ""
@@ -499,316 +511,80 @@ function Get-CACAllGroups {
 }
 
 # ============================================================
-# GROUPS - Remove Single Group (Manual)
+# INTERACTIVE - Lookup User from Cache
 # ============================================================
-function Remove-CACGroup {
-    [CmdletBinding()]
-    param(
-        [string]$GroupName
-    )
-
-    Write-Log "Started Remove-CACGroup()" "DEBUG"
-
-    try {
-        if ([string]::IsNullOrWhiteSpace($GroupName)) {
-            $GroupName = Read-Host "Enter Group Name to delete"
-            if ([string]::IsNullOrWhiteSpace($GroupName)) {
-                Write-Host "Group name cannot be empty." -ForegroundColor Yellow
-                return
-            }
-        }
-
-        Write-Host "Searching for group: $GroupName..." -ForegroundColor Cyan
-
-        # Find the group
-        $endpoint = "/API/UserGroups/?search=$([System.Web.HttpUtility]::UrlEncode($GroupName))"
-        $response = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint
-        $groups = ConvertTo-CACResponseArray -Response $response
-        $group = $groups | Where-Object { $_.groupName -eq $GroupName } | Select-Object -First 1
-
-        if (-not $group) {
-            Write-Log "Group '$GroupName' not found" "WARN"
-            Write-Host "Group '$GroupName' not found." -ForegroundColor Yellow
-            return
-        }
-
-        # Display confirmation
-        Write-Host ""
-        Write-Host "===== Delete Group Confirmation =====" -ForegroundColor Red
-        Write-Host "Group ID:    $($group.id)"
-        Write-Host "Group Name:  $($group.groupName)"
-        Write-Host "Group Type:  $($group.groupType)"
-        Write-Host "Description: $($group.description)"
-        Write-Host ""
-        Write-Host "WARNING: This action cannot be undone." -ForegroundColor Red
-
-        $confirm = Read-Host "Are you sure you want to PERMANENTLY DELETE this group? (Y/N)"
-
-        if ($confirm -ne 'Y' -and $confirm -ne 'y') {
-            Write-Log "Delete cancelled by user" "INFO"
-            Write-Host "Delete cancelled." -ForegroundColor Yellow
-            return
-        }
-
-        Write-Log "User confirmed; deleting group: $($group.id)" "WARN"
-
-        # Delete the group
-        Invoke-CACAPIRequest -Method DELETE -Endpoint "/API/UserGroups/$($group.id)"
-
-        Write-Log "Group deleted successfully: $GroupName (ID: $($group.id))" "SUCCESS"
-        Write-Host "Group deleted successfully." -ForegroundColor Green
-    }
-    catch {
-        Write-Log "Error in Remove-CACGroup(): $($_.Exception.Message)" "ERROR"
-        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
-    }
-}
-
-# ============================================================
-# GROUPS - Batch Delete Groups (CSV)
-# ============================================================
-function Invoke-CACBatchGroupDeletion {
+function Invoke-CACUserLookup {
     <#
     .SYNOPSIS
-        Delete multiple groups by name or from CSV.
-    .DESCRIPTION
-        Supports manual single deletion or batch CSV processing.
-        Output CSV preserves all input columns and adds DeletionStatus and Message.
+        Interactive wrapper: prompts for username/ID and displays user details from cache.
     #>
     [CmdletBinding()]
     param()
 
-    $outputDir = Get-CACOutputDir
-    $OutputCsvPath = "$outputDir/GroupDeletion_Result_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
-
-    Write-Log "Started Invoke-CACBatchGroupDeletion()" "DEBUG"
-
-    $itemsToProcess = @()
-    $GroupName = $null
-    $CsvPath = $null
-
-    # Interactive mode selection
-    Write-Host "Select Deletion Mode:" -ForegroundColor Cyan
-    Write-Host "1. Single Group Name"
-    Write-Host "2. Batch CSV File"
-    
-    $mode = Read-Host "Mode (1/2)"
-    if ($mode -eq '1') {
-        $val = Read-Host "Enter Group Name"
-        if (-not [string]::IsNullOrWhiteSpace($val)) { $GroupName = $val }
-    }
-    elseif ($mode -eq '2') {
-        $val = Read-Host "Enter CSV Path"
-        if (-not [string]::IsNullOrWhiteSpace($val)) { $CsvPath = $val }
-    }
-    else {
-        Write-Warning "Invalid selection."
+    $inputVal = Read-Host "Enter Username or ID"
+    if ([string]::IsNullOrWhiteSpace($inputVal)) {
+        Write-Host "Input cannot be empty." -ForegroundColor Yellow
         return
     }
 
-    if (-not [string]::IsNullOrWhiteSpace($GroupName)) {
-        Write-Log "Processing single group: $GroupName" "INFO"
-        $itemsToProcess += [PSCustomObject]@{
-            GroupName     = $GroupName
-            ProcessSource = "ManualInput"
-        }
-    }
-    elseif (-not [string]::IsNullOrWhiteSpace($CsvPath)) {
-        if (-not (Test-Path $CsvPath)) {
-            Write-Error "CSV file not found: $CsvPath"
-            return
-        }
-        Write-Log "Processing CSV: $CsvPath" "INFO"
-        $itemsToProcess = Import-Csv $CsvPath
-    }
-    else {
-        Write-Error "No valid group name or CSV path provided."
+    Write-Host "Searching cache for: $inputVal ..." -ForegroundColor Cyan
+    $result = Get-CACUserDetailsFromStore -InputValue $inputVal
+
+    if (-not $result -or $result.FullName -eq "Not Found") {
+        Write-Host "User '$inputVal' not found in cache." -ForegroundColor Yellow
+        Write-Host "Tip: Run 'Refresh User Cache' to pull the latest data." -ForegroundColor DarkGray
         return
     }
 
-    if ($itemsToProcess.Count -eq 0) {
-        Write-Warning "No items to process."
-        return
-    }
-
-    # Process deletions
-    $results = @()
-    $total = $itemsToProcess.Count
-    $current = 0
-
-    foreach ($item in $itemsToProcess) {
-        $current++
-        $resObj = $item | Select-Object *
-        
-        # Get group name from either GroupName or groupName column
-        $groupNameVal = if ($item.PSObject.Properties['GroupName']) { $item.GroupName } 
-        elseif ($item.PSObject.Properties['groupName']) { $item.groupName } 
-        else { $null }
-
-        if (-not $groupNameVal) {
-            Write-Host "Row $current : Missing 'GroupName' column. Skipping." -ForegroundColor Yellow
-            $resObj | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "Skipped" -Force
-            $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Missing 'GroupName' column" -Force
-            $results += $resObj
-            continue
-        }
-
-        Write-Progress -Activity "Deleting Groups (Batch)" -Status "Processing: $groupNameVal" -PercentComplete (($current / $total) * 100)
-        Write-Host "[$current/$total] Deleting Group: $groupNameVal ... " -NoNewline
-
-        try {
-            # Find the group first
-            $endpoint = "/API/UserGroups/?search=$([System.Web.HttpUtility]::UrlEncode($groupNameVal))"
-            $response = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint
-            $groups = ConvertTo-CACResponseArray -Response $response
-            $group = $groups | Where-Object { $_.groupName -eq $groupNameVal } | Select-Object -First 1
-
-            if (-not $group) {
-                Write-Host "Not Found" -ForegroundColor Yellow
-                $resObj | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "Failed" -Force
-                $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Group not found" -Force
-                Write-Log "Group not found: $groupNameVal" "WARN"
-            }
-            else {
-                # Delete the group
-                Invoke-CACAPIRequest -Method DELETE -Endpoint "/API/UserGroups/$($group.id)"
-                
-                Write-Host "Success" -ForegroundColor Green
-                $resObj | Add-Member -MemberType NoteProperty -Name "GroupId" -Value $group.id -Force
-                $resObj | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "Success" -Force
-                $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Deleted" -Force
-                Write-Log "Deleted Group: $groupNameVal (ID: $($group.id))" "SUCCESS"
-            }
-        }
-        catch {
-            $errMsg = $_.Exception.Message
-            Write-Host "Failed ($errMsg)" -ForegroundColor Red
-            
-            $resObj | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "Failed" -Force
-            $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value $errMsg -Force
-            Write-Log "Failed to delete $groupNameVal : $errMsg" "ERROR"
-        }
-
-        $results += $resObj
-    }
-    Write-Progress -Activity "Deleting Groups (Batch)" -Completed
-
-    # Export results
-    $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
-    Write-Host "`nBatch Group Deletion Complete. Results: $OutputCsvPath" -ForegroundColor Green
-    Write-Log "Batch Group Deletion Complete. Results saved to $OutputCsvPath" "INFO"
+    Write-Host ""
+    Write-Host "===== User Details =====" -ForegroundColor Cyan
+    Write-Host "  ID:         $($result.Id)" -ForegroundColor White
+    Write-Host "  Username:   $($result.UserName)" -ForegroundColor White
+    Write-Host "  Full Name:  $($result.FullName)" -ForegroundColor White
+    Write-Host "  Email:      $($result.Email)" -ForegroundColor White
+    Write-Host "  Phone:      $($result.Phone)" -ForegroundColor White
+    Write-Host "  Department: $($result.Department)" -ForegroundColor White
+    Write-Host "  Title:      $($result.Title)" -ForegroundColor White
+    Write-Host "  Status:     $($result.Status)" -ForegroundColor White
+    Write-Host "========================" -ForegroundColor Cyan
+    Write-Host ""
 }
 
 # ============================================================
-# USERS - Reset User Password
+# INTERACTIVE - Get Members of a Group
 # ============================================================
-function Reset-CACUserPassword {
+function Invoke-CACGroupMembersLookup {
     <#
     .SYNOPSIS
-        Resets a Vault user's password.
-    .DESCRIPTION
-        Prompts for username, searches for the user, and resets their password.
-        Requires "Audit users" and "Reset Users' Passwords" permissions.
+        Interactive wrapper: prompts for group name and displays members.
     #>
     [CmdletBinding()]
     param()
 
-    Write-Log "Started Reset-CACUserPassword()" "DEBUG"
-
-    try {
-        # Prompt for username
-        $userName = Read-Host "Enter Username to reset password"
-        if ([string]::IsNullOrWhiteSpace($userName)) {
-            Write-Host "Username cannot be empty." -ForegroundColor Yellow
-            return
-        }
-
-        Write-Host "Searching for user: $userName..." -ForegroundColor Cyan
-
-        # Search for the user to get their ID
-        $searchEndpoint = "/API/Users?search=$([System.Web.HttpUtility]::UrlEncode($userName))"
-        $searchResponse = Invoke-CACAPIRequest -Method GET -Endpoint $searchEndpoint
-
-        $users = ConvertTo-CACResponseArray -Response $searchResponse -PropertyName "Users"
-        
-        if (-not $users -or $users.Count -eq 0) {
-            Write-Host "User '$userName' not found." -ForegroundColor Yellow
-            return
-        }
-
-        # Find exact match or first result
-        $user = $users | Where-Object { $_.username -eq $userName } | Select-Object -First 1
-        if (-not $user) {
-            $user = $users | Select-Object -First 1
-            Write-Host "Exact match not found. Using closest match: $($user.username)" -ForegroundColor Yellow
-        }
-
-        Write-Host ""
-        Write-Host "===== User Found =====" -ForegroundColor Cyan
-        Write-Host "User ID:   $($user.id)"
-        Write-Host "Username:  $($user.username)"
-        Write-Host "Source:    $($user.source)"
-        Write-Host ""
-
-        # Confirm action
-        $confirm = Read-Host "Reset password for this user? (Y/N)"
-        if ($confirm -notmatch '^[Yy]$') {
-            Write-Host "Password reset cancelled." -ForegroundColor Yellow
-            return
-        }
-
-        # Prompt for new password (masked input)
-        Write-Host ""
-        Write-Host "Enter new password (max 39 characters, must meet policy requirements):" -ForegroundColor Cyan
-        $securePassword = Read-Host -AsSecureString "New Password"
-        
-        # Convert secure string to plain text for API
-        $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
-        $newPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
-        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR)
-
-        if ([string]::IsNullOrWhiteSpace($newPassword)) {
-            Write-Host "Password cannot be empty." -ForegroundColor Yellow
-            return
-        }
-
-        if ($newPassword.Length -gt 39) {
-            Write-Host "Password exceeds maximum length of 39 characters." -ForegroundColor Yellow
-            return
-        }
-
-        # Confirm password
-        $secureConfirm = Read-Host -AsSecureString "Confirm New Password"
-        $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureConfirm)
-        $confirmPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
-        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR)
-
-        if ($newPassword -ne $confirmPassword) {
-            Write-Host "Passwords do not match." -ForegroundColor Yellow
-            return
-        }
-
-        Write-Host ""
-        Write-Host "Resetting password..." -ForegroundColor Cyan
-
-        # Build request body
-        $body = @{
-            id          = $user.id
-            newPassword = $newPassword
-        }
-
-        # Call the API
-        $endpoint = "/API/Users/$($user.id)/ResetPassword/"
-        $response = Invoke-CACAPIRequest -Method POST -Endpoint $endpoint -Body $body
-
-        Write-Host ""
-        Write-Host "Password reset successful for user: $($user.username)" -ForegroundColor Green
-        Write-Log "Password reset successful for user: $($user.username) (ID: $($user.id))" "SUCCESS"
+    $groupName = Read-Host "Enter Group Name"
+    if ([string]::IsNullOrWhiteSpace($groupName)) {
+        Write-Host "Group name cannot be empty." -ForegroundColor Yellow
+        return
     }
-    catch {
-        Write-Log "Error in Reset-CACUserPassword(): $($_.Exception.Message)" "ERROR"
-        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+
+    Write-Host "Fetching members for group: $groupName ..." -ForegroundColor Cyan
+    $members = Get-CACMembersOfGroup -GroupName $groupName
+
+    if ($null -eq $members) {
+        Write-Host "Group '$groupName' not found." -ForegroundColor Yellow
+        return
     }
+
+    if ($members.Count -eq 0) {
+        Write-Host "Group '$groupName' has no members." -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host ""
+    Write-Host "===== Members of '$groupName' =====" -ForegroundColor Cyan
+    Write-Host "Total Members: $($members.Count)"
+    Write-Host ""
+    $members | Format-Table -AutoSize
 }
 
 # ============================================================
@@ -818,9 +594,8 @@ Export-ModuleMember -Function `
     Initialize-CACUserCache, `
     New-CACUserStore, `
     Get-CACUserDetailsFromStore, `
+    Invoke-CACUserLookup, `
     Get-CACAllGroups, `
     Get-CACMembersOfGroup, `
-    Get-CACGroupsOfUser, `
-    Reset-CACUserPassword, `
-    Remove-CACGroup, `
-    Invoke-CACBatchGroupDeletion
+    Invoke-CACGroupMembersLookup, `
+    Get-CACGroupsOfUser

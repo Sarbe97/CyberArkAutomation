@@ -1,6 +1,7 @@
 # =============================================================================
 # Start-CyberArkCLI.ps1
-# Wrapper script that syncs from GitHub before launching the CyberArk CLI
+# Self-contained launcher: syncs from GitHub then launches the CyberArk CLI.
+# Tries Git first; falls back to GitHub API if Git is unavailable.
 # =============================================================================
 
 param(
@@ -11,9 +12,24 @@ param(
 $ErrorActionPreference = "Stop"
 $scriptRoot = $PSScriptRoot
 
-# Get the git repository root (parent of CyberArkCLI folder)
-$repoRoot = Split-Path $scriptRoot -Parent
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
+$Owner = "Sarbe97"
+$Repo = "CyberArkAutomation"
+$Branch = "main"
+$RemoteSubfolder = "CyberArkCLI"   # subfolder in the repo that contains the CLI
 
+# Files/patterns to SKIP during API sync (won't overwrite if they already exist locally)
+$ExcludedPatterns = @(
+    "Start-CyberArkCLI.ps1",   # Don't overwrite this launcher
+    "config.json",              # User's local configuration
+    "*.log"                     # Local log files
+)
+
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
 function Write-ColorHost {
     param($Message, $Color = "White")
     Write-Host $Message -ForegroundColor $Color
@@ -43,13 +59,16 @@ function Test-GitRepository {
     }
 }
 
-function Sync-FromGitHub {
+# =============================================================================
+# METHOD 1: GIT SYNC
+# =============================================================================
+function Sync-WithGit {
     param($RepoPath)
     
     Write-Host ""
-    Write-Host "=============================================" -ForegroundColor Cyan
-    Write-Host " GitHub Sync Check" -ForegroundColor Cyan
-    Write-Host "=============================================" -ForegroundColor Cyan
+    Write-Host "==============================================" -ForegroundColor Cyan
+    Write-Host " GitHub Sync (Git)" -ForegroundColor Cyan
+    Write-Host "==============================================" -ForegroundColor Cyan
     Write-Host ""
     
     Push-Location $RepoPath
@@ -73,7 +92,7 @@ function Sync-FromGitHub {
         
         # Handle case where remote branch doesn't exist
         if ($behindCount -match "unknown revision") {
-            Write-ColorHost "Remote branch not found. Skipping sync check." "Yellow"
+            Write-ColorHost "Remote branch not found. Skipping sync." "Yellow"
             Pop-Location
             return $true
         }
@@ -112,8 +131,8 @@ function Sync-FromGitHub {
                 $pullChoice = 'Y'
             }
             else {
-                Write-Host "Would you like to pull the latest changes? (Y/N)" -ForegroundColor Yellow -NoNewline
-                $pullChoice = Read-Host " "
+                Write-Host "Would you like to pull the latest changes? (Y/N) " -ForegroundColor Yellow -NoNewline
+                $pullChoice = Read-Host
             }
             
             if ($pullChoice -eq 'Y' -or $pullChoice -eq 'y') {
@@ -162,6 +181,99 @@ function Sync-FromGitHub {
 }
 
 # =============================================================================
+# METHOD 2: GITHUB API SYNC (fallback when Git is not available)
+# =============================================================================
+function Sync-WithGitHubAPI {
+    param($LocalRoot)
+
+    Write-Host ""
+    Write-Host "==============================================" -ForegroundColor Cyan
+    Write-Host " GitHub Sync (API Download)" -ForegroundColor Cyan
+    Write-Host "==============================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    $headers = @{ "User-Agent" = "CyberArkCLI-Sync" }
+
+    function Sync-Folder {
+        param (
+            [string]$RemotePath,
+            [string]$TargetPath
+        )
+
+        $apiUrl = "https://api.github.com/repos/$Owner/$Repo/contents/$($RemotePath)?ref=$Branch"
+
+        try {
+            $items = Invoke-RestMethod -Uri $apiUrl -Method Get -Headers $headers
+        }
+        catch {
+            Write-ColorHost "[ERROR] Could not fetch: $RemotePath ($($_.Exception.Message))" "Red"
+            return $false
+        }
+
+        foreach ($item in $items) {
+            $currentLocalPath = Join-Path $TargetPath $item.name
+
+            if ($item.type -eq "dir") {
+                # Skip Output folder
+                if ($item.name -eq "Output") { continue }
+
+                if (!(Test-Path $currentLocalPath)) {
+                    New-Item -ItemType Directory -Path $currentLocalPath -Force | Out-Null
+                }
+                Sync-Folder -RemotePath $item.path -TargetPath $currentLocalPath
+            }
+            elseif ($item.type -eq "file") {
+
+                # Check exclusions
+                $isExcluded = $false
+                foreach ($pattern in $ExcludedPatterns) {
+                    if ($item.name -like $pattern) {
+                        $isExcluded = $true
+                        break
+                    }
+                }
+
+                # Skip excluded files only if they already exist locally
+                if ($isExcluded -and (Test-Path $currentLocalPath)) {
+                    Write-Host "  [SKIP] $($item.name)" -ForegroundColor Yellow
+                    continue
+                }
+
+                # Download
+                Write-Host "  [SYNC] $($item.name)" -ForegroundColor Green
+                try {
+                    Invoke-WebRequest -Uri $item.download_url -OutFile $currentLocalPath -UseBasicParsing
+                }
+                catch {
+                    Write-ColorHost "  [FAIL] $($item.name): $($_.Exception.Message)" "Red"
+                }
+            }
+        }
+        return $true
+    }
+
+    # Create target folder if needed
+    if (!(Test-Path $LocalRoot)) {
+        New-Item -ItemType Directory -Force -Path $LocalRoot | Out-Null
+    }
+
+    Write-ColorHost "Downloading from $Owner/$Repo/$RemoteSubfolder ..." "Yellow"
+    Write-Host ""
+
+    $result = Sync-Folder -RemotePath $RemoteSubfolder -TargetPath $LocalRoot
+
+    Write-Host ""
+    if ($result) {
+        Write-ColorHost "[OK] API sync complete." "Green"
+    }
+    else {
+        Write-ColorHost "[!] API sync completed with errors." "Yellow"
+    }
+
+    return $result
+}
+
+# =============================================================================
 # MAIN EXECUTION
 # =============================================================================
 
@@ -175,51 +287,82 @@ Write-Host "\____/\__, /_.___/\___/_/  /_/  |_/_/  /_/|_|  \____/_____/___/   " 
 Write-Host "     /____/                                                       " -ForegroundColor Cyan
 Write-Host ""
 
-# Check if Git is installed
-if (-not (Test-GitInstalled)) {
-    Write-ColorHost "[!] Git is not installed or not in PATH." "Yellow"
-    Write-ColorHost "    Skipping sync check..." "Gray"
-    $SkipSync = $true
-}
-
-# Check if this is a git repository
-if (-not $SkipSync -and -not (Test-GitRepository $repoRoot)) {
-    Write-ColorHost "[!] Not a Git repository: $repoRoot" "Yellow"
-    Write-ColorHost "    Skipping sync check..." "Gray"
-    $SkipSync = $true
-}
-
-# Perform sync check
+# --- SYNC PHASE ---
 if (-not $SkipSync) {
-    $syncResult = Sync-FromGitHub -RepoPath $repoRoot
-    
-    if (-not $syncResult) {
-        Write-Host ""
-        Write-ColorHost "Sync failed. Do you want to continue anyway? (Y/N)" "Yellow" -NoNewline
-        $continueChoice = Read-Host " "
-        if ($continueChoice -ne 'Y' -and $continueChoice -ne 'y') {
-            Write-ColorHost "Exiting..." "Gray"
-            exit 1
+
+    $gitAvailable = Test-GitInstalled
+    $repoRoot = Split-Path $scriptRoot -Parent
+    $isGitRepo = $gitAvailable -and (Test-GitRepository $repoRoot)
+
+    # Build menu based on what's available
+    Write-Host "==============================================" -ForegroundColor Cyan
+    Write-Host " Sync Options" -ForegroundColor Cyan
+    Write-Host "==============================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    if ($isGitRepo) {
+        Write-Host "  1. Git Sync        (pull latest from repository)" -ForegroundColor White
+    }
+    else {
+        Write-Host "  1. Git Sync        (not available)" -ForegroundColor DarkGray
+    }
+    Write-Host "  2. API Download    (download from GitHub without Git)" -ForegroundColor White
+    Write-Host "  3. Skip            (launch without syncing)" -ForegroundColor White
+    Write-Host ""
+
+    $syncChoice = Read-Host "Select option (1/2/3)"
+
+    switch ($syncChoice) {
+        '1' {
+            if ($isGitRepo) {
+                $syncResult = Sync-WithGit -RepoPath $repoRoot
+                if (-not $syncResult) {
+                    Write-Host ""
+                    Write-Host "Sync had issues. Continue anyway? (Y/N) " -ForegroundColor Yellow -NoNewline
+                    $c = Read-Host
+                    if ($c -ne 'Y' -and $c -ne 'y') { exit 1 }
+                }
+            }
+            else {
+                Write-ColorHost "[!] Git is not available in this environment." "Red"
+                Write-ColorHost "    Use option 2 (API Download) instead." "Yellow"
+                Write-Host ""
+                Write-Host "Press Enter to continue without sync..." -ForegroundColor Gray
+                Read-Host | Out-Null
+            }
+        }
+        '2' {
+            $syncResult = Sync-WithGitHubAPI -LocalRoot $scriptRoot
+            if (-not $syncResult) {
+                Write-Host ""
+                Write-Host "Sync had issues. Continue anyway? (Y/N) " -ForegroundColor Yellow -NoNewline
+                $c = Read-Host
+                if ($c -ne 'Y' -and $c -ne 'y') { exit 1 }
+            }
+        }
+        default {
+            Write-ColorHost "[i] Sync skipped." "Gray"
         }
     }
 }
 else {
-    Write-ColorHost "[i] Sync check skipped." "Gray"
+    Write-ColorHost "[i] Sync skipped (-SkipSync)." "Gray"
 }
 
+# --- LAUNCH CLI ---
 Write-Host ""
-Write-Host "=============================================" -ForegroundColor Green
+Write-Host "==============================================" -ForegroundColor Green
 Write-Host " Launching CyberArk CLI..." -ForegroundColor Green
-Write-Host "=============================================" -ForegroundColor Green
+Write-Host "==============================================" -ForegroundColor Green
 Write-Host ""
 Start-Sleep -Milliseconds 500
 
-# Launch the main CLI
 $cliPath = Join-Path $scriptRoot "cli.ps1"
 if (Test-Path $cliPath) {
     & $cliPath
 }
 else {
     Write-ColorHost "[!] CLI script not found: $cliPath" "Red"
+    Write-ColorHost "    Run again and choose option 2 (API Download) to fetch the files." "Yellow"
     exit 1
 }

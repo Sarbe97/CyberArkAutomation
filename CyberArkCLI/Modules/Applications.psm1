@@ -34,7 +34,14 @@ function Get-CACAllApplications {
 
         # Format output
         $formattedApps = @()
+        $counter = 0
+        $total = $apps.Count
         foreach ($app in $apps) {
+            $counter++
+            if ($counter % 10 -eq 0 -or $counter -eq $total) {
+                Write-Progress -Activity "Formatting Applications" -Status "$counter of $total" -PercentComplete (($counter / $total) * 100)
+                Write-Host "  Formatting application $counter of $total ..." -ForegroundColor Gray
+            }
             $formattedApps += [PSCustomObject]@{
                 AppID             = $app.AppID
                 Description       = $app.Description
@@ -43,6 +50,7 @@ function Get-CACAllApplications {
                 Disabled          = if ($app.Disabled -eq $true) { "Yes" } else { "No" }
             }
         }
+        Write-Progress -Activity "Formatting Applications" -Completed
 
         # Display summary
         Write-Host ""
@@ -157,15 +165,14 @@ function Get-CACAppAuthMethods {
         Write-Host ""
         Write-Host "===== Authentication Methods ($appId) =====" -ForegroundColor Cyan
         
+        $methodCounter = 0
+        $methodTotal = $methods.Count
         foreach ($method in $methods) {
-            Write-Host "Wait..." -ForegroundColor DarkGray
-            # Depending on structure, authentication methods might have different fields
-            # Typically: AuthType, IsCritical, etc.
+            $methodCounter++
+            Write-Host "[$methodCounter/$methodTotal] Method Type: $(if ($method.AuthType) { $method.AuthType } else { 'Unknown' })" -ForegroundColor Green
             
             # Since structure can vary, we list key properties
             $props = $method | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name
-            
-            Write-Host "Method Type: $(if ($method.AuthType) { $method.AuthType } else { 'Unknown' })" -ForegroundColor Green
             
             foreach ($p in $props) {
                 if ($p -ne "AuthType") {

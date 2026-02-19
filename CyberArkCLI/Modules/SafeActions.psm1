@@ -57,6 +57,8 @@ function Invoke-CACBatchSafeCreation {
 
     Log "Processing $($data.Count) rows from CSV" "INFO"
     Write-Host "Processing $($data.Count) rows..." -ForegroundColor Cyan
+    $rowIndex = 0
+    $rowTotal = $data.Count
 
     foreach ($row in $data) {
         $safeName = $row.SafeName.Trim()
@@ -75,8 +77,11 @@ function Invoke-CACBatchSafeCreation {
         $groupMembers = if ($row.PSObject.Properties['GroupMembers']) { $row.GroupMembers.Trim() } else { "" }
         $groupDescription = if ($row.PSObject.Properties['GroupDescription']) { $row.GroupDescription.Trim() } else { "" }
 
+        $rowIndex++
+        Write-Progress -Activity "Safe Creation" -Status "[$rowIndex/$rowTotal] $safeName" -PercentComplete (($rowIndex / $rowTotal) * 100)
+
         Write-Host "`n==================================================================" -ForegroundColor Cyan
-        Write-Host " PROCESSING: Safe [$safeName]" -ForegroundColor Cyan
+        Write-Host " [$rowIndex/$rowTotal] Safe: $safeName" -ForegroundColor Cyan
         Write-Host "==================================================================" -ForegroundColor Cyan
         Log "Processing Safe: $safeName, Member: $safeMember, Type: $memberType" "INFO"
 
@@ -335,6 +340,7 @@ function Invoke-CACBatchSafeCreation {
 
         [void]$results.Add([pscustomobject]$result)
     }
+    Write-Progress -Activity "Safe Creation" -Completed
 
     $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
     Log "Safe Creation Complete. Results: $OutputCsvPath" "INFO"
@@ -414,13 +420,18 @@ function Invoke-CACBatchSafeRename {
     Log "Processing $($data.Count) rows from CSV" "INFO"
     Log "Default Safe Members from config: $($defaultSafeMembers.Keys -join ', ')" "INFO"
     Write-Host "Processing $($data.Count) rows..." -ForegroundColor Cyan
+    $rowIndex = 0
+    $rowTotal = $data.Count
 
     foreach ($row in $data) {
         $oldSafeName = $row.OldSafeName.Trim()
         $newSafeName = $row.SafeName.Trim()
 
+        $rowIndex++
+        Write-Progress -Activity "Safe Rename" -Status "[$rowIndex/$rowTotal] $oldSafeName -> $newSafeName" -PercentComplete (($rowIndex / $rowTotal) * 100)
+
         Write-Host "`n==================================================================" -ForegroundColor Cyan
-        Write-Host " RENAMING: [$oldSafeName] -> [$newSafeName]" -ForegroundColor Cyan
+        Write-Host " [$rowIndex/$rowTotal] Rename: $oldSafeName -> $newSafeName" -ForegroundColor Cyan
         Write-Host "==================================================================" -ForegroundColor Cyan
         Log "Processing Safe: $oldSafeName -> $newSafeName" "INFO"
 
@@ -665,6 +676,7 @@ function Invoke-CACBatchSafeRename {
         $result.OverallStatus = "SUCCESS"
         [void]$results.Add([pscustomobject]$result)
     }
+    Write-Progress -Activity "Safe Rename" -Completed
 
     $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
     Log "Safe Rename Complete. Results: $OutputCsvPath" "INFO"
@@ -718,8 +730,11 @@ function Invoke-CACBatchSafeMember {
     $data = Import-Csv $CsvPath
 
     Write-Host "Processing $($data.Count) rows..." -ForegroundColor Cyan
+    $rowIndex = 0
+    $rowTotal = $data.Count
 
     foreach ($row in $data) {
+        $rowIndex++
         $safeName = $row.SafeName.Trim()
         $memberName = $row.MemberName.Trim()
         $type = $row.MemberType.Trim() # User or Group
@@ -733,7 +748,8 @@ function Invoke-CACBatchSafeMember {
             $memberSourceRaw
         }
 
-        Write-Host "`n[$safeName] + [$memberName] ($type) [Source: $memberSource]" -ForegroundColor Cyan
+        Write-Progress -Activity "Safe Member Management" -Status "[$rowIndex/$rowTotal] $safeName + $memberName" -PercentComplete (($rowIndex / $rowTotal) * 100)
+        Write-Host "`n[$rowIndex/$rowTotal] $safeName + $memberName ($type) [Source: $memberSource]" -ForegroundColor Cyan
         Log "Processing $safeName + $memberName (Source: $memberSource)" "INFO"
 
         $result = [ordered]@{
@@ -861,6 +877,7 @@ function Invoke-CACBatchSafeMember {
         }
         [void]$results.Add([pscustomobject]$result)
     }
+    Write-Progress -Activity "Safe Member Management" -Completed
 
     $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
     Log "Finished. Results: $OutputCsvPath" "INFO"
@@ -1110,108 +1127,248 @@ function New-CACSafeMemberTemplate {
 }
 
 # =============================================================================
-# 5. BATCH SAFE DELETE
-# Deletes empty safes (skips safes with accounts)
+# 4. BATCH SAFE DELETION
+# Deletes safes and associated groups from CSV
 # =============================================================================
 function Invoke-CACBatchSafeDelete {
-    [CmdletBinding()]
-    param()
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [string]$CsvPath,
+        [string]$OutputCsvPath,
+        [switch]$WhatIf
+    )
 
-    # Setup Logging
+    # Initialize dedicated log file
     $logDir = "$PSScriptRoot/../Logs"
     if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
     $logFile = Join-Path $logDir "SafeDeletion_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
-    function Log { param($Msg) Add-Content -Path $logFile -Value "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Msg" }
 
+    function Log {
+        param($Msg, $Level = "INFO")
+        $entry = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [$Level] $Msg"
+        Add-Content -Path $logFile -Value $entry -ErrorAction SilentlyContinue
+        if ($Level -eq "DEBUG") { Write-Verbose $entry }
+    }
+
+    Log "Started Invoke-CACBatchSafeDelete() - WhatIf: $WhatIf" "DEBUG"
     Write-Host "Log file: $logFile" -ForegroundColor Gray
 
-    # Input Selection
-    Write-Host "`nSelect Input Method:" -ForegroundColor Cyan
-    Write-Host "1. Manual Entry (Comma-separated)"
-    Write-Host "2. CSV File (Header: SafeName)"
-    Write-Host "T. Download Template CSV"
-    $inputChoice = Read-Host "Enter option"
-
-    if ($inputChoice -eq 'T' -or $inputChoice -eq 't') {
-        New-CACSafeDeleteTemplate
-        return
+    if ($WhatIf) {
+        Write-Host ""
+        Write-Host "!!! RUNNING IN WHAT-IF MODE (DRY RUN) !!!" -ForegroundColor Magenta
+        Write-Host "No changes will be made to CyberArk." -ForegroundColor Magenta
+        Write-Host ""
     }
 
-    $targetSafes = @()
+    # Prompt for CSV path if missing
+    if ([string]::IsNullOrWhiteSpace($CsvPath)) {
+        Write-Host ""
+        Write-Host "Select Input Method:" -ForegroundColor Cyan
+        Write-Host "1. Manual Entry (Comma-separated)"
+        Write-Host "2. CSV File (Header: SafeName, SafeDescription)"
+        Write-Host "T. Download Template CSV"
+        
+        $inputChoice = Read-Host "Enter option"
 
-    if ($inputChoice -eq '1') {
-        $manualInput = Read-Host "Enter Safe Names (e.g. Safe1,Safe2)"
-        if (-not [string]::IsNullOrWhiteSpace($manualInput)) {
-            $targetSafes = $manualInput -split "," | ForEach-Object { $_.Trim() }
+        if ($inputChoice -eq 'T' -or $inputChoice -eq 't') {
+            New-CACSafeDeleteTemplate
+            return
         }
-    }
-    elseif ($inputChoice -eq '2') {
-        $path = Read-Host "Enter CSV File Path"
-        if (Test-Path $path) {
-            $csv = Import-Csv $path
-            foreach ($row in $csv) { if ($row.SafeName) { $targetSafes += $row.SafeName.Trim() } }
+
+        $targetSafes = @()
+
+        if ($inputChoice -eq '1') {
+            $manualInput = Read-Host "Enter Safe Names (e.g. Safe1,Safe2)"
+            if (-not [string]::IsNullOrWhiteSpace($manualInput)) {
+                $targetSafes = $manualInput -split "," | ForEach-Object { $_.Trim() }
+            }
+        }
+        elseif ($inputChoice -eq '2') {
+            $CsvPath = Get-CACFilePath -Title "Select Safe Deletion CSV" -Filter "CSV Files (*.csv)|*.csv"
+            
+            if (-not [string]::IsNullOrWhiteSpace($CsvPath) -and (Test-Path $CsvPath)) {
+                $csv = Import-Csv $CsvPath
+                foreach ($row in $csv) {
+                    if ($row.SafeName) { $targetSafes += $row.SafeName.Trim() }
+                }
+            }
+            else {
+                Write-Host "No file selected." -ForegroundColor Yellow
+                return
+            }
         }
         else {
-            Write-Host "File not found." -ForegroundColor Red
+            Write-Host "Invalid selection." -ForegroundColor Red
             return
         }
     }
     else {
-        Write-Host "Invalid selection." -ForegroundColor Red
+        # Processing passed CSV Path argument
+        if (Test-Path $CsvPath) {
+            $csv = Import-Csv $CsvPath
+            $targetSafes = @()
+            foreach ($row in $csv) {
+                if ($row.SafeName) { $targetSafes += $row.SafeName.Trim() }
+            }
+        }
+        else {
+            Write-Host "File not found: $CsvPath" -ForegroundColor Red
+            return
+        }
+    }
+
+    if ($targetSafes.Count -eq 0) {
+        Write-Host "No safes found to process." -ForegroundColor Yellow
         return
     }
 
-    if ($targetSafes.Count -eq 0) { Write-Host "No safes provided." -ForegroundColor Yellow; return }
-
-    $results = [System.Collections.ArrayList]::new()
-    $outPath = Join-Path (Get-CACOutputDir) "SafeDelete_Result_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
-
-    foreach ($safe in $targetSafes) {
-        if (-not $safe) { continue }
-        
-        Write-Host "Processing Safe: [$safe]..." -NoNewline
-        Log "Processing $safe"
-
-        $res = [ordered]@{ SafeName = $safe; Status = "Failed"; Message = "" }
-
-        try {
-            # 1. Check Account Count
-            $encodedFilter = [System.Web.HttpUtility]::UrlEncode("safename eq $safe")
-            $accts = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Accounts?filter=$encodedFilter&limit=1"
-            $count = if ($accts.count) { $accts.count } elseif ($accts.value) { ($accts.value | Measure-Object).Count } else { 0 }
-
-            if ($count -gt 0) {
-                $res.Status = "Skipped"
-                $res.Message = "Safe contains $count accounts"
-                Write-Host " [SKIPPED - $count Accounts]" -ForegroundColor Yellow
-                Log "Skipped $safe - contains $count accounts"
-            }
-            else {
-                # 2. Delete Safe
-                Invoke-CACAPIRequest -Method DELETE -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safe))" | Out-Null
-                $res.Status = "Deleted"
-                Write-Host " [DELETED]" -ForegroundColor Green
-                Log "Deleted $safe"
-            }
+    # --- SUMMARY CONFIRMATION ---
+    Write-Host ""
+    Write-Host "===== DELETION SUMMARY =====" -ForegroundColor Red
+    Write-Host "Total Safes to Delete: $($targetSafes.Count)"
+    if ($targetSafes.Count -lt 11) {
+        $targetSafes | ForEach-Object { Write-Host " - $_" -ForegroundColor DarkGray }
+    }
+    else {
+        $targetSafes | Select-Object -First 5 | ForEach-Object { Write-Host " - $_" -ForegroundColor DarkGray }
+        Write-Host " ... and $(($targetSafes.Count - 5)) more." -ForegroundColor DarkGray
+    }
+    Write-Host "============================" -ForegroundColor Red
+    
+    if (-not $WhatIf) {
+        $confirm = Read-Host "Are you sure you want to PERMANENTLY DELETE these safes? (Y/N)"
+        if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+            Write-Host "Operation cancelled." -ForegroundColor Yellow
+            return
         }
-        catch {
-            $err = $_.Exception.Message
-            if ($err -match "404") {
-                $res.Status = "NotFound"
-                $res.Message = "Safe not found"
-                Write-Host " [NOT FOUND]" -ForegroundColor DarkGray
-            }
-            else {
-                $res.Message = $err
-                Write-Host " [ERROR]" -ForegroundColor Red
-                Log "Error: $err"
-            }
-        }
-        [void]$results.Add([pscustomobject]$res)
+    }
+    else {
+        Write-Host "What-If Mode: Skipping confirmation prompt." -ForegroundColor Cyan
     }
 
-    $results | Export-Csv -Path $outPath -NoTypeInformation -Force -Encoding UTF8
-    Write-Host "`nDone. Results: $outPath" -ForegroundColor Green
+    # Output path
+    if ([string]::IsNullOrWhiteSpace($OutputCsvPath)) {
+        $OutputCsvPath = Join-Path (Get-CACOutputDir) "SafeDeletion_Result_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+    }
+
+    $results = [System.Collections.ArrayList]::new()
+    $i = 0
+    $total = $targetSafes.Count
+
+    foreach ($safeName in $targetSafes) {
+        $i++
+        Write-Progress -Activity "Safe Deletion" -Status "[$i/$total] $safeName" -PercentComplete (($i / $total) * 100)
+
+        if ($WhatIf) {
+            Write-Host "[$i/$total] [WHAT-IF] Would delete Safe: $safeName" -ForegroundColor Magenta
+            Log "[WHAT-IF] Would delete Safe: $safeName" "INFO"
+        }
+        else {
+            Write-Host "[$i/$total] Deleting Safe: $safeName ..." -NoNewline
+        }
+
+        $rowResult = [ordered]@{
+            SafeName = $safeName
+            Status   = "Unknown"
+            Groups   = ""
+            Message  = ""
+        }
+
+        # 1. Check Safe Existence
+        $safeExists = $false
+        try {
+            if ($WhatIf) {
+                # In Dry Run, we still check if it exists to give accurate "Would Delete" vs "Not Found" info
+                $safe = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))" -ErrorAction SilentlyContinue
+                if ($safe) { $safeExists = $true }
+            }
+            else {
+                $safe = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))" -ErrorAction SilentlyContinue
+                if ($safe) { $safeExists = $true }
+            }
+        }
+        catch { }
+
+        if (-not $safeExists) {
+            $rowResult.Status = "NotFound"
+            $rowResult.Message = "Safe does not exist"
+            if (-not $WhatIf) { Write-Host " [NOT FOUND]" -ForegroundColor Yellow }
+            else { Write-Host " -> Safe not found (Would skip)" -ForegroundColor DarkGray }
+            [void]$results.Add([pscustomobject]$rowResult)
+            continue
+        }
+
+        # 2. Delete Safe
+        if ($WhatIf) {
+            $rowResult.Status = "WhatIf-Success"
+            $rowResult.Message = "Safe would be deleted"
+        }
+        else {
+            try {
+                Invoke-CACAPIRequest -Method DELETE -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))"
+                $rowResult.Status = "Deleted"
+                Write-Host " [DELETED]" -ForegroundColor Green
+                Log "Deleted Safe: $safeName" "SUCCESS"
+            }
+            catch {
+                $rowResult.Status = "Failed"
+                $rowResult.Message = "Safe delete error: $($_.Exception.Message)"
+                Write-Host " [FAILED]" -ForegroundColor Red
+                Log "Failed to delete Safe $safeName : $($_.Exception.Message)" "ERROR"
+            }
+        }
+
+        # 3. Delete Groups (KA_..._R / RW)
+        # Groups are deleted regardless of safe deletion success, to ensure cleanup
+        $groupsToDelete = @("KA_${safeName}_R", "KA_${safeName}_RW")
+        $groupLog = @()
+
+        foreach ($gName in $groupsToDelete) {
+            # Find Group
+            $groupId = $null
+            try {
+                $gRes = Invoke-CACAPIRequest -Method GET -Endpoint "/API/UserGroups?search=$([System.Web.HttpUtility]::UrlEncode($gName))"
+                $grp = $gRes.value | Where-Object { $_.groupName -eq $gName } | Select-Object -First 1
+                if ($grp) { $groupId = $grp.id }
+            }
+            catch {}
+
+            if ($groupId) {
+                if ($WhatIf) {
+                    Write-Host "      -> [WHAT-IF] Would delete Group: $gName" -ForegroundColor Magenta
+                    $groupLog += "$gName(WhatIf)"
+                }
+                else {
+                    try {
+                        Invoke-CACAPIRequest -Method DELETE -Endpoint "/API/UserGroups/$groupId"
+                        $groupLog += "$gName(Deleted)"
+                        Log "Deleted Group: $gName" "SUCCESS"
+                    }
+                    catch {
+                        $groupLog += "$gName(Failed)"
+                        Log "Failed to delete Group $gName" "WARN"
+                    }
+                }
+            }
+            else {
+                $groupLog += "$gName(NotFound)"
+            }
+        }
+        $rowResult.Groups = $groupLog -join "; "
+        [void]$results.Add([pscustomobject]$rowResult)
+    }
+    Write-Progress -Activity "Safe Deletion" -Completed
+
+    $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
+    
+    if ($WhatIf) {
+        Write-Host "`n[WHAT-IF] Simulation Complete. Potential results saved to: $OutputCsvPath" -ForegroundColor Cyan
+    }
+    else {
+        Write-Host "`nDone. Results saved to: $OutputCsvPath" -ForegroundColor Green
+    }
+    
+    Log "Operation Complete" "INFO"
 }
 
 # --- Safe Delete Template ---

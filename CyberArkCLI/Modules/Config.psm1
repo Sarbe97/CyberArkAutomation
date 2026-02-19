@@ -156,5 +156,55 @@ function Get-CACGroupsToHide {
     return @($config.GroupsToHide)
 }
 
-Export-ModuleMember -Function Get-CACConfig, Get-CACPermissionSet, Get-CACAvailablePermissionSets, Get-CACGroupsToHide
+function Test-CACConfiguration {
+    <#
+    .SYNOPSIS
+        Validates the configuration and environment.
+    .OUTPUTS
+        $true if configuration is valid, $false otherwise.
+    #>
+    [CmdletBinding()]
+    param()
+
+    $isValid = $true
+    $config = Get-CACConfig
+
+    Write-Host "Validating configuration..." -ForegroundColor Cyan
+
+    # 1. Check PVWA URL
+    if ([string]::IsNullOrWhiteSpace($config.PVWAURL)) {
+        Write-Host "[!] PVWAURL is missing in config.json." -ForegroundColor Red
+        Write-Log "Config validation failed: PVWAURL missing" "ERROR"
+        $isValid = $false
+    }
+    else {
+        Write-Host " [OK] PVWA URL configured: $($config.PVWAURL)" -ForegroundColor Green
+    }
+
+    # 2. Check/Create Output Directory
+    try {
+        $outDir = "$PSScriptRoot/../Output"
+        if (-not (Test-Path $outDir)) {
+            New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+            Write-Host " [OK] Created Output directory" -ForegroundColor Green
+            Write-Log "Created Output directory" "INFO"
+        }
+        else {
+            Write-Host " [OK] Output directory exists" -ForegroundColor Green
+        }
+    }
+    catch {
+        Write-Host "[!] Failed to create Output directory: $($_.Exception.Message)" -ForegroundColor Red
+        $isValid = $false
+    }
+
+    # 3. Check LDAP Domain (Optional but recommended)
+    if ([string]::IsNullOrWhiteSpace($config.LDAPDomain)) {
+        Write-Host " [!] LDAPDomain is missing (LDAP login might fail)" -ForegroundColor Yellow
+    }
+
+    return $isValid
+}
+
+Export-ModuleMember -Function Get-CACConfig, Get-CACPermissionSet, Get-CACAvailablePermissionSets, Get-CACGroupsToHide, Test-CACConfiguration
 

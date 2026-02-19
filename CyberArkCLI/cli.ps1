@@ -28,6 +28,7 @@ function Reload-CACModules {
         "Accounts.psm1",
         "SystemHealth.psm1",
         "Users.psm1",
+        "UserManagement.psm1",
         "SafeOperations.psm1",
         "Session.psm1",
         "SafeActions.psm1",
@@ -96,6 +97,15 @@ Reload-CACModules
 
 # Initialize logging
 Initialize-CACLogging
+
+# Validate Configuration
+if (-not (Test-CACConfiguration)) {
+    Write-Host "`n[!] Configuration errors detected." -ForegroundColor Red
+    Write-Host "    Please check config.json."
+    Pause
+    # We don't exit here to allow user to potentially fix it or reload, 
+    # but strictly speaking we could exit.
+}
 
 # ------------------------------------------------------------
 # Global login state
@@ -174,29 +184,31 @@ function Show-MainMenu {
         Write-Host ""
         Write-Host "--- MAIN MENU ---" -ForegroundColor Yellow
         Write-Host "1. Session Info"
-        Write-Host "2. User Utilities"
-        Write-Host "3. System Health"
-        Write-Host "4. Account Operations"
-        Write-Host "5. Safe Operations"
-        Write-Host "6. Safe Activities"
-        Write-Host "7. Platform Management"
-        Write-Host "8. Discovery & Onboarding"
-        Write-Host "9. Application Management"
+        Write-Host "2. System Health"
+        Write-Host "3. User Operations"
+        Write-Host "4. User & Group Management"
+        Write-Host "5. Account Operations"
+        Write-Host "6. Safe Operations"
+        Write-Host "7. Safe Bulk Activities"
+        Write-Host "8. Platform Management"
+        Write-Host "9. Discovery & Onboarding"
+        Write-Host "10. Application Management"
         Write-Host "R. Reload Modules (Dev Only)" -ForegroundColor DarkGray
         Write-Host "0. Exit"
 
         $choice = Read-Host "Select an option"
 
         switch ($choice) {
-            '1' { Show-SessionMenu }
-            '2' { Show-UserMenu }
-            '3' { Show-SystemHealthMenu }
-            '4' { Show-AccountMenu }
-            '5' { Show-SafeMenu }
-            '6' { Show-SafeActivitiesMenu }
-            '7' { Show-PlatformMenu }
-            '8' { Show-DiscoveryMenu }
-            '9' { Show-ApplicationMenu }
+            '1' { Show-CACSessionDetails; Pause }
+            '2' { Get-CACSystemHealth; Pause }
+            '3' { Show-UserMenu }
+            '4' { Show-UserManagementMenu }
+            '5' { Show-AccountMenu }
+            '6' { Show-SafeMenu }
+            '7' { Show-SafeActivitiesMenu }
+            '8' { Show-PlatformMenu }
+            '9' { Show-DiscoveryMenu }
+            '10' { Show-ApplicationMenu }
 
             'R' { 
                 Reload-CACModules
@@ -273,24 +285,34 @@ function Show-AccountMenu {
     }
 }
 
+
+
 # ============================================================
-# SYSTEM HEALTH MENU
+# USER OPERATIONS MENU
 # ============================================================
-function Show-SystemHealthMenu {
+function Show-UserMenu {
     while ($true) {
         Clear-Host
         Write-Host "=============== CyberArk CLI ===============" -ForegroundColor Cyan
         Show-CACSessionHeader
         Write-Host "============================================="
         Write-Host ""
-        Write-Host "--- SYSTEM HEALTH ---" -ForegroundColor Yellow
-        Write-Host "1. System Health Summary"
+        Write-Host "--- USER OPERATIONS ---" -ForegroundColor Yellow
+        Write-Host "1. Refresh User Cache"
+        Write-Host "2. Lookup User (from Cache)"
+        Write-Host "3. Get All Groups (Vault + LDAP)"
+        Write-Host "4. Get Members of a Group"
+        Write-Host "5. Get Groups of a User"
         Write-Host "0. Back"
 
         $choice = Read-Host "Enter Choice"
 
         switch ($choice) {
-            '1' { Get-CACSystemHealth; Pause }
+            '1' { New-CACUserStore; Pause }
+            '2' { Invoke-CACUserLookup; Pause }
+            '3' { Get-CACAllGroups; Pause }
+            '4' { Invoke-CACGroupMembersLookup; Pause }
+            '5' { Get-CACGroupsOfUser; Pause }
             '0' { return }
 
             default {
@@ -302,67 +324,31 @@ function Show-SystemHealthMenu {
 }
 
 # ============================================================
-# USER UTILITIES MENU
+# GROUP & USER MANAGEMENT MENU
 # ============================================================
-function Show-UserMenu {
+function Show-UserManagementMenu {
     while ($true) {
         Clear-Host
         Write-Host "=============== CyberArk CLI ===============" -ForegroundColor Cyan
         Show-CACSessionHeader
         Write-Host "============================================="
         Write-Host ""
-        Write-Host "--- USER UTILITIES ---" -ForegroundColor Yellow
-        Write-Host "1. Refresh User Cache"
-        Write-Host "2. Lookup User (from Cache)"
-        Write-Host "3. Get All Groups (Vault + LDAP)"
-        Write-Host "4. Get Members of a Group"
-        Write-Host "5. Get Groups of a User"
-        Write-Host "6. Reset User Password"
-        Write-Host "7. Delete Group"
-        Write-Host "8. Batch Delete Groups"
+        Write-Host "--- GROUP & USER MANAGEMENT ---" -ForegroundColor Yellow
+        Write-Host "1. Create Groups (Manual or CSV)"
+        Write-Host "2. Add Users to Group (Manual or CSV)"
+        Write-Host "3. Delete Group (Single)"
+        Write-Host "4. Delete Groups (Batch)"
+        Write-Host "5. Reset User Password"
         Write-Host "0. Back"
 
         $choice = Read-Host "Enter Choice"
 
         switch ($choice) {
-            '1' { New-CACUserStore; Pause }
-            '2' {
-                $user = Read-Host "Enter Username or ID"
-                if (-not [string]::IsNullOrWhiteSpace($user)) {
-                    $result = Get-CACUserDetailsFromStore -InputValue $user
-                    $result | Format-List
-                }
-                Pause
-            }
-            '3' { Get-CACAllGroups; Pause }
-            '4' {
-                $groupName = Read-Host "Enter Group Name"
-                if (-not [string]::IsNullOrWhiteSpace($groupName)) {
-                    Write-Host "Fetching members for group: $groupName..." -ForegroundColor Cyan
-                    $members = Get-CACMembersOfGroup -GroupName $groupName
-                    if ($null -eq $members) {
-                        Write-Host "Group '$groupName' not found." -ForegroundColor Yellow
-                    }
-                    elseif ($members.Count -eq 0) {
-                        Write-Host "Group '$groupName' has no members." -ForegroundColor Yellow
-                    }
-                    else {
-                        Write-Host ""
-                        Write-Host "===== Members of '$groupName' =====" -ForegroundColor Cyan
-                        Write-Host "Total Members: $($members.Count)"
-                        Write-Host ""
-                        $members | Format-Table -AutoSize
-                    }
-                }
-                else {
-                    Write-Host "Group name cannot be empty." -ForegroundColor Yellow
-                }
-                Pause
-            }
-            '5' { Get-CACGroupsOfUser; Pause }
-            '6' { Reset-CACUserPassword; Pause }
-            '7' { Remove-CACGroup; Pause }
-            '8' { Invoke-CACBatchGroupDeletion; Pause }
+            '1' { Invoke-CACBatchGroupCreation; Pause }
+            '2' { Invoke-CACBatchAddUsersToGroup; Pause }
+            '3' { Remove-CACGroup; Pause }
+            '4' { Invoke-CACBatchGroupDeletion; Pause }
+            '5' { Reset-CACUserPassword; Pause }
             '0' { return }
 
             default {
@@ -405,38 +391,10 @@ function Show-SafeMenu {
     }
 }
 
-# ============================================================
-# SESSION INFO MENU
-# ============================================================
-function Show-SessionMenu {
-    while ($true) {
-        Clear-Host
-        Write-Host "=============== CyberArk CLI ===============" -ForegroundColor Cyan
-        Show-CACSessionHeader
-        Write-Host "============================================="
-        Write-Host ""
-        Write-Host "--- SESSION INFO ---" -ForegroundColor Yellow
-        Write-Host "1. View Current User Details"
-        Write-Host "2. View Session Info"
-        Write-Host "0. Back"
 
-        $choice = Read-Host "Enter Choice"
-
-        switch ($choice) {
-            '1' { Get-CACCurrentUser; Pause }
-            '2' { Get-CACSessionInfo; Pause }
-            '0' { return }
-
-            default {
-                Write-Host "Invalid option." -ForegroundColor Yellow
-                Start-Sleep 1
-            }
-        }
-    }
-}
 
 # ============================================================
-# SAFE ACTIVITIES MENU
+# SAFE BULK ACTIVITIES MENU
 # ============================================================
 function Show-SafeActivitiesMenu {
     while ($true) {
@@ -445,12 +403,12 @@ function Show-SafeActivitiesMenu {
         Show-CACSessionHeader
         Write-Host "============================================="
         Write-Host ""
-        Write-Host "--- SAFE ACTIVITIES ---" -ForegroundColor Yellow
+        Write-Host "--- SAFE BULK ACTIVITIES ---" -ForegroundColor Yellow
         Write-Host "1. Create Safes (from CSV)"
         Write-Host "2. Rename Safes (from CSV)"
         Write-Host "3. Manage Safe Members (from CSV)"
         Write-Host "4. Delete Safes (Batch)"
-        Write-Host "---"
+        Write-Host "---" -ForegroundColor DarkGray
         Write-Host "5. Download 'Create Safe' Template"
         Write-Host "6. Download 'Rename Safe' Template"
         Write-Host "7. Download 'Safe Member' Template"

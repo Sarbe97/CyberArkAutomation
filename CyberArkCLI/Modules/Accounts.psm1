@@ -49,13 +49,14 @@ function Get-CACAccounts {
                     if ($s) { $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $s } }
                 }
                 '3' {
-                    $p = Read-Host "Enter CSV path"
+                    $p = Get-CACFilePath -Title "Select Search CSV" -Filter "CSV Files (*.csv)|*.csv"
                     if (-not (Test-Path $p)) { throw "CSV file not found." }
 
                     $csvData = Import-Csv $p
                     foreach ($row in $csvData) {
                         $sVal = if ($row.Search) { $row.Search } elseif ($row.Keywords) { $row.Keywords } else { $null }
-                        $safeVal = if ($row.Safe) { $row.Safe } elseif ($row.SafeName) { $row.SafeName } else { $null }
+                        # Standardized to SafeName, fallback to Safe
+                        $safeVal = if ($row.SafeName) { $row.SafeName } elseif ($row.Safe) { $row.Safe } else { $null }
 
                         if ($sVal) {
                             $searchQueries += [PSCustomObject]@{ Search = $sVal; Safe = $null }
@@ -789,13 +790,22 @@ function Invoke-CACBatchAccountDeletion {
     .SYNOPSIS
         Delete multiple accounts by ID or from CSV.
     #>
-    [CmdletBinding()]
-    param()
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [switch]$WhatIf
+    )
 
     $outputDir = Get-CACOutputDir
     $OutputCsvPath = "$outputDir/BatchDeletion_Result_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
 
-    Write-Log "Started Invoke-CACBatchAccountDeletion()" "DEBUG"
+    Write-Log "Started Invoke-CACBatchAccountDeletion() - WhatIf: $WhatIf" "DEBUG"
+
+    if ($WhatIf) {
+        Write-Host ""
+        Write-Host "!!! RUNNING IN WHAT-IF MODE (DRY RUN) !!!" -ForegroundColor Magenta
+        Write-Host "No changes will be made to CyberArk." -ForegroundColor Magenta
+        Write-Host ""
+    }
 
     $itemsToProcess = @()
     $Id = $null
@@ -805,15 +815,14 @@ function Invoke-CACBatchAccountDeletion {
     Write-Host "Select Deletion Mode:" -ForegroundColor Cyan
     Write-Host "1. Single Account ID"
     Write-Host "2. Batch CSV File"
-    
+
     $mode = Read-Host "Mode (1/2)"
     if ($mode -eq '1') {
         $val = Read-Host "Enter Account ID"
         if (-not [string]::IsNullOrWhiteSpace($val)) { $Id = $val }
     }
     elseif ($mode -eq '2') {
-        $val = Read-Host "Enter CSV Path"
-        if (-not [string]::IsNullOrWhiteSpace($val)) { $CsvPath = $val }
+        $CsvPath = Get-CACFilePath -Title "Select Account Deletion CSV" -Filter "CSV Files (*.csv)|*.csv"
     }
     else {
         Write-Warning "Invalid selection."
@@ -836,7 +845,7 @@ function Invoke-CACBatchAccountDeletion {
         $itemsToProcess = Import-Csv $CsvPath
     }
     else {
-        Write-Error "No valid ID or CSV path provided."
+        Write-Warning "No input provided."
         return
     }
 
@@ -845,53 +854,97 @@ function Invoke-CACBatchAccountDeletion {
         return
     }
 
-    # Process deletions
+    # --- SUMMARY CONFIRMATION ---
+    Write-Host ""
+    Write-Host "===== DELETION SUMMARY =====" -ForegroundColor Red
+    Write-Host "Total Accounts to Delete: $($itemsToProcess.Count)"
+    if ($itemsToProcess.Count -lt 11) {
+        $itemsToProcess | ForEach-Object { 
+            $disp = if ($_.id) { $_.id } elseif ($_.AccountID) { $_.AccountID } else { "Unknown" }
+            Write-Host " - ID: $disp" -ForegroundColor DarkGray 
+        }
+    }
+    else {
+        $firstItem = $itemsToProcess[0]
+        $dispFirst = if ($firstItem.id) { $firstItem.id } elseif ($firstItem.AccountID) { $firstItem.AccountID } else { "Unknown" }
+        Write-Host " - $dispFirst" -ForegroundColor DarkGray
+        Write-Host " - ..." -ForegroundColor DarkGray
+        Write-Host " ... and $(($itemsToProcess.Count - 1)) more." -ForegroundColor DarkGray
+    }
+    Write-Host "============================" -ForegroundColor Red
+
+    if (-not $WhatIf) {
+        $confirm = Read-Host "Are you sure you want to PERMANENTLY DELETE these accounts? (Y/N)"
+        if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+            Write-Host "Operation cancelled." -ForegroundColor Yellow
+            return
+        }
+    }
+    else {
+        Write-Host "What-If Mode: Skipping confirmation prompt." -ForegroundColor Cyan
+    }
+
     $results = @()
+    $i = 0
     $total = $itemsToProcess.Count
-    $current = 0
+    $successCount = 0
+    $failCount = 0
 
     foreach ($item in $itemsToProcess) {
-        $current++
-        $resObj = $item | Select-Object *
-        
-        $idVal = if ($item.PSObject.Properties['AccountID']) { $item.AccountID } elseif ($item.PSObject.Properties['id']) { $item.id } else { $null }
+        $i++
+        # Flexible column names: 'id' or 'AccountID'
+        $accId = if ($item.id) { $item.id } elseif ($item.AccountID) { $item.AccountID } else { $null }
 
-        if (-not $idVal) {
-            Write-Host "Row $current : Missing 'id' column. Skipping." -ForegroundColor Yellow
-            $resObj | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "Skipped" -Force
-            $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Missing 'id' column" -Force
-            $results += $resObj
+        if (-not $accId) {
+            Write-Warning "Row $i missing 'id' or 'AccountID'"
             continue
         }
 
-        Write-Progress -Activity "Deleting Accounts (Batch)" -Status "Processing: $idVal" -PercentComplete (($current / $total) * 100)
-        Write-Host "[$current/$total] Deleting Account ID: $idVal ... " -NoNewline
+        $percentComplete = [math]::Round(($i / $total) * 100)
+        Write-Progress -Activity "Deleting Accounts (Batch)" -Status "$i of $total : $accId" -PercentComplete $percentComplete
+        Write-Host "[$i/$total] Deleting Account: $accId ... " -NoNewline
+
+        $resObj = $item | Select-Object *
 
         try {
-            Invoke-CACAPIRequest -Method DELETE -Endpoint "/api/Accounts/$idVal"
-            
-            Write-Host "Success" -ForegroundColor Green
-            $resObj | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "Success" -Force
-            $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Deleted" -Force
-            Write-Log "Deleted Account: $idVal" "SUCCESS"
+            if ($WhatIf) {
+                Write-Host "What-If (skipped)" -ForegroundColor Magenta
+                $resObj | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "WhatIf" -Force
+                $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Dry run - no action taken" -Force
+            }
+            else {
+                Invoke-CACAPIRequest -Method DELETE -Endpoint "/api/Accounts/$accId"
+                Write-Host "Deleted" -ForegroundColor Green
+                $resObj | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "Deleted" -Force
+                $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Success" -Force
+                $successCount++
+            }
         }
         catch {
             $errMsg = $_.Exception.Message
             Write-Host "Failed ($errMsg)" -ForegroundColor Red
-            
             $resObj | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "Failed" -Force
             $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value $errMsg -Force
-            Write-Log "Failed to delete $idVal : $errMsg" "ERROR"
+            Write-Log "Failed to delete $accId : $errMsg" "ERROR"
+            $failCount++
         }
 
         $results += $resObj
     }
+
     Write-Progress -Activity "Deleting Accounts (Batch)" -Completed
 
     # Export results
     $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
-    Write-Host "`nBatch Deletion Complete. Results: $OutputCsvPath" -ForegroundColor Green
-    Write-Log "Batch Deletion Complete. Results saved to $OutputCsvPath" "INFO"
+
+    Write-Host ""
+    Write-Host "===== Summary =====" -ForegroundColor Cyan
+    Write-Host "  Total:     $total"
+    Write-Host "  Deleted:   $successCount" -ForegroundColor Green
+    Write-Host "  Failed:    $failCount" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "White" })
+    Write-Host ""
+    Write-Host "Results: $OutputCsvPath" -ForegroundColor Green
+    Write-Log "Batch Deletion Complete. Deleted: $successCount, Failed: $failCount" "INFO"
 }
 
 # ============================================================

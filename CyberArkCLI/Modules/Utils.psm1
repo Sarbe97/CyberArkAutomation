@@ -107,6 +107,66 @@ function Get-CACOutputDir {
     return (Resolve-Path $targetDir).Path
 }
 
+
+# ============================================================
+# FILE PICKER UTILITY
+# ============================================================
+function Get-CACFilePath {
+    <#
+    .SYNOPSIS
+        Opens a file picker dialog to select a file.
+        Falls back to Read-Host if dialog cannot be opened.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$Title = "Select File",
+        [string]$Filter = "CSV Files (*.csv)|*.csv|All Files (*.*)|*.*",
+        [string]$InitialDirectory = $null
+    )
+
+    # Try to load Windows Forms for the dialog
+    $dialogSuccess = $false
+    $selectedPath = $null
+
+    try {
+        Add-Type -AssemblyName System.Windows.Forms
+        $openFileDialog = New-Object System.Windows.Forms.OpenFileDialog
+        $openFileDialog.Title = $Title
+        $openFileDialog.Filter = $Filter
+        
+        if ($InitialDirectory -and (Test-Path $InitialDirectory)) {
+            $openFileDialog.InitialDirectory = $InitialDirectory
+        }
+        else {
+            $openFileDialog.InitialDirectory = [Environment]::GetFolderPath("MyDocuments")
+        }
+
+        # Show dialog
+        if ($openFileDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            $selectedPath = $openFileDialog.FileName
+            $dialogSuccess = $true
+        }
+    }
+    catch {
+        Write-Verbose "Could not open file dialog: $($_.Exception.Message)"
+    }
+
+    # Fallback to Read-Host if dialog didn't work or was cancelled
+    if (-not $dialogSuccess) {
+        if (-not [string]::IsNullOrWhiteSpace($selectedPath)) {
+            return $selectedPath
+        }
+        
+        Write-Host "$Title (Enter full path): " -ForegroundColor Yellow -NoNewline
+        $inputPath = Read-Host
+        if (-not [string]::IsNullOrWhiteSpace($inputPath)) {
+            return $inputPath.Trim('"') # Remove quotes if user pasted path with quotes
+        }
+    }
+    
+    return $selectedPath
+}
+
 # ============================================================
 # Send Email Notification
 # ============================================================

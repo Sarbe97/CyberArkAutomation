@@ -229,30 +229,82 @@ function Invoke-CACAPIRequest {
         Write-Log "Request body: $($requestParams['Body'])" "DEBUG"
     }
 
-    try {
-        $response = Invoke-RestMethod @requestParams
-        Write-Log "API request successful" "DEBUG"
-        return $response
-    }
-    catch {
-        $errorMessage = $_.Exception.Message
-        
-        # Try to extract more details from the response
-        if ($_.Exception.Response) {
-            try {
-                $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
-                $responseBody = $reader.ReadToEnd()
-                $reader.Close()
+    # ======================================================
+    # RETRY LOOP FOR 401 UNAUTHORIZED (SESSION EXPIRY)
+    # ======================================================
+    $maxRetries = 1
+    $retryCount = 0
+    $requestSuccess = $false
+    $response = $null
+
+    while (-not $requestSuccess) {
+        try {
+            # Update header in case token changed (after re-login)
+            if ($global:CACApiSession.Token) {
+                $requestParams.WebSession.Headers["Authorization"] = $global:CACApiSession.Token
+            }
+
+            $response = Invoke-RestMethod @requestParams
+            
+            Write-Log "API request successful" "DEBUG"
+            $requestSuccess = $true
+            return $response
+        }
+        catch {
+            $ex = $_.Exception
+            $isUnauthorized = ($ex.Response -and $ex.Response.StatusCode -eq [System.Net.HttpStatusCode]::Unauthorized)
+
+            # If 401 and we haven't retried yet
+            if ($isUnauthorized -and $retryCount -lt $maxRetries) {
+                $retryCount++
+                Write-Log "Session expired (401 Unauthorized). Attempting re-login..." "WARN"
+                Write-Host "`n[!] Session expired. Please re-login to continue." -ForegroundColor Yellow
                 
-                if ($responseBody) {
-                    $errorMessage = "$errorMessage - $responseBody"
+                # Determine re-login method
+                $reloginSuccess = $false
+                
+                if ($global:CACLoginMethod -eq "LDAP") {
+                    $reloginSuccess = Invoke-CACLogin -LDAP
+                }
+                elseif ($global:CACLoginMethod -eq "SAML") {
+                    $reloginSuccess = Invoke-CACLogin -SAML
+                }
+                else {
+                    # Default / CyberArk
+                    $reloginSuccess = Invoke-CACLogin
+                }
+
+                if ($reloginSuccess) {
+                    Write-Host "Re-login successful. Retrying operation..." -ForegroundColor Green
+                    Write-Log "Re-login successful. Retrying API call..." "INFO"
+                    continue # Retry loop
+                }
+                else {
+                    Write-Host "Re-login failed. Aborting operation." -ForegroundColor Red
+                    throw "Session expired and re-login failed."
                 }
             }
-            catch { }
-        }
+            
+            # If not 401 or retries exhausted, throw original error
+            $errorMessage = $ex.Message
+            
+            # Try to extract more details from the response
+            if ($ex.Response) {
+                try {
+                    $reader = New-Object System.IO.StreamReader($ex.Response.GetResponseStream())
+                    $responseBody = $reader.ReadToEnd()
+                    $reader.Close()
+                    
+                    if ($responseBody) {
+                        $errorMessage = "$errorMessage - $responseBody"
+                    }
+                }
+                catch { }
+            }
 
-        Write-Log "API Error: $errorMessage" "ERROR"
-        throw $errorMessage
+            Write-Log "API Error: $errorMessage" "ERROR"
+            throw $errorMessage
+        }
     }
 }
 

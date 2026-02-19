@@ -60,7 +60,14 @@ function Get-CACDiscoveredAccounts {
 
         # Format output with expanded fields
         $formattedAccounts = [System.Collections.Generic.List[PSCustomObject]]::new()
+        $counter = 0
+        $total = $accounts.Count
         foreach ($acct in $accounts) {
+            $counter++
+            if ($counter % 10 -eq 0 -or $counter -eq $total) {
+                Write-Progress -Activity "Formatting Discovered Accounts" -Status "$counter of $total" -PercentComplete (($counter / $total) * 100)
+                Write-Host "  Formatting account $counter of $total ..." -ForegroundColor Gray
+            }
             $formattedAccounts.Add([PSCustomObject]@{
                     # Basic Info
                     Id                      = $acct.id
@@ -89,6 +96,7 @@ function Get-CACDiscoveredAccounts {
                     LastPasswordSetDateTime = Convert-CACTimestamp $acct.lastPasswordSetDateTime
                 })
         }
+        Write-Progress -Activity "Formatting Discovered Accounts" -Completed
 
         # Display summary
         Write-Host ""

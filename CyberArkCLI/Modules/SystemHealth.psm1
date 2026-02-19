@@ -7,13 +7,9 @@ function Get-CACSystemHealth {
     <#
     .SYNOPSIS
         Retrieves CyberArk system health summary and component details.
-    .PARAMETER ExportToCSV
-        Export results to CSV file (default: true)
     #>
     [CmdletBinding()]
-    param(
-        [bool]$ExportToCSV = $true
-    )
+    param()
 
     Write-Log "Started Get-CACSystemHealth()" "DEBUG"
     Write-Log "Retrieving system health summary and component details from CyberArk APIs" "INFO"
@@ -37,17 +33,20 @@ function Get-CACSystemHealth {
         # Process Vault instances
         if ($summaryResponse.Vaults) {
             Write-Log "Found $($summaryResponse.Vaults.Count) vault instances in summary" "DEBUG"
+            Write-Host "Processing $($summaryResponse.Vaults.Count) vault instance(s)..." -ForegroundColor Cyan
 
             foreach ($vault in $summaryResponse.Vaults) {
+                $statusText = if ($vault.IsLoggedOn) { "[OK]" } else { "[DOWN]" }
                 $vaultRecord = [PSCustomObject]@{
                     HealthType        = "Vault"
                     ComponentID       = "VAULT"
                     ComponentName     = $vault.Role
                     ComponentIP       = $vault.IP
                     ComponentUserName = $vault.Role
-                    ComponentVersion  = $null
+                    ComponentVersion  = "-"
+                    Status            = $statusText
                     IsLoggedOn        = $vault.IsLoggedOn
-                    LastLogonDate     = $null
+                    LastLogonDate     = "-"
                     ReportedAt        = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
                 }
 
@@ -62,14 +61,19 @@ function Get-CACSystemHealth {
             Write-Host "No components found in summary." -ForegroundColor Yellow
         }
         else {
-            Write-Log "Found $($summaryResponse.Components.Count) component types" "DEBUG"
+            $totalComponents = $summaryResponse.Components.Count
+            Write-Log "Found $totalComponents component types" "DEBUG"
+            Write-Host "Retrieving details for $totalComponents component type(s)..." -ForegroundColor Cyan
 
+            $compIndex = 0
             foreach ($component in $summaryResponse.Components) {
+                $compIndex++
                 $componentID = $component.ComponentID
                 $componentName = $component.ComponentName
                 
                 Write-Log "Processing component: $componentID - $componentName" "DEBUG"
-                Write-Host "Retrieving details for $componentName..." -ForegroundColor Cyan
+                Write-Host "  [$compIndex/$totalComponents] $componentName ..." -NoNewline
+                Write-Progress -Activity "Fetching System Health" -Status "[$compIndex/$totalComponents] $componentName" -PercentComplete (($compIndex / $totalComponents) * 100)
 
                 try {
                     $detailEndpoint = "/API/ComponentsMonitoringDetails/$componentID/"
@@ -77,19 +81,24 @@ function Get-CACSystemHealth {
 
                     if (-not $detailResponse.ComponentsDetails) {
                         Write-Log "No ComponentsDetails found for: $componentID" "WARN"
+                        Write-Host " No instances found" -ForegroundColor Yellow
                         continue
                     }
 
-                    Write-Log "Retrieved $($detailResponse.ComponentsDetails.Count) instances for $componentID" "DEBUG"
+                    $instanceCount = $detailResponse.ComponentsDetails.Count
+                    Write-Host " $instanceCount instance(s)" -ForegroundColor Green
+                    Write-Log "Retrieved $instanceCount instances for $componentID" "DEBUG"
 
                     foreach ($detail in $detailResponse.ComponentsDetails) {
+                        $statusText = if ($detail.IsLoggedOn) { "[OK]" } else { "[DOWN]" }
                         $healthRecord = [PSCustomObject]@{
                             HealthType        = "Component"
                             ComponentID       = $componentID
                             ComponentName     = $componentName
                             ComponentIP       = $detail.ComponentIP
                             ComponentUserName = $detail.ComponentUserName
-                            ComponentVersion  = $detail.ComponentVersion
+                            ComponentVersion  = if ($detail.ComponentVersion) { $detail.ComponentVersion } else { "-" }
+                            Status            = $statusText
                             IsLoggedOn        = $detail.IsLoggedOn
                             LastLogonDate     = Convert-CACTimestamp $detail.LastLogonDate
                             ReportedAt        = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -100,10 +109,11 @@ function Get-CACSystemHealth {
                     }
                 }
                 catch {
+                    Write-Host " Error" -ForegroundColor Red
                     Write-Log "Error retrieving details for $componentID : $($_.Exception.Message)" "WARN"
-                    Write-Host "Error retrieving $componentName details: $($_.Exception.Message)" -ForegroundColor Yellow
                 }
             }
+            Write-Progress -Activity "Fetching System Health" -Completed
         }
 
         if ($allHealthData.Count -eq 0) {
@@ -115,33 +125,35 @@ function Get-CACSystemHealth {
         # Display results
         Write-Host ""
         Write-Host "===== System Health Summary =====" -ForegroundColor Cyan
+        Write-Host "Total Components: $($allHealthData.Count)"
         Write-Host ""
 
         $allHealthData | Format-Table -AutoSize @(
+            "Status",
             "HealthType",
             "ComponentName",
             "ComponentIP",
             "ComponentUserName",
             "ComponentVersion",
-            "IsLoggedOn",
             "LastLogonDate"
         )
 
-        # Export to CSV
-        if ($ExportToCSV) {
-            $outputDir = Get-CACOutputDir
-            $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-            $outputFile = "$outputDir/system_health_$timestamp.csv"
+        # Quick status count
+        $okCount = ($allHealthData | Where-Object { $_.IsLoggedOn -eq $true }).Count
+        $downCount = ($allHealthData | Where-Object { $_.IsLoggedOn -ne $true }).Count
+        Write-Host "  OK: $okCount  |  DOWN: $downCount" -ForegroundColor $(if ($downCount -gt 0) { "Yellow" } else { "Green" })
 
-            Write-Log "Exporting $($allHealthData.Count) health records to CSV: $outputFile" "INFO"
-            $allHealthData | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
+        # Auto-export to CSV
+        $outputDir = Get-CACOutputDir
+        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+        $outputFile = "$outputDir/SystemHealth_$timestamp.csv"
 
-            Write-Log "CSV export successful: $outputFile" "SUCCESS"
-            Write-Host ""
-            Write-Host "Export Summary" -ForegroundColor Cyan
-            Write-Host "Total Records: $($allHealthData.Count)"
-            Write-Host "Export File: $outputFile" -ForegroundColor Green
-        }
+        Write-Log "Exporting $($allHealthData.Count) health records to CSV: $outputFile" "INFO"
+        $allHealthData | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
+
+        Write-Log "CSV export successful: $outputFile" "SUCCESS"
+        Write-Host ""
+        Write-Host "Results exported: $outputFile" -ForegroundColor Green
 
         Write-Log "Completed Get-CACSystemHealth()" "DEBUG"
         return $allHealthData

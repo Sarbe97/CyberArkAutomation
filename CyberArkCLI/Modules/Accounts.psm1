@@ -66,7 +66,10 @@ function Get-CACAccounts {
                         }
                     }
                 }
-                default { throw "Invalid selection." }
+                default {
+                    Write-Host "Invalid option. Please select 1, 2, or 3." -ForegroundColor Yellow
+                    return
+                }
             }
         }
 

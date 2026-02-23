@@ -1291,7 +1291,9 @@ function Invoke-CACBatchAccountOnboarding {
                     platformId = $item.PlatformId
                     address    = $item.Address
                     userName   = $item.UserName
-                    name       = if ($item.Name) { $item.Name } else { "$($item.UserName)@$($item.Address)" }
+                }
+                if (-not [string]::IsNullOrWhiteSpace($item.Name)) {
+                    $accountBody["name"] = $item.Name
                 }
 
                 if (-not [string]::IsNullOrWhiteSpace($item.Password)) {

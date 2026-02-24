@@ -229,82 +229,61 @@ function Invoke-CACAPIRequest {
         Write-Log "Request body: $($requestParams['Body'])" "DEBUG"
     }
 
-    # ======================================================
-    # RETRY LOOP FOR 401 UNAUTHORIZED (SESSION EXPIRY)
-    # ======================================================
-    $maxRetries = 1
-    $retryCount = 0
-    $requestSuccess = $false
-    $response = $null
+    try {
+        $response = Invoke-RestMethod @requestParams
+        Write-Log "API request successful" "DEBUG"
+        return $response
+    }
+    catch {
+        $err = $_
+        $ex = $_.Exception
+        $errorMessage = $ex.Message
+        $responseBody = $null
 
-    while (-not $requestSuccess) {
-        try {
-            # Update header in case token changed (after re-login)
-            if ($global:CACApiSession.Token) {
-                $requestParams.WebSession.Headers["Authorization"] = $global:CACApiSession.Token
-            }
-
-            $response = Invoke-RestMethod @requestParams
-            
-            Write-Log "API request successful" "DEBUG"
-            $requestSuccess = $true
-            return $response
+        # Try ErrorDetails first, fall back to reading the response stream
+        if ($err.ErrorDetails -and $err.ErrorDetails.Message) {
+            $responseBody = $err.ErrorDetails.Message
         }
-        catch {
-            $ex = $_.Exception
-            $isUnauthorized = ($ex.Response -and $ex.Response.StatusCode -eq [System.Net.HttpStatusCode]::Unauthorized)
-
-            # If 401 and we haven't retried yet
-            if ($isUnauthorized -and $retryCount -lt $maxRetries) {
-                $retryCount++
-                Write-Log "Session expired (401 Unauthorized). Attempting re-login..." "WARN"
-                Write-Host "`n[!] Session expired. Please re-login to continue." -ForegroundColor Yellow
-                
-                # Determine re-login method
-                $reloginSuccess = $false
-                
-                if ($global:CACLoginMethod -eq "LDAP") {
-                    $reloginSuccess = Invoke-CACLogin -LDAP
-                }
-                elseif ($global:CACLoginMethod -eq "SAML") {
-                    $reloginSuccess = Invoke-CACLogin -SAML
-                }
-                else {
-                    # Default / CyberArk
-                    $reloginSuccess = Invoke-CACLogin
-                }
-
-                if ($reloginSuccess) {
-                    Write-Host "Re-login successful. Retrying operation..." -ForegroundColor Green
-                    Write-Log "Re-login successful. Retrying API call..." "INFO"
-                    continue # Retry loop
-                }
-                else {
-                    Write-Host "Re-login failed. Aborting operation." -ForegroundColor Red
-                    throw "Session expired and re-login failed."
-                }
-            }
-            
-            # If not 401 or retries exhausted, throw original error
-            $errorMessage = $ex.Message
-            
-            # Try to extract more details from the response
-            if ($ex.Response) {
-                try {
-                    $reader = New-Object System.IO.StreamReader($ex.Response.GetResponseStream())
+        elseif ($ex.Response) {
+            try {
+                $stream = $ex.Response.GetResponseStream()
+                if ($stream) {
+                    $reader = New-Object System.IO.StreamReader($stream)
                     $responseBody = $reader.ReadToEnd()
                     $reader.Close()
-                    
-                    if ($responseBody) {
-                        $errorMessage = "$errorMessage - $responseBody"
-                    }
                 }
-                catch { }
             }
-
-            Write-Log "API Error: $errorMessage" "ERROR"
-            throw $errorMessage
+            catch { }
         }
+
+        # Try to parse CyberArk JSON error payload (ErrorCode + ErrorMessage)
+        $apiErrorCode = $null
+        $apiErrorMessage = $null
+        if ($responseBody) {
+            try {
+                $json = $responseBody | ConvertFrom-Json -ErrorAction Stop
+                $apiErrorCode = $json.ErrorCode
+                $apiErrorMessage = $json.ErrorMessage
+            }
+            catch { }
+        }
+
+        # Log the most descriptive message available
+        if ($apiErrorCode -or $apiErrorMessage) {
+            Write-Log "API Error: [$apiErrorCode] $apiErrorMessage" "ERROR"
+        }
+        elseif ($responseBody) {
+            Write-Log "API Error: $responseBody" "ERROR"
+        }
+        else {
+            Write-Log "API Error: $errorMessage" "ERROR"
+        }
+
+        # Throw with full detail appended to original exception message
+        if ($responseBody) {
+            $errorMessage = "$errorMessage - $responseBody"
+        }
+        throw $errorMessage
     }
 }
 

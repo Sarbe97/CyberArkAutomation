@@ -19,8 +19,10 @@ function New-CACUserObject {
         [string]$UserType = "",
         [string]$Phone = "",
         [string]$Mobile = "",
-        [string]$Status = "",
-        [string]$LastSuccessfulLoginDate = ""
+        [string]$enableUser = "",
+        [string]$Suspended = "",
+        [string]$LastSuccessfulLoginDate = "",
+        [string]$ExpiryDate = ""
     )
 
     return [PSCustomObject]@{
@@ -35,8 +37,10 @@ function New-CACUserObject {
         Organization            = $Organization
         Source                  = $Source
         UserType                = $UserType
-        Status                  = $Status
+        enableUser              = $enableUser
+        Suspended               = $Suspended
         LastSuccessfulLoginDate = $LastSuccessfulLoginDate
+        ExpiryDate              = $ExpiryDate
     }
 }
 

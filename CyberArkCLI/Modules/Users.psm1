@@ -156,8 +156,10 @@ function New-CACUserStore {
             -Organization $(if ($userDetails.personalDetails) { $userDetails.personalDetails.organization } else { "" }) `
             -Source $userDetails.source `
             -UserType $userDetails.userType `
-            -Status $userDetails.enableUser `
-            -LastSuccessfulLoginDate $userDetails.lastSuccessfulLoginDate
+            -enableUser $userDetails.enableUser `
+            -Suspended $userDetails.suspended `
+            -LastSuccessfulLoginDate (Convert-CACTimestamp $userDetails.lastSuccessfulLoginDate) `
+            -ExpiryDate (Convert-CACTimestamp $userDetails.expiryDate)
 
         $finalUsers.Add($userObj)
     }
@@ -241,7 +243,10 @@ function Get-CACUserDetailsFromStore {
         -Phone $match.Phone `
         -Department $match.Department `
         -Title $match.Title `
-        -Status $match.Status
+        -enableUser $match.enableUser `
+        -Suspended $match.Suspended `
+        -LastSuccessfulLoginDate $match.LastSuccessfulLoginDate `
+        -ExpiryDate $match.ExpiryDate
 }
 
 # ============================================================
@@ -538,14 +543,17 @@ function Invoke-CACUserLookup {
 
     Write-Host ""
     Write-Host "===== User Details =====" -ForegroundColor Cyan
-    Write-Host "  ID:         $($result.Id)" -ForegroundColor White
-    Write-Host "  Username:   $($result.UserName)" -ForegroundColor White
-    Write-Host "  Full Name:  $($result.FullName)" -ForegroundColor White
-    Write-Host "  Email:      $($result.Email)" -ForegroundColor White
-    Write-Host "  Phone:      $($result.Phone)" -ForegroundColor White
-    Write-Host "  Department: $($result.Department)" -ForegroundColor White
-    Write-Host "  Title:      $($result.Title)" -ForegroundColor White
-    Write-Host "  Status:     $($result.Status)" -ForegroundColor White
+    Write-Host "  ID:                     $($result.Id)" -ForegroundColor White
+    Write-Host "  Username:               $($result.UserName)" -ForegroundColor White
+    Write-Host "  Full Name:              $($result.FullName)" -ForegroundColor White
+    Write-Host "  Email:                  $($result.Email)" -ForegroundColor White
+    Write-Host "  Phone:                  $($result.Phone)" -ForegroundColor White
+    Write-Host "  Department:             $($result.Department)" -ForegroundColor White
+    Write-Host "  Title:                  $($result.Title)" -ForegroundColor White
+    Write-Host "  enableUser:             $($result.enableUser)" -ForegroundColor White
+    Write-Host "  Suspended:              $($result.Suspended)" -ForegroundColor White
+    Write-Host "  Last Successful Login:  $($result.LastSuccessfulLoginDate)" -ForegroundColor White
+    Write-Host "  Expiry Date:            $($result.ExpiryDate)" -ForegroundColor White
     Write-Host "========================" -ForegroundColor Cyan
     Write-Host ""
 }

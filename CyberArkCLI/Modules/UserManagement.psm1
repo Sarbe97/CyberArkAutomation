@@ -232,8 +232,9 @@ function Invoke-CACBatchAddUsersToGroup {
     Write-Host "Select Input Mode:" -ForegroundColor Cyan
     Write-Host "1. Manual Input"
     Write-Host "2. CSV File (Batch)"
+    Write-Host "3. Download CSV Template"
 
-    $mode = Read-Host "Mode (1/2)"
+    $mode = Read-Host "Mode (1/2/3)"
 
     if ($mode -eq '1') {
         $groupName = Read-Host "Enter Group Name"
@@ -258,7 +259,7 @@ function Invoke-CACBatchAddUsersToGroup {
         }
     }
     elseif ($mode -eq '2') {
-        Write-Host "CSV columns: GroupName (required), UserName (required), MemberType (optional - default: Vault)" -ForegroundColor Yellow
+        Write-Host "CSV columns: GroupName (required), UserName (required - comma or semicolon-separated for multiple users), MemberType (optional - default: Vault)" -ForegroundColor Yellow
         $CsvPath = Get-CACFilePath -Title "Select Add Users to Group CSV" -Filter "CSV Files (*.csv)|*.csv"
 
         if ([string]::IsNullOrWhiteSpace($CsvPath) -or -not (Test-Path $CsvPath)) {
@@ -267,7 +268,23 @@ function Invoke-CACBatchAddUsersToGroup {
         }
 
         Write-Log "Processing CSV: $CsvPath" "INFO"
-        $itemsToProcess = Import-Csv $CsvPath
+        # Import and expand: a single UserName cell may contain comma/semicolon-separated names
+        $rawCsvData = Import-Csv $CsvPath
+        foreach ($row in $rawCsvData) {
+            $csvMemberType = if ($row.PSObject.Properties['MemberType'] -and $row.MemberType) { $row.MemberType.Trim() } else { "Vault" }
+            $usersInRow = $row.UserName -split '[,;]' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+            foreach ($u in $usersInRow) {
+                $itemsToProcess += [PSCustomObject]@{
+                    GroupName  = $row.GroupName.Trim()
+                    UserName   = $u
+                    MemberType = $csvMemberType
+                }
+            }
+        }
+    }
+    elseif ($mode -eq '3') {
+        New-CACAddUsersToGroupTemplate
+        return
     }
     else {
         Write-Warning "Invalid selection."
@@ -734,6 +751,34 @@ function Reset-CACUserPassword {
 
 
 # ============================================================
+# TEMPLATE: Add Users to Group
+# ============================================================
+function New-CACAddUsersToGroupTemplate {
+    <#
+    .SYNOPSIS
+        Generate a CSV template for Invoke-CACBatchAddUsersToGroup.
+    #>
+    [CmdletBinding()]
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        $Path = Join-Path (Get-CACOutputDir) "AddUsersToGroup_Template_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+    }
+
+    $rows = @(
+        [pscustomobject][ordered]@{ GroupName = "MyGroup"; UserName = "user1;user2;user3"; MemberType = "Vault" },
+        [pscustomobject][ordered]@{ GroupName = "AnotherGroup"; UserName = "alice"; MemberType = "Vault" }
+    )
+
+    $rows | Export-Csv -Path $Path -NoTypeInformation -Encoding UTF8
+    Write-Host "Template created: $Path" -ForegroundColor Green
+    Write-Host "Tip: Multiple users per row - separate with comma or semicolon in the UserName column." -ForegroundColor Yellow
+    Write-Host "MemberType options: Vault (default)" -ForegroundColor Gray
+    return $Path
+}
+
+
+# ============================================================
 # EXPORT
 # ============================================================
 Export-ModuleMember -Function `
@@ -741,4 +786,5 @@ Export-ModuleMember -Function `
     Invoke-CACBatchAddUsersToGroup, `
     Remove-CACGroup, `
     Invoke-CACBatchGroupDeletion, `
-    Reset-CACUserPassword
+    Reset-CACUserPassword, `
+    New-CACAddUsersToGroupTemplate

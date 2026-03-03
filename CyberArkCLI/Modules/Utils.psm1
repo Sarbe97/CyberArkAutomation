@@ -306,4 +306,4 @@ function Send-CACEmail {
     }
 }
 
-Export-ModuleMember -Function Initialize-CACLogging, Write-Log, Convert-CACTimestamp, Get-CACOutputDir, Get-CACMailConfig, Send-CACEmail
+Export-ModuleMember -Function Initialize-CACLogging, Write-Log, Convert-CACTimestamp, Get-CACOutputDir, Get-CACFilePath, Get-CACMailConfig, Send-CACEmail

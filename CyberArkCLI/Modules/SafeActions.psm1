@@ -55,6 +55,28 @@ function Invoke-CACBatchSafeCreation {
     $results = [System.Collections.ArrayList]::new()
     $data = Import-Csv $CsvPath
 
+    # --- LOGGED-IN USER REMOVAL PROMPT ---
+    $loggedInUser = $global:CACApiSession.User
+    $removeLoggedInUser = $false
+    $removedFromSafes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+
+    if (-not [string]::IsNullOrWhiteSpace($loggedInUser)) {
+        Write-Host ""
+        Write-Host "Logged-in user: $loggedInUser" -ForegroundColor Yellow
+        $removePrompt = Read-Host "Remove '$loggedInUser' from newly-created safes after member setup? (Y/N)"
+        $removeLoggedInUser = ($removePrompt -match '^[Yy]$')
+        if ($removeLoggedInUser) {
+            Write-Host "  -> '$loggedInUser' will be removed from each newly-created safe." -ForegroundColor Cyan
+        }
+        else {
+            Write-Host "  -> '$loggedInUser' will remain as a safe member." -ForegroundColor Gray
+        }
+        Write-Host ""
+    }
+    else {
+        Write-Host "  [WARN] Could not determine logged-in user from session; removal skipped." -ForegroundColor Yellow
+    }
+
     Log "Processing $($data.Count) rows from CSV" "INFO"
     Write-Host "Processing $($data.Count) rows..." -ForegroundColor Cyan
     $rowIndex = 0
@@ -336,6 +358,24 @@ function Invoke-CACBatchSafeCreation {
                 Write-Host " [FAILED]" -ForegroundColor Red
                 $result.Message += " Safe member add failed: $errMsg"
             }
+        }
+
+        # --- REMOVE LOGGED-IN USER FROM NEWLY-CREATED SAFE (once per safe) ---
+        if ($removeLoggedInUser -and $result.SafeStatus -eq "Created" -and
+            -not [string]::IsNullOrWhiteSpace($loggedInUser) -and
+            -not $removedFromSafes.Contains($safeName)) {
+
+            Write-Host " -> Removing '$loggedInUser' from safe '$safeName'..." -NoNewline
+            $removed = Remove-CACSafeMember -SafeName $safeName -MemberName $loggedInUser
+            if ($removed) {
+                Write-Host " [REMOVED]" -ForegroundColor Green
+                Log "Removed logged-in user '$loggedInUser' from safe '$safeName'" "SUCCESS"
+            }
+            else {
+                Write-Host " [SKIP/FAILED]" -ForegroundColor Yellow
+                Log "Could not remove '$loggedInUser' from '$safeName' (may not be a member or API error)" "WARN"
+            }
+            [void]$removedFromSafes.Add($safeName)
         }
 
         [void]$results.Add([pscustomobject]$result)
@@ -977,8 +1017,8 @@ function New-CACSafeCreationTemplate {
                     SafeName                  = $safeName
                     SafeDescription           = if ($isFirstRowForSafe) { "Safe Description" } else { "" }
                     ManagingCPM               = if ($isFirstRowForSafe) { "PasswordManager" } else { "" }
-                    NumberOfDaysRetention     = if ($isFirstRowForSafe) { "7" } else { "" }
-                    NumberOfVersionsRetention = ""
+                    NumberOfDaysRetention     = ""
+                    NumberOfVersionsRetention = if ($isFirstRowForSafe) { "30" } else { "" }
                     SafeMember                = $memberName
                     MemberType                = $memberType
                     MemberSource              = "Vault"
@@ -997,8 +1037,8 @@ function New-CACSafeCreationTemplate {
                 SafeName                  = $safeName
                 SafeDescription           = if ($isFirstRowForSafe) { "pam container" } else { "" }
                 ManagingCPM               = if ($isFirstRowForSafe) { "PasswordManager" } else { "" }
-                NumberOfDaysRetention     = if ($isFirstRowForSafe) { "7" } else { "" }
-                NumberOfVersionsRetention = ""
+                NumberOfDaysRetention     = ""
+                NumberOfVersionsRetention = if ($isFirstRowForSafe) { "30" } else { "" }
                 SafeMember                = $personalUsers[$safeName]
                 MemberType                = "User"
                 MemberSource              = "Domain"
@@ -1015,8 +1055,8 @@ function New-CACSafeCreationTemplate {
                 SafeName                  = $safeName
                 SafeDescription           = if ($isFirstRowForSafe) { "Safe Description" } else { "" }
                 ManagingCPM               = if ($isFirstRowForSafe) { "PasswordManager" } else { "" }
-                NumberOfDaysRetention     = if ($isFirstRowForSafe) { "7" } else { "" }
-                NumberOfVersionsRetention = ""
+                NumberOfDaysRetention     = ""
+                NumberOfVersionsRetention = if ($isFirstRowForSafe) { "30" } else { "" }
                 SafeMember                = "KA_${safeName}_R"
                 MemberType                = "Group"
                 MemberSource              = "Vault"
@@ -1346,6 +1386,45 @@ function New-CACSafeDeleteTemplate {
 }
 
 # =============================================================================
+# REMOVE SAFE MEMBER
+# Removes a specific member (user or group) from a safe
+# =============================================================================
+function Remove-CACSafeMember {
+    <#
+    .SYNOPSIS
+        Remove a member from a CyberArk safe.
+    .DESCRIPTION
+        Calls DELETE /API/Safes/{safeName}/Members/{memberName}.
+        Returns $true on success, $false if the member was not found or the call failed.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$SafeName,
+        [Parameter(Mandatory)][string]$MemberName
+    )
+
+    Write-Log "Remove-CACSafeMember: Safe='$SafeName', Member='$MemberName'" "DEBUG"
+
+    try {
+        $encodedSafe = [System.Web.HttpUtility]::UrlEncode($SafeName)
+        $encodedMember = [System.Web.HttpUtility]::UrlEncode($MemberName)
+        Invoke-CACAPIRequest -Method DELETE -Endpoint "/API/Safes/$encodedSafe/Members/$encodedMember" | Out-Null
+        Write-Log "Successfully removed '$MemberName' from safe '$SafeName'" "SUCCESS"
+        return $true
+    }
+    catch {
+        $errMsg = $_.Exception.Message
+        # 404 means the member wasn't there — treat as success (idempotent)
+        if ($errMsg -match "404|not found") {
+            Write-Log "'$MemberName' was not a member of '$SafeName' (404 — skipped)" "INFO"
+            return $true
+        }
+        Write-Log "Failed to remove '$MemberName' from '$SafeName': $errMsg" "ERROR"
+        return $false
+    }
+}
+
+# =============================================================================
 # EXPORT
 # =============================================================================
 Export-ModuleMember -Function `
@@ -1356,4 +1435,5 @@ Export-ModuleMember -Function `
     New-CACSafeCreationTemplate, `
     New-CACSafeRenameTemplate, `
     New-CACSafeMemberTemplate, `
-    New-CACSafeDeleteTemplate
+    New-CACSafeDeleteTemplate, `
+    Remove-CACSafeMember

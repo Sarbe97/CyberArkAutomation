@@ -793,22 +793,13 @@ function Invoke-CACBatchAccountDeletion {
     .SYNOPSIS
         Delete multiple accounts by ID or from CSV.
     #>
-    [CmdletBinding(SupportsShouldProcess)]
-    param(
-        [switch]$WhatIf
-    )
+    [CmdletBinding()]
+    param()
 
     $outputDir = Get-CACOutputDir
     $OutputCsvPath = "$outputDir/BatchDeletion_Result_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
 
-    Write-Log "Started Invoke-CACBatchAccountDeletion() - WhatIf: $WhatIf" "DEBUG"
-
-    if ($WhatIf) {
-        Write-Host ""
-        Write-Host "!!! RUNNING IN WHAT-IF MODE (DRY RUN) !!!" -ForegroundColor Magenta
-        Write-Host "No changes will be made to CyberArk." -ForegroundColor Magenta
-        Write-Host ""
-    }
+    Write-Log "Started Invoke-CACBatchAccountDeletion()" "DEBUG"
 
     $itemsToProcess = @()
     $Id = $null
@@ -876,15 +867,10 @@ function Invoke-CACBatchAccountDeletion {
     }
     Write-Host "============================" -ForegroundColor Red
 
-    if (-not $WhatIf) {
-        $confirm = Read-Host "Are you sure you want to PERMANENTLY DELETE these accounts? (Y/N)"
-        if ($confirm -ne 'Y' -and $confirm -ne 'y') {
-            Write-Host "Operation cancelled." -ForegroundColor Yellow
-            return
-        }
-    }
-    else {
-        Write-Host "What-If Mode: Skipping confirmation prompt." -ForegroundColor Cyan
+    $confirm = Read-Host "Are you sure you want to PERMANENTLY DELETE these accounts? (Y/N)"
+    if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+        Write-Host "Operation cancelled." -ForegroundColor Yellow
+        return
     }
 
     $results = @()
@@ -910,18 +896,11 @@ function Invoke-CACBatchAccountDeletion {
         $resObj = $item | Select-Object *
 
         try {
-            if ($WhatIf) {
-                Write-Host "What-If (skipped)" -ForegroundColor Magenta
-                $resObj | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "WhatIf" -Force
-                $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Dry run - no action taken" -Force
-            }
-            else {
-                Invoke-CACAPIRequest -Method DELETE -Endpoint "/api/Accounts/$accId"
-                Write-Host "Deleted" -ForegroundColor Green
-                $resObj | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "Deleted" -Force
-                $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Success" -Force
-                $successCount++
-            }
+            Invoke-CACAPIRequest -Method DELETE -Endpoint "/api/Accounts/$accId"
+            Write-Host "Deleted" -ForegroundColor Green
+            $resObj | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "Deleted" -Force
+            $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Success" -Force
+            $successCount++
         }
         catch {
             $errMsg = $_.Exception.Message

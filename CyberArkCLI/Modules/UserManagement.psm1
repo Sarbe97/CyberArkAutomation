@@ -12,19 +12,10 @@ function Invoke-CACBatchGroupCreation {
     .SYNOPSIS
         Create groups and optionally add users. Supports manual input or CSV.
     #>
-    [CmdletBinding(SupportsShouldProcess)]
-    param(
-        [switch]$WhatIf
-    )
+    [CmdletBinding()]
+    param()
 
-    Write-Log "Started Invoke-CACBatchGroupCreation() - WhatIf: $WhatIf" "DEBUG"
-
-    if ($WhatIf) {
-        Write-Host ""
-        Write-Host "!!! RUNNING IN WHAT-IF MODE (DRY RUN) !!!" -ForegroundColor Magenta
-        Write-Host "No changes will be made to CyberArk." -ForegroundColor Magenta
-        Write-Host ""
-    }
+    Write-Log "Started Invoke-CACBatchGroupCreation()" "DEBUG"
 
     $outputDir = Get-CACOutputDir
     $OutputCsvPath = "$outputDir/GroupCreation_Result_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
@@ -92,15 +83,10 @@ function Invoke-CACBatchGroupCreation {
     }
     Write-Host "==================================" -ForegroundColor Cyan
 
-    if (-not $WhatIf) {
-        $confirm = Read-Host "Proceed with group creation? (Y/N)"
-        if ($confirm -ne 'Y' -and $confirm -ne 'y') {
-            Write-Host "Operation cancelled." -ForegroundColor Yellow
-            return
-        }
-    }
-    else {
-        Write-Host "What-If Mode: Skipping confirmation prompt." -ForegroundColor Cyan
+    $confirm = Read-Host "Proceed with group creation? (Y/N)"
+    if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+        Write-Host "Operation cancelled." -ForegroundColor Yellow
+        return
     }
 
     $results = @()
@@ -126,15 +112,6 @@ function Invoke-CACBatchGroupCreation {
             Message       = ""
         }
 
-        if ($WhatIf) {
-            Write-Host "[$i/$($itemsToProcess.Count)] [WHAT-IF] Would create Group: $gName" -ForegroundColor Magenta
-            Write-Log "[WHAT-IF] Would create Group: $gName" "INFO"
-            Write-Progress -Activity "Creating Groups" -Status "[$i/$($itemsToProcess.Count)] [WHAT-IF] $gName" -PercentComplete (($i / $itemsToProcess.Count) * 100)
-            $resObj.GroupStatus = "WhatIf-Success"
-            $resObj.Message = "Group would be created"
-            $results += $resObj
-            continue
-        }
 
         Write-Host "[$i/$($itemsToProcess.Count)] Creating Group: $gName ..." -NoNewline
         Write-Progress -Activity "Creating Groups" -Status "[$i/$($itemsToProcess.Count)] $gName" -PercentComplete (($i / $itemsToProcess.Count) * 100)
@@ -240,19 +217,10 @@ function Invoke-CACBatchAddUsersToGroup {
     .SYNOPSIS
         Add users to existing groups. Supports manual input or CSV.
     #>
-    [CmdletBinding(SupportsShouldProcess)]
-    param(
-        [switch]$WhatIf
-    )
+    [CmdletBinding()]
+    param()
 
-    Write-Log "Started Invoke-CACBatchAddUsersToGroup() - WhatIf: $WhatIf" "DEBUG"
-
-    if ($WhatIf) {
-        Write-Host ""
-        Write-Host "!!! RUNNING IN WHAT-IF MODE (DRY RUN) !!!" -ForegroundColor Magenta
-        Write-Host "No changes will be made to CyberArk." -ForegroundColor Magenta
-        Write-Host ""
-    }
+    Write-Log "Started Invoke-CACBatchAddUsersToGroup()" "DEBUG"
 
     $outputDir = Get-CACOutputDir
     $OutputCsvPath = "$outputDir/AddUsersToGroup_Result_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
@@ -321,15 +289,10 @@ function Invoke-CACBatchAddUsersToGroup {
     }
     Write-Host "======================================" -ForegroundColor Cyan
 
-    if (-not $WhatIf) {
-        $confirm = Read-Host "Proceed? (Y/N)"
-        if ($confirm -ne 'Y' -and $confirm -ne 'y') {
-            Write-Host "Operation cancelled." -ForegroundColor Yellow
-            return
-        }
-    }
-    else {
-        Write-Host "What-If Mode: Skipping confirmation prompt." -ForegroundColor Cyan
+    $confirm = Read-Host "Proceed? (Y/N)"
+    if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+        Write-Host "Operation cancelled." -ForegroundColor Yellow
+        return
     }
 
     # Cache group IDs to avoid repeated lookups
@@ -356,15 +319,6 @@ function Invoke-CACBatchAddUsersToGroup {
             Message    = ""
         }
 
-        if ($WhatIf) {
-            Write-Host "[$i/$($itemsToProcess.Count)] [WHAT-IF] Would add '$userName' to group '$gName'" -ForegroundColor Magenta
-            Write-Log "[WHAT-IF] Would add $userName to $gName" "INFO"
-            Write-Progress -Activity "Adding Users to Groups" -Status "[$i/$($itemsToProcess.Count)] [WHAT-IF] $userName -> $gName" -PercentComplete (($i / $itemsToProcess.Count) * 100)
-            $resObj.Status = "WhatIf-Success"
-            $resObj.Message = "User would be added"
-            $results += $resObj
-            continue
-        }
 
         Write-Host "[$i/$($itemsToProcess.Count)] Adding '$userName' to group '$gName' ..." -NoNewline
         Write-Progress -Activity "Adding Users to Groups" -Status "[$i/$($itemsToProcess.Count)] $userName -> $gName" -PercentComplete (($i / $itemsToProcess.Count) * 100)
@@ -517,22 +471,13 @@ function Invoke-CACBatchGroupDeletion {
         Supports manual single deletion or batch CSV processing.
         Output CSV preserves all input columns and adds DeletionStatus and Message.
     #>
-    [CmdletBinding(SupportsShouldProcess)]
-    param(
-        [switch]$WhatIf
-    )
+    [CmdletBinding()]
+    param()
 
     $outputDir = Get-CACOutputDir
     $OutputCsvPath = "$outputDir/GroupDeletion_Result_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
 
-    Write-Log "Started Invoke-CACBatchGroupDeletion() - WhatIf: $WhatIf" "DEBUG"
-
-    if ($WhatIf) {
-        Write-Host ""
-        Write-Host "!!! RUNNING IN WHAT-IF MODE (DRY RUN) !!!" -ForegroundColor Magenta
-        Write-Host "No changes will be made to CyberArk." -ForegroundColor Magenta
-        Write-Host ""
-    }
+    Write-Log "Started Invoke-CACBatchGroupDeletion()" "DEBUG"
 
     $itemsToProcess = @()
     $GroupName = $null
@@ -601,15 +546,10 @@ function Invoke-CACBatchGroupDeletion {
     }
     Write-Host "============================" -ForegroundColor Red
     
-    if (-not $WhatIf) {
-        $confirm = Read-Host "Are you sure you want to PERMANENTLY DELETE these groups? (Y/N)"
-        if ($confirm -ne 'Y' -and $confirm -ne 'y') {
-            Write-Host "Operation cancelled." -ForegroundColor Yellow
-            return
-        }
-    }
-    else {
-        Write-Host "What-If Mode: Skipping confirmation prompt." -ForegroundColor Cyan
+    $confirm = Read-Host "Are you sure you want to PERMANENTLY DELETE these groups? (Y/N)"
+    if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+        Write-Host "Operation cancelled." -ForegroundColor Yellow
+        return
     }
 
     $results = @()
@@ -624,18 +564,6 @@ function Invoke-CACBatchGroupDeletion {
             continue
         }
 
-        if ($WhatIf) {
-            Write-Host "[$i/$($itemsToProcess.Count)] [WHAT-IF] Would delete Group: $gName" -ForegroundColor Magenta
-            Write-Log "[WHAT-IF] Would delete Group: $gName" "INFO"
-            Write-Progress -Activity "Deleting Groups" -Status "[$i/$($itemsToProcess.Count)] [WHAT-IF] $gName" -PercentComplete (($i / $itemsToProcess.Count) * 100)
-        
-            # Simulated result object
-            $resObject = $item | Select-Object *
-            $resObject | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "WhatIf-Success" -Force
-            $resObject | Add-Member -MemberType NoteProperty -Name "Message" -Value "Group would be deleted" -Force
-            $results += $resObject
-            continue
-        }
 
         Write-Host "[$i/$($itemsToProcess.Count)] Deleting Group: $gName ..." -NoNewline
         Write-Progress -Activity "Deleting Groups" -Status "[$i/$($itemsToProcess.Count)] $gName" -PercentComplete (($i / $itemsToProcess.Count) * 100)

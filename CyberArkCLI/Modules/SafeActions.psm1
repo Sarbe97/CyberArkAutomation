@@ -1131,11 +1131,10 @@ function New-CACSafeMemberTemplate {
 # Deletes safes and associated groups from CSV
 # =============================================================================
 function Invoke-CACBatchSafeDelete {
-    [CmdletBinding(SupportsShouldProcess)]
+    [CmdletBinding()]
     param(
         [string]$CsvPath,
-        [string]$OutputCsvPath,
-        [switch]$WhatIf
+        [string]$OutputCsvPath
     )
 
     # Initialize dedicated log file
@@ -1150,15 +1149,8 @@ function Invoke-CACBatchSafeDelete {
         if ($Level -eq "DEBUG") { Write-Verbose $entry }
     }
 
-    Log "Started Invoke-CACBatchSafeDelete() - WhatIf: $WhatIf" "DEBUG"
+    Log "Started Invoke-CACBatchSafeDelete()" "DEBUG"
     Write-Host "Log file: $logFile" -ForegroundColor Gray
-
-    if ($WhatIf) {
-        Write-Host ""
-        Write-Host "!!! RUNNING IN WHAT-IF MODE (DRY RUN) !!!" -ForegroundColor Magenta
-        Write-Host "No changes will be made to CyberArk." -ForegroundColor Magenta
-        Write-Host ""
-    }
 
     # Prompt for CSV path if missing
     if ([string]::IsNullOrWhiteSpace($CsvPath)) {
@@ -1235,15 +1227,10 @@ function Invoke-CACBatchSafeDelete {
     }
     Write-Host "============================" -ForegroundColor Red
     
-    if (-not $WhatIf) {
-        $confirm = Read-Host "Are you sure you want to PERMANENTLY DELETE these safes? (Y/N)"
-        if ($confirm -ne 'Y' -and $confirm -ne 'y') {
-            Write-Host "Operation cancelled." -ForegroundColor Yellow
-            return
-        }
-    }
-    else {
-        Write-Host "What-If Mode: Skipping confirmation prompt." -ForegroundColor Cyan
+    $confirm = Read-Host "Are you sure you want to PERMANENTLY DELETE these safes? (Y/N)"
+    if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+        Write-Host "Operation cancelled." -ForegroundColor Yellow
+        return
     }
 
     # Output path
@@ -1259,13 +1246,7 @@ function Invoke-CACBatchSafeDelete {
         $i++
         Write-Progress -Activity "Safe Deletion" -Status "[$i/$total] $safeName" -PercentComplete (($i / $total) * 100)
 
-        if ($WhatIf) {
-            Write-Host "[$i/$total] [WHAT-IF] Would delete Safe: $safeName" -ForegroundColor Magenta
-            Log "[WHAT-IF] Would delete Safe: $safeName" "INFO"
-        }
-        else {
-            Write-Host "[$i/$total] Deleting Safe: $safeName ..." -NoNewline
-        }
+        Write-Host "[$i/$total] Deleting Safe: $safeName ..." -NoNewline
 
         $rowResult = [ordered]@{
             SafeName = $safeName
@@ -1277,45 +1258,31 @@ function Invoke-CACBatchSafeDelete {
         # 1. Check Safe Existence
         $safeExists = $false
         try {
-            if ($WhatIf) {
-                # In Dry Run, we still check if it exists to give accurate "Would Delete" vs "Not Found" info
-                $safe = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))" -ErrorAction SilentlyContinue
-                if ($safe) { $safeExists = $true }
-            }
-            else {
-                $safe = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))" -ErrorAction SilentlyContinue
-                if ($safe) { $safeExists = $true }
-            }
+            $safe = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))" -ErrorAction SilentlyContinue
+            if ($safe) { $safeExists = $true }
         }
         catch { }
 
         if (-not $safeExists) {
             $rowResult.Status = "NotFound"
             $rowResult.Message = "Safe does not exist"
-            if (-not $WhatIf) { Write-Host " [NOT FOUND]" -ForegroundColor Yellow }
-            else { Write-Host " -> Safe not found (Would skip)" -ForegroundColor DarkGray }
+            Write-Host " [NOT FOUND]" -ForegroundColor Yellow
             [void]$results.Add([pscustomobject]$rowResult)
             continue
         }
 
         # 2. Delete Safe
-        if ($WhatIf) {
-            $rowResult.Status = "WhatIf-Success"
-            $rowResult.Message = "Safe would be deleted"
+        try {
+            Invoke-CACAPIRequest -Method DELETE -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))"
+            $rowResult.Status = "Deleted"
+            Write-Host " [DELETED]" -ForegroundColor Green
+            Log "Deleted Safe: $safeName" "SUCCESS"
         }
-        else {
-            try {
-                Invoke-CACAPIRequest -Method DELETE -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))"
-                $rowResult.Status = "Deleted"
-                Write-Host " [DELETED]" -ForegroundColor Green
-                Log "Deleted Safe: $safeName" "SUCCESS"
-            }
-            catch {
-                $rowResult.Status = "Failed"
-                $rowResult.Message = "Safe delete error: $($_.Exception.Message)"
-                Write-Host " [FAILED]" -ForegroundColor Red
-                Log "Failed to delete Safe $safeName : $($_.Exception.Message)" "ERROR"
-            }
+        catch {
+            $rowResult.Status = "Failed"
+            $rowResult.Message = "Safe delete error: $($_.Exception.Message)"
+            Write-Host " [FAILED]" -ForegroundColor Red
+            Log "Failed to delete Safe $safeName : $($_.Exception.Message)" "ERROR"
         }
 
         # 3. Delete Groups (KA_..._R / RW)
@@ -1334,20 +1301,14 @@ function Invoke-CACBatchSafeDelete {
             catch {}
 
             if ($groupId) {
-                if ($WhatIf) {
-                    Write-Host "      -> [WHAT-IF] Would delete Group: $gName" -ForegroundColor Magenta
-                    $groupLog += "$gName(WhatIf)"
+                try {
+                    Invoke-CACAPIRequest -Method DELETE -Endpoint "/API/UserGroups/$groupId"
+                    $groupLog += "$gName(Deleted)"
+                    Log "Deleted Group: $gName" "SUCCESS"
                 }
-                else {
-                    try {
-                        Invoke-CACAPIRequest -Method DELETE -Endpoint "/API/UserGroups/$groupId"
-                        $groupLog += "$gName(Deleted)"
-                        Log "Deleted Group: $gName" "SUCCESS"
-                    }
-                    catch {
-                        $groupLog += "$gName(Failed)"
-                        Log "Failed to delete Group $gName" "WARN"
-                    }
+                catch {
+                    $groupLog += "$gName(Failed)"
+                    Log "Failed to delete Group $gName" "WARN"
                 }
             }
             else {
@@ -1361,13 +1322,7 @@ function Invoke-CACBatchSafeDelete {
 
     $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
     
-    if ($WhatIf) {
-        Write-Host "`n[WHAT-IF] Simulation Complete. Potential results saved to: $OutputCsvPath" -ForegroundColor Cyan
-    }
-    else {
-        Write-Host "`nDone. Results saved to: $OutputCsvPath" -ForegroundColor Green
-    }
-    
+    Write-Host "`nDone. Results saved to: $OutputCsvPath" -ForegroundColor Green
     Log "Operation Complete" "INFO"
 }
 

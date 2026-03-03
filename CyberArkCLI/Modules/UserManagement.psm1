@@ -46,6 +46,7 @@ function Invoke-CACBatchGroupCreation {
         }
     }
     elseif ($mode -eq '2') {
+        Write-Host "CSV columns: GroupName (required), Description (optional), GroupMembers (optional - semicolon-separated usernames)" -ForegroundColor Yellow
         $CsvPath = Get-CACFilePath -Title "Select Group Creation CSV" -Filter "CSV Files (*.csv)|*.csv"
 
         if ([string]::IsNullOrWhiteSpace($CsvPath) -or -not (Test-Path $CsvPath)) {
@@ -257,6 +258,7 @@ function Invoke-CACBatchAddUsersToGroup {
         }
     }
     elseif ($mode -eq '2') {
+        Write-Host "CSV columns: GroupName (required), UserName (required), MemberType (optional - default: Vault)" -ForegroundColor Yellow
         $CsvPath = Get-CACFilePath -Title "Select Add Users to Group CSV" -Filter "CSV Files (*.csv)|*.csv"
 
         if ([string]::IsNullOrWhiteSpace($CsvPath) -or -not (Test-Path $CsvPath)) {
@@ -494,6 +496,7 @@ function Invoke-CACBatchGroupDeletion {
         if (-not [string]::IsNullOrWhiteSpace($val)) { $GroupName = $val }
     }
     elseif ($mode -eq '2') {
+        Write-Host "CSV columns: GroupName (required)" -ForegroundColor Yellow
         $CsvPath = Get-CACFilePath -Title "Select Group Deletion CSV" -Filter "CSV Files (*.csv)|*.csv"
     }
     else {

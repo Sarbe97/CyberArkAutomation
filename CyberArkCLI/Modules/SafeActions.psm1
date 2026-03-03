@@ -1414,9 +1414,9 @@ function Remove-CACSafeMember {
     }
     catch {
         $errMsg = $_.Exception.Message
-        # 404 means the member wasn't there — treat as success (idempotent)
+        # 404 means the member wasn't there - treat as success (idempotent)
         if ($errMsg -match "404|not found") {
-            Write-Log "'$MemberName' was not a member of '$SafeName' (404 — skipped)" "INFO"
+            Write-Log "'$MemberName' was not a member of '$SafeName' (404 - skipped)" "INFO"
             return $true
         }
         Write-Log "Failed to remove '$MemberName' from '$SafeName': $errMsg" "ERROR"

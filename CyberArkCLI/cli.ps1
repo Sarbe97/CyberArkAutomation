@@ -336,9 +336,8 @@ function Show-UserManagementMenu {
         Write-Host "--- GROUP & USER MANAGEMENT ---" -ForegroundColor Yellow
         Write-Host "1. Create Groups (Manual or CSV)"
         Write-Host "2. Add Users to Group (Manual or CSV)"
-        Write-Host "3. Delete Group (Single)"
-        Write-Host "4. Delete Groups (Batch)"
-        Write-Host "5. Reset User Password"
+        Write-Host "3. Delete Groups (Manual or CSV)"
+        Write-Host "4. Reset User Password"
         Write-Host "0. Back"
 
         $choice = Read-Host "Enter Choice"
@@ -346,9 +345,8 @@ function Show-UserManagementMenu {
         switch ($choice) {
             '1' { Invoke-CACBatchGroupCreation; Pause }
             '2' { Invoke-CACBatchAddUsersToGroup; Pause }
-            '3' { Remove-CACGroup; Pause }
-            '4' { Invoke-CACBatchGroupDeletion; Pause }
-            '5' { Reset-CACUserPassword; Pause }
+            '3' { Invoke-CACGroupDeletion; Pause }
+            '4' { Reset-CACUserPassword; Pause }
             '0' { return }
 
             default {

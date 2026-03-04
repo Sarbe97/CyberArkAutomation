@@ -1,4 +1,4 @@
-# =============================================================================
+﻿# =============================================================================
 # MODULE: UserManagement.psm1
 # DESCRIPTION: Group & User Management - Create/Delete Groups, Add Users, Reset Passwords
 # =============================================================================
@@ -412,230 +412,245 @@ function Invoke-CACBatchAddUsersToGroup {
 }
 
 
-# ============================================================
-# 3. DELETE SINGLE GROUP (Manual)
-# ============================================================
-function Remove-CACGroup {
-    [CmdletBinding()]
-    param(
-        [string]$GroupName
-    )
-
-    Write-Log "Started Remove-CACGroup()" "DEBUG"
-
-    try {
-        if ([string]::IsNullOrWhiteSpace($GroupName)) {
-            $GroupName = Read-Host "Enter Group Name to delete"
-            if ([string]::IsNullOrWhiteSpace($GroupName)) {
-                Write-Host "Group name cannot be empty." -ForegroundColor Yellow
-                return
-            }
-        }
-
-        Write-Host "Searching for group: $GroupName..." -ForegroundColor Cyan
-
-        # Find the group
-        $endpoint = "/API/UserGroups/?search=$([System.Web.HttpUtility]::UrlEncode($GroupName))"
-        $response = Invoke-CACAPIRequest -Method GET -Endpoint $endpoint
-        $groups = ConvertTo-CACResponseArray -Response $response
-        $group = $groups | Where-Object { $_.groupName -eq $GroupName } | Select-Object -First 1
-
-        if (-not $group) {
-            Write-Log "Group '$GroupName' not found" "WARN"
-            Write-Host "Group '$GroupName' not found." -ForegroundColor Yellow
-            return
-        }
-
-        # Display confirmation
-        Write-Host ""
-        Write-Host "===== Delete Group Confirmation =====" -ForegroundColor Red
-        Write-Host "Group ID:    $($group.id)"
-        Write-Host "Group Name:  $($group.groupName)"
-        Write-Host "Group Type:  $($group.groupType)"
-        Write-Host "Description: $($group.description)"
-        Write-Host ""
-        Write-Host "WARNING: This action cannot be undone." -ForegroundColor Red
-
-        $confirm = Read-Host "Are you sure you want to PERMANENTLY DELETE this group? (Y/N)"
-
-        if ($confirm -ne 'Y' -and $confirm -ne 'y') {
-            Write-Log "Delete cancelled by user" "INFO"
-            Write-Host "Delete cancelled." -ForegroundColor Yellow
-            return
-        }
-
-        Write-Log "User confirmed; deleting group: $($group.id)" "WARN"
-
-        # Delete the group
-        Invoke-CACAPIRequest -Method DELETE -Endpoint "/API/UserGroups/$($group.id)"
-
-        Write-Log "Group deleted successfully: $GroupName (ID: $($group.id))" "SUCCESS"
-        Write-Host "Group deleted successfully." -ForegroundColor Green
-    }
-    catch {
-        Write-Log "Error in Remove-CACGroup(): $($_.Exception.Message)" "ERROR"
-        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
-    }
-}
-
 
 # ============================================================
-# 4. BATCH DELETE GROUPS (Manual or CSV)
+# 3. DELETE GROUPS (Manual or CSV)
+# Manual: search by name, handle ambiguity; CSV: requires GroupId
 # ============================================================
-function Invoke-CACBatchGroupDeletion {
+function Invoke-CACGroupDeletion {
     <#
     .SYNOPSIS
-        Delete multiple groups by name or from CSV.
+        Delete one or more CyberArk groups.
     .DESCRIPTION
-        Supports manual single deletion or batch CSV processing.
-        Output CSV preserves all input columns and adds DeletionStatus and Message.
+        Mode 1 - Manual: Enter one or more group names (comma or semicolon separated).
+                         Each name is searched. If multiple groups match, you are prompted
+                         to pick which one to delete or skip entirely.
+        Mode 2 - CSV:    GroupId is mandatory (used for deletion). GroupName is optional
+                         (displayed for reference only). Deletes by ID with no ambiguity.
+        Mode 3 - Template: Downloads a sample CSV template.
     #>
     [CmdletBinding()]
     param()
 
     $outputDir = Get-CACOutputDir
     $OutputCsvPath = "$outputDir/GroupDeletion_Result_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+    Write-Log "Started Invoke-CACGroupDeletion()" "DEBUG"
 
-    Write-Log "Started Invoke-CACBatchGroupDeletion()" "DEBUG"
-
-    $itemsToProcess = @()
-    $GroupName = $null
-    $CsvPath = $null
-
-    # Interactive mode selection
+    # ---- Mode Selection ----
+    Write-Host ""
     Write-Host "Select Deletion Mode:" -ForegroundColor Cyan
-    Write-Host "1. Single Group Name"
-    Write-Host "2. Batch CSV File"
-    
-    $mode = Read-Host "Mode (1/2)"
+    Write-Host "1. Manual  - Enter group name(s); search + confirm each"
+    Write-Host "2. CSV     - Provide CSV with GroupId (mandatory) + GroupName (optional, for display)"
+    Write-Host "3. Template - Download sample CSV template"
+    $mode = (Read-Host "Mode (1/2/3)").Trim()
+
+    # ----------------------------------------------------------------
+    # MODE 1 - MANUAL
+    # ----------------------------------------------------------------
     if ($mode -eq '1') {
-        $val = Read-Host "Enter Group Name"
-        if (-not [string]::IsNullOrWhiteSpace($val)) { $GroupName = $val }
+        $nameInput = Read-Host "Enter group name(s) to delete (comma or semicolon separated)"
+        if ([string]::IsNullOrWhiteSpace($nameInput)) {
+            Write-Warning "No group name provided."
+            return
+        }
+
+        $names = $nameInput -split '[,;]' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+        $resolved = [System.Collections.ArrayList]::new()
+
+        foreach ($name in $names) {
+            Write-Host ""
+            Write-Host "Searching for: '$name'..." -ForegroundColor Cyan -NoNewline
+            try {
+                $res = Invoke-CACAPIRequest -Method GET -Endpoint "/API/UserGroups?search=$([System.Web.HttpUtility]::UrlEncode($name))"
+                $searchResults = @($res.value | Where-Object { $_ })
+
+                if ($searchResults.Count -eq 0) {
+                    Write-Host " [NOT FOUND]" -ForegroundColor Yellow
+                    Write-Log "Group not found: $name" "WARN"
+                    continue
+                }
+
+                # Prefer exact name match
+                $exact = @($searchResults | Where-Object { $_.groupName -ieq $name })
+
+                if ($exact.Count -eq 1) {
+                    Write-Host " [FOUND]" -ForegroundColor Green
+                    [void]$resolved.Add($exact[0])
+                }
+                elseif ($exact.Count -eq 0 -and $searchResults.Count -eq 1) {
+                    # Only one result, not exact - show and confirm
+                    Write-Host " [1 result found]" -ForegroundColor Green
+                    Write-Host "  Group: $($searchResults[0].groupName) | ID: $($searchResults[0].id) | Type: $($searchResults[0].groupType)"
+                    $c = Read-Host "  Include this group for deletion? (Y/N)"
+                    if ($c -match '^[Yy]$') { [void]$resolved.Add($searchResults[0]) }
+                }
+                else {
+                    # Multiple matches - let user pick
+                    Write-Host " [$($searchResults.Count) matches]" -ForegroundColor Yellow
+                    Write-Host "  Multiple groups found for '$name':" -ForegroundColor Yellow
+                    for ($j = 0; $j -lt $searchResults.Count; $j++) {
+                        Write-Host "  [$($j+1)] $($searchResults[$j].groupName) | ID: $($searchResults[$j].id) | Type: $($searchResults[$j].groupType)"
+                    }
+                    Write-Host "  [S] Skip"
+                    $pick = Read-Host "  Select a number to delete, or S to skip"
+                    if ($pick -match '^\d+$') {
+                        $idx = [int]$pick - 1
+                        if ($idx -ge 0 -and $idx -lt $searchResults.Count) {
+                            [void]$resolved.Add($searchResults[$idx])
+                        }
+                        else { Write-Host "  Invalid selection - skipped." -ForegroundColor Yellow }
+                    }
+                    else { Write-Host "  Skipped." -ForegroundColor Gray }
+                }
+            }
+            catch {
+                Write-Host " [ERROR: $($_.Exception.Message)]" -ForegroundColor Red
+                Write-Log "Search failed for '$name': $($_.Exception.Message)" "ERROR"
+            }
+        }
+
+        if ($resolved.Count -eq 0) {
+            Write-Host "No groups resolved for deletion." -ForegroundColor Yellow
+            return
+        }
+
+        # Confirmation summary
+        Write-Host ""
+        Write-Host "===== DELETION SUMMARY =====" -ForegroundColor Red
+        $resolved | ForEach-Object { Write-Host "  - $($_.groupName) (ID: $($_.id))" -ForegroundColor DarkGray }
+        Write-Host "============================" -ForegroundColor Red
+        $confirm = Read-Host "PERMANENTLY DELETE the above $($resolved.Count) group(s)? (Y/N)"
+        if ($confirm -notmatch '^[Yy]$') {
+            Write-Host "Cancelled." -ForegroundColor Yellow
+            return
+        }
+
+        $results = @()
+        $i = 0
+        foreach ($grp in $resolved) {
+            $i++
+            Write-Host "[$i/$($resolved.Count)] Deleting '$($grp.groupName)' (ID: $($grp.id))..." -NoNewline
+            $row = [PSCustomObject]@{ GroupName = $grp.groupName; GroupId = $grp.id; DeletionStatus = ""; Message = "" }
+            try {
+                Invoke-CACAPIRequest -Method DELETE -Endpoint "/API/UserGroups/$($grp.id)"
+                Write-Host " [DELETED]" -ForegroundColor Green
+                $row.DeletionStatus = "Deleted"
+                $row.Message = "Success"
+                Write-Log "Deleted group '$($grp.groupName)' (ID: $($grp.id))" "SUCCESS"
+            }
+            catch {
+                Write-Host " [FAILED]" -ForegroundColor Red
+                $row.DeletionStatus = "Failed"
+                $row.Message = $_.Exception.Message
+                Write-Log "Failed to delete '$($grp.groupName)': $($_.Exception.Message)" "ERROR"
+            }
+            $results += $row
+        }
+
+        $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
+        Write-Host "`nDone. Results: $OutputCsvPath" -ForegroundColor Green
     }
+
+    # ----------------------------------------------------------------
+    # MODE 2 - CSV  (GroupId mandatory, GroupName optional for display)
+    # ----------------------------------------------------------------
     elseif ($mode -eq '2') {
-        Write-Host "CSV columns: GroupName (required)" -ForegroundColor Yellow
+        Write-Host "CSV columns: GroupId (REQUIRED - used for deletion), GroupName (optional - display only)" -ForegroundColor Yellow
         $CsvPath = Get-CACFilePath -Title "Select Group Deletion CSV" -Filter "CSV Files (*.csv)|*.csv"
+
+        if ([string]::IsNullOrWhiteSpace($CsvPath) -or -not (Test-Path $CsvPath)) {
+            Write-Host "CSV file not found." -ForegroundColor Red
+            return
+        }
+
+        $csvData = Import-Csv $CsvPath
+        if ($csvData.Count -eq 0) { Write-Warning "CSV is empty."; return }
+
+        # Validate GroupId column exists
+        $sample = $csvData[0]
+        if (-not $sample.PSObject.Properties['GroupId']) {
+            Write-Host "ERROR: CSV must contain a 'GroupId' column." -ForegroundColor Red
+            return
+        }
+
+        # Summary
+        Write-Host ""
+        Write-Host "===== DELETION SUMMARY =====" -ForegroundColor Red
+        Write-Host "Total rows: $($csvData.Count)"
+        if ($csvData.Count -lt 11) {
+            $csvData | ForEach-Object {
+                $disp = if ($_.PSObject.Properties['GroupName'] -and $_.GroupName) { "$($_.GroupName) (ID: $($_.GroupId))" } else { "ID: $($_.GroupId)" }
+                Write-Host "  - $disp" -ForegroundColor DarkGray
+            }
+        }
+        else {
+            $first = if ($csvData[0].GroupName) { "$($csvData[0].GroupName) (ID: $($csvData[0].GroupId))" } else { "ID: $($csvData[0].GroupId)" }
+            Write-Host "  - $first" -ForegroundColor DarkGray
+            Write-Host "  - ... and $($csvData.Count - 1) more." -ForegroundColor DarkGray
+        }
+        Write-Host "============================" -ForegroundColor Red
+
+        $confirm = Read-Host "PERMANENTLY DELETE these $($csvData.Count) group(s) by ID? (Y/N)"
+        if ($confirm -notmatch '^[Yy]$') { Write-Host "Cancelled." -ForegroundColor Yellow; return }
+
+        $results = @()
+        $i = 0
+        foreach ($row in $csvData) {
+            $i++
+            $groupId = $row.GroupId.Trim()
+            $groupName = if ($row.PSObject.Properties['GroupName'] -and $row.GroupName) { $row.GroupName } else { "ID $groupId" }
+
+            if ([string]::IsNullOrWhiteSpace($groupId)) {
+                Write-Warning "Row $i: GroupId is empty - skipped."
+                continue
+            }
+
+            Write-Host "[$i/$($csvData.Count)] Deleting '$groupName' (ID: $groupId)..." -NoNewline
+            Write-Progress -Activity "Deleting Groups" -Status "[$i/$($csvData.Count)] $groupName" -PercentComplete (($i / $csvData.Count) * 100)
+
+            $resObj = $row | Select-Object *
+            $resObj | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "" -Force
+            $resObj | Add-Member -MemberType NoteProperty -Name "Message"        -Value "" -Force
+
+            try {
+                Invoke-CACAPIRequest -Method DELETE -Endpoint "/API/UserGroups/$groupId"
+                Write-Host " [DELETED]" -ForegroundColor Green
+                $resObj.DeletionStatus = "Deleted"
+                $resObj.Message = "Success"
+                Write-Log "Deleted group '$groupName' (ID: $groupId)" "SUCCESS"
+            }
+            catch {
+                $err = $_.Exception.Message
+                Write-Host " [FAILED]" -ForegroundColor Red
+                $resObj.DeletionStatus = "Failed"
+                $resObj.Message = $err
+                Write-Log "Failed to delete '$groupName' (ID: $groupId): $err" "ERROR"
+            }
+            $results += $resObj
+        }
+        Write-Progress -Activity "Deleting Groups" -Completed
+
+        $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
+        Write-Host "`nDone. Results: $OutputCsvPath" -ForegroundColor Green
+        Write-Log "Group Deletion complete. Results: $OutputCsvPath" "INFO"
+    }
+
+    # ----------------------------------------------------------------
+    # MODE 3 - TEMPLATE DOWNLOAD
+    # ----------------------------------------------------------------
+    elseif ($mode -eq '3') {
+        $templatePath = Join-Path (Get-CACOutputDir) "GroupDeletion_Template_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+        @(
+            [pscustomobject][ordered]@{ GroupId = "12345"; GroupName = "MyGroup_RW" },
+            [pscustomobject][ordered]@{ GroupId = "67890"; GroupName = "MyGroup_R" }
+        ) | Export-Csv -Path $templatePath -NoTypeInformation -Encoding UTF8
+        Write-Host "Template created: $templatePath" -ForegroundColor Green
+        Write-Host "Note: GroupId is MANDATORY. GroupName is optional and used for display only." -ForegroundColor Yellow
     }
     else {
         Write-Warning "Invalid selection."
-        return
     }
-
-    if (-not [string]::IsNullOrWhiteSpace($GroupName)) {
-        Write-Log "Processing single group: $GroupName" "INFO"
-        $itemsToProcess += [PSCustomObject]@{
-            GroupName     = $GroupName
-            ProcessSource = "ManualInput"
-        }
-    }
-    elseif (-not [string]::IsNullOrWhiteSpace($CsvPath)) {
-        if (-not (Test-Path $CsvPath)) {
-            Write-Error "CSV file not found: $CsvPath"
-            return
-        }
-        Write-Log "Processing CSV: $CsvPath" "INFO"
-        
-        # Import CSV - handle different possible headers
-        $csvData = Import-Csv $CsvPath
-        $itemsToProcess = $csvData
-    }
-    else {
-        Write-Warning "No input provided."
-        return
-    }
-
-    if ($itemsToProcess.Count -eq 0) {
-        Write-Warning "No items to process."
-        return
-    }
-
-    # --- SUMMARY CONFIRMATION ---
-    Write-Host ""
-    Write-Host "===== DELETION SUMMARY =====" -ForegroundColor Red
-    Write-Host "Total Groups to Delete: $($itemsToProcess.Count)"
-    if ($itemsToProcess.Count -lt 11) {
-        $itemsToProcess | ForEach-Object { 
-            $disp = if ($_.GroupName) { $_.GroupName } else { "Unknown" }
-            Write-Host " - Group: $disp" -ForegroundColor DarkGray 
-        }
-    }
-    else {
-        Write-Host " - $(($itemsToProcess[0].GroupName))" -ForegroundColor DarkGray
-        Write-Host " - ..." -ForegroundColor DarkGray
-        Write-Host " ... and $(($itemsToProcess.Count - 1)) more." -ForegroundColor DarkGray
-    }
-    Write-Host "============================" -ForegroundColor Red
-    
-    $confirm = Read-Host "Are you sure you want to PERMANENTLY DELETE these groups? (Y/N)"
-    if ($confirm -ne 'Y' -and $confirm -ne 'y') {
-        Write-Host "Operation cancelled." -ForegroundColor Yellow
-        return
-    }
-
-    $results = @()
-    $i = 0
-    foreach ($item in $itemsToProcess) {
-        $i++
-        # Resolve group name from possible headers
-        $gName = if ($item.GroupName) { $item.GroupName } elseif ($item.BatchGroupName) { $item.BatchGroupName } else { $null }
-
-        if (-not $gName) {
-            Write-Warning "Row $i missing 'GroupName'"
-            continue
-        }
-
-
-        Write-Host "[$i/$($itemsToProcess.Count)] Deleting Group: $gName ..." -NoNewline
-        Write-Progress -Activity "Deleting Groups" -Status "[$i/$($itemsToProcess.Count)] $gName" -PercentComplete (($i / $itemsToProcess.Count) * 100)
-
-        # Build result object
-        $resObj = $item | Select-Object *
-        $resObj | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "" -Force
-        $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "" -Force
-
-        try {
-            # 1. Search for Group ID
-            $searchRes = Invoke-CACAPIRequest -Method GET -Endpoint "/API/UserGroups?search=$([System.Web.HttpUtility]::UrlEncode($gName))"
-            $targetGroup = $null
-            if ($searchRes.value) {
-                # Exact match check
-                $targetGroup = $searchRes.value | Where-Object { $_.groupName -eq $gName } | Select-Object -First 1
-            }
-
-            if ($targetGroup) {
-                # 2. Delete Group
-                Invoke-CACAPIRequest -Method DELETE -Endpoint "/API/UserGroups/$($targetGroup.id)"
-                $resObj.DeletionStatus = "Success"
-                $resObj.Message = "Deleted"
-                Write-Host " [OK]" -ForegroundColor Green
-                Write-Log "Deleted group $gName" "SUCCESS"
-            }
-            else {
-                $resObj.DeletionStatus = "NotFound"
-                $resObj.Message = "Group not found"
-                Write-Host " [NOT FOUND]" -ForegroundColor Yellow
-                Write-Log "Group not found: $gName" "WARN"
-            }
-        }
-        catch {
-            $errMsg = $_.Exception.Message
-            Write-Host " [FAILED] $errMsg" -ForegroundColor Red
-            
-            $resObj.DeletionStatus = "Failed"
-            $resObj.Message = $errMsg
-            Write-Log "Failed to delete $gName : $errMsg" "ERROR"
-        }
-
-        $results += $resObj
-    }
-    Write-Progress -Activity "Deleting Groups" -Completed
-
-    # Export results
-    $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
-    Write-Host "`nBatch Group Deletion Complete. Results: $OutputCsvPath" -ForegroundColor Green
-    Write-Log "Batch Group Deletion Complete. Results saved to $OutputCsvPath" "INFO"
 }
-
 
 # ============================================================
 # 5. RESET USER PASSWORD
@@ -784,7 +799,7 @@ function New-CACAddUsersToGroupTemplate {
 Export-ModuleMember -Function `
     Invoke-CACBatchGroupCreation, `
     Invoke-CACBatchAddUsersToGroup, `
-    Remove-CACGroup, `
-    Invoke-CACBatchGroupDeletion, `
+    Invoke-CACGroupDeletion, `
     Reset-CACUserPassword, `
     New-CACAddUsersToGroupTemplate
+

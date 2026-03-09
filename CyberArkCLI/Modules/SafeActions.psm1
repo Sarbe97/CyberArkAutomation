@@ -176,7 +176,7 @@ function Invoke-CACBatchSafeCreation {
         $groupId = $null
 
         if ($memberType -eq "Group") {
-            # --- GROUP: Always check/create via CyberArk Vault API ---
+            # Check/Create Group
             Write-Host " -> Checking Group [$safeMember]..." -NoNewline
             Log "Checking group: $safeMember" "DEBUG"
             try {
@@ -289,9 +289,9 @@ function Invoke-CACBatchSafeCreation {
                 # --- DOMAIN USER: Skip pre-validation ---
                 # CyberArk's Add Safe Member API with searchIn=domain handles LDAP lookup
                 # internally. Even if the user never logged in, CyberArk will find them
-                # in LDAP, register them, and add to the safe — or return an error if not found.
-                Write-Host " -> Domain User [$safeMember] in [$memberSource] — skipping pre-check, CyberArk will resolve via LDAP." -ForegroundColor Gray
-                Log "Domain user $safeMember: skipping pre-check, relying on CyberArk LDAP resolution (searchIn=$memberSource)" "INFO"
+                # in LDAP, register them, and add to the safe - or return an error if not found.
+                Write-Host " -> Domain User [$safeMember] in [$memberSource] - skipping pre-check, CyberArk will resolve via LDAP." -ForegroundColor Gray
+                Log "Domain user ${safeMember}: skipping pre-check, relying on CyberArk LDAP resolution (searchIn=$memberSource)" "INFO"
                 $memberReady = $true
                 $result.MemberStatus = "Pending(Domain)"
             }

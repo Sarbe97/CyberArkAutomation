@@ -33,8 +33,13 @@ function Invoke-CACSecondaryAccountOnboarding {
     Write-Host "Optional CSV columns: Name, Password" -ForegroundColor Yellow
     Write-Host ""
 
-    $CsvPath = Read-Host "Enter CSV Path"
+    $CsvPath = Read-Host "Enter CSV path (or 'T' to download template)"
     
+    if ($CsvPath -eq 'T' -or $CsvPath -eq 't') {
+        New-CACSecondaryAccountTemplate
+        return
+    }
+
     if ([string]::IsNullOrWhiteSpace($CsvPath)) {
         Write-Host "CSV path cannot be empty." -ForegroundColor Yellow
         return
@@ -525,6 +530,71 @@ function New-CACSecondaryAccountEmailBody {
 }
 
 # ============================================================
+# Template Generator
+# ============================================================
+function New-CACSecondaryAccountTemplate {
+    [CmdletBinding()]
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        $Path = Join-Path (Get-CACOutputDir) "SecondaryAccountOnboarding_Template_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+    }
+
+    $templateRows = @(
+        [pscustomobject][ordered]@{
+            EmpNbr       = "EMP001"
+            UserFullName = "John Doe"
+            Email        = "john.doe@company.com"
+            SafeName     = "WI-A-SVC-johndoe"
+            PlatformId   = "WinDomain"
+            Address      = "server01.domain.com"
+            UserName     = "svc_johndoe"
+            Name         = "svc_johndoe@server01 (optional)"
+            Password     = ""
+        },
+        [pscustomobject][ordered]@{
+            EmpNbr       = "EMP001"
+            UserFullName = "John Doe"
+            Email        = "john.doe@company.com"
+            SafeName     = "WI-A-SVC-johndoe"
+            PlatformId   = "WinDomain"
+            Address      = "server02.domain.com"
+            UserName     = "svc_johndoe"
+            Name         = ""
+            Password     = ""
+        },
+        [pscustomobject][ordered]@{
+            EmpNbr       = "EMP002"
+            UserFullName = "Jane Smith"
+            Email        = "jane.smith@company.com"
+            SafeName     = "WI-A-SVC-janesmith"
+            PlatformId   = "WinDomain"
+            Address      = "server03.domain.com"
+            UserName     = "svc_janesmith"
+            Name         = ""
+            Password     = ""
+        }
+    )
+
+    $templateRows | Export-Csv -Path $Path -NoTypeInformation -Encoding UTF8
+    Write-Host ""
+    Write-Host "Template created: $Path" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "Columns:" -ForegroundColor Cyan
+    Write-Host "  EmpNbr       - Employee number (used to group accounts per employee)" -ForegroundColor Gray
+    Write-Host "  UserFullName - Employee full name (used in email notification)" -ForegroundColor Gray
+    Write-Host "  Email        - Employee email address for notification" -ForegroundColor Gray
+    Write-Host "  SafeName     - Target CyberArk safe name" -ForegroundColor Gray
+    Write-Host "  PlatformId   - CyberArk platform ID" -ForegroundColor Gray
+    Write-Host "  Address      - Target machine address" -ForegroundColor Gray
+    Write-Host "  UserName     - Account username" -ForegroundColor Gray
+    Write-Host "  Name         - [Optional] Account display name in CyberArk" -ForegroundColor Gray
+    Write-Host "  Password     - [Optional] Initial password" -ForegroundColor Gray
+    Write-Host ""
+    return $Path
+}
+
+# ============================================================
 # EXPORT
 # ============================================================
-Export-ModuleMember -Function Invoke-CACSecondaryAccountOnboarding
+Export-ModuleMember -Function Invoke-CACSecondaryAccountOnboarding, New-CACSecondaryAccountTemplate

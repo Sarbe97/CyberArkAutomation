@@ -14,7 +14,7 @@ function Invoke-CACSecondaryAccountOnboarding {
         - Processes that employee's accounts
         - Moves to next employee
         
-        Required CSV columns: EmpNbr, UserFullName, Email, SafeName, PlatformId, Address, UserName
+        Required CSV columns: userId, UserFullName, Email, SafeName, PlatformId, Address, AccountName
         Optional CSV columns: Name, Password
     #>
     [CmdletBinding()]
@@ -29,7 +29,7 @@ function Invoke-CACSecondaryAccountOnboarding {
     # Prompt for CSV path
     Write-Host "===== Secondary Account Onboarding =====" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "Required CSV columns: EmpNbr, UserFullName, Email, SafeName, PlatformId, Address, UserName" -ForegroundColor Yellow
+    Write-Host "Required CSV columns: userId, UserFullName, Email, SafeName, PlatformId, Address, AccountName" -ForegroundColor Yellow
     Write-Host "Optional CSV columns: Name, Password" -ForegroundColor Yellow
     Write-Host ""
 
@@ -139,7 +139,7 @@ function Invoke-CACSecondaryAccountOnboarding {
     }
 
     # Group by employee and sort
-    $employeeGroups = $itemsToProcess | Group-Object -Property EmpNbr | Sort-Object Name
+    $employeeGroups = $itemsToProcess | Group-Object -Property userId | Sort-Object Name
     $totalEmployees = $employeeGroups.Count
     $totalAccounts = $itemsToProcess.Count
 
@@ -186,7 +186,7 @@ function Invoke-CACSecondaryAccountOnboarding {
     $empIndex = 0
     foreach ($empGroup in $employeeGroups) {
         $empIndex++
-        $empNbr = $empGroup.Name
+        $userId = $empGroup.Name
         $empAccounts = $empGroup.Group
         $empEmail = ($empAccounts | Select-Object -First 1).Email
         $empFullName = ($empAccounts | Select-Object -First 1).UserFullName
@@ -197,19 +197,19 @@ function Invoke-CACSecondaryAccountOnboarding {
         Write-Host "  Employee $empIndex of $totalEmployees" -ForegroundColor Cyan
         Write-Host "============================================================" -ForegroundColor Cyan
         Write-Host ""
-        Write-Host "EmpNbr:    $empNbr" -ForegroundColor White
+        Write-Host "userId:    $userId" -ForegroundColor White
         Write-Host "Full Name: $empFullName" -ForegroundColor White
         Write-Host "Email:     $empEmail" -ForegroundColor White
         Write-Host ""
 
         # Show this employee's accounts
         Write-Host "Accounts to onboard ($accountCount):" -ForegroundColor Yellow
-        $empAccounts | Format-Table SafeName, PlatformId, Address, UserName, Name -AutoSize
+        $empAccounts | Format-Table SafeName, PlatformId, Address, AccountName, Name -AutoSize
 
         # ============================================================
         # Process This Employee's Accounts
         # ============================================================
-        Write-Host "Processing accounts for EmpNbr: $empNbr..." -ForegroundColor Cyan
+        Write-Host "Processing accounts for userId: $userId..." -ForegroundColor Cyan
         
         $empResults = @()
         $empSuccessCount = 0
@@ -222,7 +222,7 @@ function Invoke-CACSecondaryAccountOnboarding {
             $safeName = $item.SafeName
             $platformId = $item.PlatformId
             $address = $item.Address
-            $userName = $item.UserName
+            $accountName = $item.AccountName
             
             $name = if ($item.PSObject.Properties['Name'] -and -not [string]::IsNullOrWhiteSpace($item.Name)) { 
                 $item.Name 
@@ -237,10 +237,10 @@ function Invoke-CACSecondaryAccountOnboarding {
             if ([string]::IsNullOrWhiteSpace($safeName)) { $missingFields += "SafeName" }
             if ([string]::IsNullOrWhiteSpace($platformId)) { $missingFields += "PlatformId" }
             if ([string]::IsNullOrWhiteSpace($address)) { $missingFields += "Address" }
-            if ([string]::IsNullOrWhiteSpace($userName)) { $missingFields += "UserName" }
+            if ([string]::IsNullOrWhiteSpace($accountName)) { $missingFields += "AccountName" }
 
             if ($missingFields.Count -gt 0) {
-                Write-Host "  $userName@$address ... " -NoNewline
+                Write-Host "  $accountName@$address ... " -NoNewline
                 Write-Host "Skipped (Missing: $($missingFields -join ', '))" -ForegroundColor Yellow
                 
                 $resObj | Add-Member -MemberType NoteProperty -Name "OnboardingStatus" -Value "Skipped" -Force
@@ -251,7 +251,7 @@ function Invoke-CACSecondaryAccountOnboarding {
                 continue
             }
 
-            $displayName = if ($name) { $name } else { "$userName@$address" }
+            $displayName = if ($name) { $name } else { "$accountName@$address" }
             Write-Host "  $displayName ... " -NoNewline
 
             try {
@@ -259,7 +259,7 @@ function Invoke-CACSecondaryAccountOnboarding {
                     safeName   = $safeName
                     platformId = $platformId
                     address    = $address
-                    userName   = $userName
+                    userName   = $accountName
                 }
 
                 # Only add name if provided
@@ -282,7 +282,7 @@ function Invoke-CACSecondaryAccountOnboarding {
                 $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Account created" -Force
                 $resObj | Add-Member -MemberType NoteProperty -Name "AccountId" -Value $result.id -Force
                 
-                Write-Log "Account created: $name (ID: $($result.id)) for EmpNbr: $empNbr" "SUCCESS"
+                Write-Log "Account created: $name (ID: $($result.id)) for userId: $userId" "SUCCESS"
                 $empSuccessCount++
             }
             catch {
@@ -293,7 +293,7 @@ function Invoke-CACSecondaryAccountOnboarding {
                 $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value $errMsg -Force
                 $resObj | Add-Member -MemberType NoteProperty -Name "AccountId" -Value "" -Force
                 
-                Write-Log "Failed to create $name for EmpNbr $empNbr : $errMsg" "ERROR"
+                Write-Log "Failed to create $name for userId $userId : $errMsg" "ERROR"
                 $empFailCount++
             }
 
@@ -316,7 +316,7 @@ function Invoke-CACSecondaryAccountOnboarding {
             
             foreach ($acc in $successfulAccounts) {
                 $accountId = $acc.AccountId
-                Write-Host "  Reconciling $($acc.UserName) (ID: $accountId)... " -NoNewline
+                Write-Host "  Reconciling $($acc.AccountName) (ID: $accountId)... " -NoNewline
                 
                 try {
                     # FOR TESTING: Uncomment below and comment out the actual API call
@@ -343,7 +343,7 @@ function Invoke-CACSecondaryAccountOnboarding {
             
             $emailParams = @{
                 To      = $empEmail
-                Subject = "CyberArk Secondary Account Onboarding Notification - $empNbr"
+                Subject = "CyberArk Secondary Account Onboarding Notification - $userId"
                 Body    = $emailBody
                 IsHtml  = $true
             }
@@ -376,11 +376,11 @@ function Invoke-CACSecondaryAccountOnboarding {
         # Save Results After Each Employee (Incremental Save)
         # ============================================================
         $allResults | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
-        Write-Log "Saved results for EmpNbr $empNbr to $OutputCsvPath" "DEBUG"
+        Write-Log "Saved results for userId $userId to $OutputCsvPath" "DEBUG"
 
         # Employee summary
         Write-Host ""
-        Write-Host "===== EmpNbr $empNbr Complete =====" -ForegroundColor Cyan
+        Write-Host "===== userId $userId Complete =====" -ForegroundColor Cyan
         Write-Host "  Success: $empSuccessCount" -ForegroundColor Green
         Write-Host "  Failed:  $empFailCount" -ForegroundColor $(if ($empFailCount -gt 0) { "Red" } else { "White" })
         Write-Host "  (Results saved to file)" -ForegroundColor Gray
@@ -390,8 +390,8 @@ function Invoke-CACSecondaryAccountOnboarding {
         # Prompt for Next Employee (Y/N/A)
         # ============================================================
         if ($empIndex -lt $totalEmployees -and -not $processAllRemaining) {
-            $nextEmpNbr = ($employeeGroups[$empIndex]).Name
-            Write-Host "Next: EmpNbr $nextEmpNbr" -ForegroundColor Yellow
+            $nextUserId = ($employeeGroups[$empIndex]).Name
+            Write-Host "Next: userId $nextUserId" -ForegroundColor Yellow
             Write-Host "Options: Y=Proceed, N=Abort, A=Yes to All remaining" -ForegroundColor Yellow
             $continueChoice = Read-Host "Continue? (Y/N/A)"
             
@@ -415,7 +415,7 @@ function Invoke-CACSecondaryAccountOnboarding {
                 # Final save and exit
                 $allResults | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
                 Write-Host "Results saved to: $OutputCsvPath" -ForegroundColor Green
-                Write-Log "Aborted by user after EmpNbr $empNbr. Processed: $employeesProcessed employees" "WARN"
+                Write-Log "Aborted by user after userId $userId. Processed: $employeesProcessed employees" "WARN"
                 break
             }
             
@@ -500,7 +500,7 @@ function New-CACSecondaryAccountEmailBody {
         $html += @"
         <tr>
             <td>$($acc.UserFullName)</td>
-            <td>$($acc.UserName)</td>
+            <td>$($acc.AccountName)</td>
             <td>$($acc.Address)</td>
             <td>$($acc.SafeName)</td>
         </tr>
@@ -542,35 +542,35 @@ function New-CACSecondaryAccountTemplate {
 
     $templateRows = @(
         [pscustomobject][ordered]@{
-            EmpNbr       = "EMP001"
+            userId       = "EMP001"
             UserFullName = "John Doe"
             Email        = "john.doe@company.com"
             SafeName     = "WI-A-SVC-johndoe"
             PlatformId   = "WinDomain"
             Address      = "server01.domain.com"
-            UserName     = "svc_johndoe"
+            AccountName  = "svc_johndoe"
             Name         = "svc_johndoe@server01 (optional)"
             Password     = ""
         },
         [pscustomobject][ordered]@{
-            EmpNbr       = "EMP001"
+            userId       = "EMP001"
             UserFullName = "John Doe"
             Email        = "john.doe@company.com"
             SafeName     = "WI-A-SVC-johndoe"
             PlatformId   = "WinDomain"
             Address      = "server02.domain.com"
-            UserName     = "svc_johndoe"
+            AccountName  = "svc_johndoe"
             Name         = ""
             Password     = ""
         },
         [pscustomobject][ordered]@{
-            EmpNbr       = "EMP002"
+            userId       = "EMP002"
             UserFullName = "Jane Smith"
             Email        = "jane.smith@company.com"
             SafeName     = "WI-A-SVC-janesmith"
             PlatformId   = "WinDomain"
             Address      = "server03.domain.com"
-            UserName     = "svc_janesmith"
+            AccountName  = "svc_janesmith"
             Name         = ""
             Password     = ""
         }
@@ -581,13 +581,13 @@ function New-CACSecondaryAccountTemplate {
     Write-Host "Template created: $Path" -ForegroundColor Green
     Write-Host ""
     Write-Host "Columns:" -ForegroundColor Cyan
-    Write-Host "  EmpNbr       - Employee number (used to group accounts per employee)" -ForegroundColor Gray
+    Write-Host "  userId       - User ID (used to group accounts per employee)" -ForegroundColor Gray
     Write-Host "  UserFullName - Employee full name (used in email notification)" -ForegroundColor Gray
     Write-Host "  Email        - Employee email address for notification" -ForegroundColor Gray
     Write-Host "  SafeName     - Target CyberArk safe name" -ForegroundColor Gray
     Write-Host "  PlatformId   - CyberArk platform ID" -ForegroundColor Gray
     Write-Host "  Address      - Target machine address" -ForegroundColor Gray
-    Write-Host "  UserName     - Account username" -ForegroundColor Gray
+    Write-Host "  AccountName  - Account username" -ForegroundColor Gray
     Write-Host "  Name         - [Optional] Account display name in CyberArk" -ForegroundColor Gray
     Write-Host "  Password     - [Optional] Initial password" -ForegroundColor Gray
     Write-Host ""

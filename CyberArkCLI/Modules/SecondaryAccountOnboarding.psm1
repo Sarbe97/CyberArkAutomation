@@ -489,20 +489,20 @@ function New-CACSecondaryAccountEmailBody {
     
     <table>
         <tr>
-            <th>User</th>
             <th>Account</th>
             <th>Address</th>
             <th>Safe</th>
+            <th>Platform</th>
         </tr>
 "@
 
     foreach ($acc in $successAccounts) {
         $html += @"
         <tr>
-            <td>$($acc.UserFullName)</td>
             <td>$($acc.AccountName)</td>
             <td>$($acc.Address)</td>
             <td>$($acc.SafeName)</td>
+            <td>$($acc.PlatformId)</td>
         </tr>
 "@
     }

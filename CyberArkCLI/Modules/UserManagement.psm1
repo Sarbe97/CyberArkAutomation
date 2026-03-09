@@ -601,7 +601,7 @@ function Invoke-CACGroupDeletion {
             $groupName = if ($row.PSObject.Properties['GroupName'] -and $row.GroupName) { $row.GroupName } else { "ID $groupId" }
 
             if ([string]::IsNullOrWhiteSpace($groupId)) {
-                Write-Warning "Row $i: GroupId is empty - skipped."
+                Write-Warning "Row $i - GroupId is empty - skipped."
                 continue
             }
 

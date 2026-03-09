@@ -176,7 +176,7 @@ function Invoke-CACBatchSafeCreation {
         $groupId = $null
 
         if ($memberType -eq "Group") {
-            # Check/Create Group
+            # --- GROUP: Always check/create via CyberArk Vault API ---
             Write-Host " -> Checking Group [$safeMember]..." -NoNewline
             Log "Checking group: $safeMember" "DEBUG"
             try {
@@ -258,30 +258,42 @@ function Invoke-CACBatchSafeCreation {
             }
         }
         else {
-            # User - just validate exists
-            Write-Host " -> Checking User [$safeMember]..." -NoNewline
-            Log "Checking user: $safeMember" "DEBUG"
-            try {
-                $users = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Users?search=$([System.Web.HttpUtility]::UrlEncode($safeMember))"
-                $user = $users.Users | Where-Object { $_.username -eq $safeMember } | Select-Object -First 1
-                
-                if ($user) {
-                    $memberReady = $true
-                    $result.MemberStatus = "Exists"
-                    Write-Host " [EXISTS]" -ForegroundColor Green
-                    Log "User exists: $safeMember" "INFO"
+            if ($memberSource -eq "Vault") {
+                # --- VAULT USER: Validate via CyberArk API ---
+                Write-Host " -> Checking Vault User [$safeMember]..." -NoNewline
+                Log "Checking Vault user: $safeMember" "DEBUG"
+                try {
+                    $users = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Users?search=$([System.Web.HttpUtility]::UrlEncode($safeMember))"
+                    $user = $users.Users | Where-Object { $_.username -eq $safeMember } | Select-Object -First 1
+                    
+                    if ($user) {
+                        $memberReady = $true
+                        $result.MemberStatus = "Exists"
+                        Write-Host " [EXISTS]" -ForegroundColor Green
+                        Log "Vault User exists: $safeMember" "INFO"
+                    }
+                    else {
+                        $result.MemberStatus = "NotFound"
+                        Write-Host " [NOT FOUND]" -ForegroundColor Red
+                        Log "Vault User not found: $safeMember" "WARN"
+                    }
                 }
-                else {
-                    $result.MemberStatus = "NotFound"
-                    Write-Host " [NOT FOUND]" -ForegroundColor Red
-                    Log "User not found: $safeMember" "WARN"
+                catch {
+                    $result.MemberStatus = "Failed"
+                    $result.Message += " User lookup error: $($_.Exception.Message)"
+                    Write-Host " [FAILED]" -ForegroundColor Red
+                    Log "Vault User lookup failed: $($_.Exception.Message)" "ERROR"
                 }
             }
-            catch {
-                $result.MemberStatus = "Failed"
-                $result.Message += " User lookup error: $($_.Exception.Message)"
-                Write-Host " [FAILED]" -ForegroundColor Red
-                Log "User lookup failed: $($_.Exception.Message)" "ERROR"
+            else {
+                # --- DOMAIN USER: Skip pre-validation ---
+                # CyberArk's Add Safe Member API with searchIn=domain handles LDAP lookup
+                # internally. Even if the user never logged in, CyberArk will find them
+                # in LDAP, register them, and add to the safe — or return an error if not found.
+                Write-Host " -> Domain User [$safeMember] in [$memberSource] — skipping pre-check, CyberArk will resolve via LDAP." -ForegroundColor Gray
+                Log "Domain user $safeMember: skipping pre-check, relying on CyberArk LDAP resolution (searchIn=$memberSource)" "INFO"
+                $memberReady = $true
+                $result.MemberStatus = "Pending(Domain)"
             }
         }
 

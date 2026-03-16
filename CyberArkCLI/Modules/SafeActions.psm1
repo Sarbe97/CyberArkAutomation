@@ -53,7 +53,7 @@ function Invoke-CACBatchSafeCreation {
     $config = Get-CACConfig
     $permissionSets = $config.SafePermissionSets
     $results = [System.Collections.ArrayList]::new()
-    $data = Import-Csv $CsvPath
+    $data = @(Import-Csv $CsvPath)
 
     # --- LOGGED-IN USER REMOVAL PROMPT ---
     $loggedInUser = $global:CACApiSession.User
@@ -100,7 +100,7 @@ function Invoke-CACBatchSafeCreation {
         $groupDescription = if ($row.PSObject.Properties['GroupDescription']) { $row.GroupDescription.Trim() } else { "" }
 
         $rowIndex++
-        Write-Progress -Activity "Safe Creation" -Status "[$rowIndex/$rowTotal] $safeName" -PercentComplete (($rowIndex / $rowTotal) * 100)
+        Write-Progress -Activity "Safe Creation" -Status "[$rowIndex/$rowTotal] $safeName" -PercentComplete (if ($rowTotal -gt 0) { ($rowIndex / $rowTotal) * 100 } else { 0 })
 
         Write-Host "`n==================================================================" -ForegroundColor Cyan
         Write-Host " [$rowIndex/$rowTotal] Safe: $safeName" -ForegroundColor Cyan
@@ -467,7 +467,7 @@ function Invoke-CACBatchSafeRename {
         "deleteAccounts", "unlockAccounts")
 
     $results = [System.Collections.ArrayList]::new()
-    $data = Import-Csv $CsvPath
+    $data = @(Import-Csv $CsvPath)
 
     Log "Processing $($data.Count) rows from CSV" "INFO"
     Log "Default Safe Members from config: $($defaultSafeMembers.Keys -join ', ')" "INFO"
@@ -480,7 +480,7 @@ function Invoke-CACBatchSafeRename {
         $newSafeName = $row.SafeName.Trim()
 
         $rowIndex++
-        Write-Progress -Activity "Safe Rename" -Status "[$rowIndex/$rowTotal] $oldSafeName -> $newSafeName" -PercentComplete (($rowIndex / $rowTotal) * 100)
+        Write-Progress -Activity "Safe Rename" -Status "[$rowIndex/$rowTotal] $oldSafeName -> $newSafeName" -PercentComplete (if ($rowTotal -gt 0) { ($rowIndex / $rowTotal) * 100 } else { 0 })
 
         Write-Host "`n==================================================================" -ForegroundColor Cyan
         Write-Host " [$rowIndex/$rowTotal] Rename: $oldSafeName -> $newSafeName" -ForegroundColor Cyan
@@ -779,7 +779,7 @@ function Invoke-CACBatchSafeMember {
     $config = Get-CACConfig
     $permissionSets = $config.SafePermissionSets
     $results = [System.Collections.ArrayList]::new()
-    $data = Import-Csv $CsvPath
+    $data = @(Import-Csv $CsvPath)
 
     Write-Host "Processing $($data.Count) rows..." -ForegroundColor Cyan
     $rowIndex = 0
@@ -800,7 +800,7 @@ function Invoke-CACBatchSafeMember {
             $memberSourceRaw
         }
 
-        Write-Progress -Activity "Safe Member Management" -Status "[$rowIndex/$rowTotal] $safeName + $memberName" -PercentComplete (($rowIndex / $rowTotal) * 100)
+        Write-Progress -Activity "Safe Member Management" -Status "[$rowIndex/$rowTotal] $safeName + $memberName" -PercentComplete (if ($rowTotal -gt 0) { ($rowIndex / $rowTotal) * 100 } else { 0 })
         Write-Host "`n[$rowIndex/$rowTotal] $safeName + $memberName ($type) [Source: $memberSource]" -ForegroundColor Cyan
         Log "Processing $safeName + $memberName (Source: $memberSource)" "INFO"
 

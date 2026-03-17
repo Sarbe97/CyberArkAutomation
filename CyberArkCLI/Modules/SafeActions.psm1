@@ -100,7 +100,8 @@ function Invoke-CACBatchSafeCreation {
         $groupDescription = if ($row.PSObject.Properties['GroupDescription']) { $row.GroupDescription.Trim() } else { "" }
 
         $rowIndex++
-        Write-Progress -Activity "Safe Creation" -Status "[$rowIndex/$rowTotal] $safeName" -PercentComplete $(if ($rowTotal -gt 0) { ($rowIndex / $rowTotal) * 100 } else { 0 })
+        $percent = [Math]::Round(($rowIndex / $rowTotal) * 100, 0)
+        Write-Progress -Activity "Safe Creation" -Status "[$rowIndex/$rowTotal] $safeName" -PercentComplete $percent
 
         Write-Host "`n==================================================================" -ForegroundColor Cyan
         Write-Host " [$rowIndex/$rowTotal] Safe: $safeName" -ForegroundColor Cyan
@@ -480,7 +481,8 @@ function Invoke-CACBatchSafeRename {
         $newSafeName = $row.SafeName.Trim()
 
         $rowIndex++
-        Write-Progress -Activity "Safe Rename" -Status "[$rowIndex/$rowTotal] $oldSafeName -> $newSafeName" -PercentComplete $(if ($rowTotal -gt 0) { ($rowIndex / $rowTotal) * 100 } else { 0 })
+        $percent = [Math]::Round(($rowIndex / $rowTotal) * 100, 0)
+        Write-Progress -Activity "Safe Rename" -Status "[$rowIndex/$rowTotal] $oldSafeName -> $newSafeName" -PercentComplete $percent
 
         Write-Host "`n==================================================================" -ForegroundColor Cyan
         Write-Host " [$rowIndex/$rowTotal] Rename: $oldSafeName -> $newSafeName" -ForegroundColor Cyan
@@ -800,7 +802,8 @@ function Invoke-CACBatchSafeMember {
             $memberSourceRaw
         }
 
-        Write-Progress -Activity "Safe Member Management" -Status "[$rowIndex/$rowTotal] $safeName + $memberName" -PercentComplete $(if ($rowTotal -gt 0) { ($rowIndex / $rowTotal) * 100 } else { 0 })
+        $percent = [Math]::Round(($rowIndex / $rowTotal) * 100, 0)
+        Write-Progress -Activity "Safe Member Management" -Status "[$rowIndex/$rowTotal] $safeName + $memberName" -PercentComplete $percent
         Write-Host "`n[$rowIndex/$rowTotal] $safeName + $memberName ($type) [Source: $memberSource]" -ForegroundColor Cyan
         Log "Processing $safeName + $memberName (Source: $memberSource)" "INFO"
 

@@ -216,23 +216,42 @@ function Invoke-CyberArkApi {
         Authorization = $script:CyberArkSession.Token
     }
 
-    $params = @{
-        Uri         = $Uri
-        Method      = $Method
-        Headers     = $headers
-        ContentType = "application/json"
-        ErrorAction = "Stop"
-    }
-
-    if ($Body) {
-        $params.Body = $Body | ConvertTo-Json -Depth 10
-    }
-
     if ($script:CyberArkSession.LogPath) {
-        Write-Log -Message "API Request: [$Method] $Uri" -ScriptName $script:CyberArkSession.ScriptName -LogPath $script:CyberArkSession.LogPath
+        Write-Log -Message "[DEBUG] API Request: [$Method] $Uri" -ScriptName $script:CyberArkSession.ScriptName -LogPath $script:CyberArkSession.LogPath
     }
 
-    Invoke-RestMethod @params
+    try {
+        # Only set ContentType if we have a body or it's a POST/PUT
+        $params = @{
+            Uri         = $Uri
+            Method      = $Method
+            Headers     = $headers
+            ErrorAction = "Stop"
+            TimeoutSec  = 30 # Prevent indefinite hang
+        }
+        
+        if ($Method -ne "Get" -or $Body) {
+            $params.ContentType = "application/json"
+        }
+
+        if ($Body) {
+            $params.Body = $Body | ConvertTo-Json -Depth 10
+        }
+
+        $result = Invoke-RestMethod @params
+        
+        if ($script:CyberArkSession.LogPath) {
+            Write-Log -Message "[DEBUG] API Response received from: $Uri" -ScriptName $script:CyberArkSession.ScriptName -LogPath $script:CyberArkSession.LogPath
+        }
+
+        return $result
+    }
+    catch {
+        if ($script:CyberArkSession.LogPath) {
+            Write-Log -Message "API Call failed to $Uri. Error: $_" -Level "ERROR" -ScriptName $script:CyberArkSession.ScriptName -LogPath $script:CyberArkSession.LogPath
+        }
+        throw
+    }
 }
 
 # ------------------------

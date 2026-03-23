@@ -30,8 +30,9 @@ function Write-Log {
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logEntry = "$timestamp [$ScriptName] [$Level] $Message"
     
-    # Write to console and log file
-    $logEntry | Tee-Object -FilePath $LogPath -Append
+    # Write to console and log file (avoid pipeline leakage)
+    Write-Host $logEntry
+    $logEntry | Add-Content -Path $LogPath
 }
 
 # ------------------------
@@ -57,7 +58,7 @@ function Get-CCPCredential {
         $uri = "$($CCPConfig.Url)?AppID=$($CCPConfig.AppId)&Query=$query"
         
         if ($LogPath) {
-            Write-Log -Message "Retrieving credential from CCP" -ScriptName $ScriptName -LogPath $LogPath
+            Write-Log -Message "Retrieving credential from CCP: $uri" -ScriptName $ScriptName -LogPath $LogPath
         }
 
         $resp = Invoke-RestMethod -Uri $uri -Method Get -ErrorAction Stop
@@ -110,8 +111,10 @@ function Connect-CyberArkApi {
         
         # Store session
         $script:CyberArkSession = @{
-            BaseUrl = $BaseUrl
-            Token   = $token
+            BaseUrl    = $BaseUrl
+            Token      = $token
+            ScriptName = $ScriptName
+            LogPath    = $LogPath
         }
 
         if ($LogPath) {
@@ -142,11 +145,13 @@ function Disconnect-CyberArkApi {
     try {
         $logoffUri = "$($script:CyberArkSession.BaseUrl)/PasswordVault/API/Auth/Logoff"
         $headers = @{ Authorization = $script:CyberArkSession.Token }
+        $sName = $script:CyberArkSession.ScriptName
+        $lPath = $script:CyberArkSession.LogPath
 
         Invoke-RestMethod -Uri $logoffUri -Method Post -Headers $headers -ErrorAction SilentlyContinue
 
-        if ($LogPath) {
-            Write-Log -Message "Logged off from CyberArk" -ScriptName $ScriptName -LogPath $LogPath
+        if ($lPath) {
+            Write-Log -Message "Logged off from CyberArk" -ScriptName $sName -LogPath $lPath
         }
     }
     catch {
@@ -191,6 +196,10 @@ function Invoke-CyberArkApi {
 
     if ($Body) {
         $params.Body = $Body | ConvertTo-Json -Depth 10
+    }
+
+    if ($script:CyberArkSession.LogPath) {
+        Write-Log -Message "API Request: [$Method] $Uri" -ScriptName $script:CyberArkSession.ScriptName -LogPath $script:CyberArkSession.LogPath
     }
 
     Invoke-RestMethod @params

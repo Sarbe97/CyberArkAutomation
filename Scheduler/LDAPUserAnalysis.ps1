@@ -360,7 +360,7 @@ try {
     $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
     $reportFile = Join-Path $OutputPath "LDAPUserAnalysis_Report_$timestamp.csv"
     $report | Export-Csv -Path $reportFile -NoTypeInformation -Encoding UTF8
-    Write-Log -Message "Report saved: $reportFile" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "Full Analysis Report saved: $reportFile" -ScriptName $ScriptName -LogPath $LogPath
     
     # Step 6: Prepare Email Content
     Write-Log -Message "[DEBUG] ============ STEP 6: PREPARE EMAIL ============" -ScriptName $ScriptName -LogPath $LogPath
@@ -380,7 +380,9 @@ try {
     
     # Step 7: Send Email with Attachments
     Write-Log -Message "[DEBUG] ============ STEP 7: SEND EMAIL ============" -ScriptName $ScriptName -LogPath $LogPath
-    Write-Log -Message "[DEBUG] Sending email with $($attachments.Count) attachment(s)..." -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "Sending email to: $($config.Email.To -join ', ')" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "Subject: CyberArk LDAP User Analysis Report - $(Get-Date -Format 'yyyy-MM-dd')" -ScriptName $ScriptName -LogPath $LogPath
+    
     Send-SchedulerEmailWithAttachment `
         -Subject "CyberArk LDAP User Analysis Report - $(Get-Date -Format 'yyyy-MM-dd')" `
         -Body $EmailBody `

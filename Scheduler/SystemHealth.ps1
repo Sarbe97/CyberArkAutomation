@@ -58,13 +58,13 @@ Write-Log -Message "[DEBUG] CyberArk API connection established" -ScriptName $Sc
 # ------------------------
 Write-Log -Message "[DEBUG] ============ SYSTEM HEALTH API CALLS ============" -ScriptName $ScriptName -LogPath $LogPath
 try {
-    Write-Log -Message "[DEBUG] Calling System Summary API: $BaseUrl$SystemSummaryApi" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "Calling System Summary API..." -ScriptName $ScriptName -LogPath $LogPath
     $Summary = Invoke-CyberArkApi -Uri "$BaseUrl$SystemSummaryApi"
-    Write-Log -Message "[DEBUG] Summary API Response - OverallStatus: $($Summary.OverallStatus)" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "Summary API Response - OverallStatus: $($Summary.OverallStatus)" -ScriptName $ScriptName -LogPath $LogPath
 
-    Write-Log -Message "[DEBUG] Calling System Details API: $BaseUrl$SystemDetailsApi" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "Calling System Details API..." -ScriptName $ScriptName -LogPath $LogPath
     $Details = Invoke-CyberArkApi -Uri "$BaseUrl$SystemDetailsApi"
-    Write-Log -Message "[DEBUG] Details API Response - Components count: $($Details.Components.Count)" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "Details API Response - Components count: $($Details.Components.Count)" -ScriptName $ScriptName -LogPath $LogPath
     
     # Log each component
     if ($Details.Components) {

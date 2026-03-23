@@ -41,7 +41,7 @@ Write-Log -Message "DashboardReport feature enabled. Starting data collection." 
 Write-Log -Message "Retrieving CCP credentials..." -ScriptName $ScriptName -LogPath $LogPath
 $Credential = Get-CCPCredential -CCPConfig $config.CCP -ScriptName $ScriptName -LogPath $LogPath
 
-Write-Log -Message "Connecting to CyberArk API at: $BaseUrl/PasswordVault/API/Auth/CyberArk/Logon" -ScriptName $ScriptName -LogPath $LogPath
+Write-Log -Message "Connecting to CyberArk API..." -ScriptName $ScriptName -LogPath $LogPath
 Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential -ScriptName $ScriptName -LogPath $LogPath
 
 try {
@@ -57,7 +57,6 @@ try {
 
     while ($hasMore) {
         $safesUri = "$BaseUrl/PasswordVault/api/Safes?limit=$limit&offset=$offset"
-        Write-Log -Message "Fetching Safes from: $safesUri" -ScriptName $ScriptName -LogPath $LogPath
         $safesResponse = Invoke-CyberArkApi -Uri $safesUri
         
         $batch = @()
@@ -144,7 +143,6 @@ try {
 
     while ($hasMore) {
         $platsUri = "$BaseUrl/PasswordVault/API/Platforms?limit=$limit&offset=$offset"
-        Write-Log -Message "Fetching Platforms from: $platsUri" -ScriptName $ScriptName -LogPath $LogPath
         $platsResponse = Invoke-CyberArkApi -Uri $platsUri
         
         $batch = @()
@@ -208,7 +206,6 @@ try {
 
     while ($hasMore) {
         $accUri = "$BaseUrl/PasswordVault/api/Accounts?limit=$limit&offset=$offset&Fields=name,address,userName,platformId,safeName,secretType,secretManagement"
-        Write-Log -Message "Fetching Accounts from: $accUri" -ScriptName $ScriptName -LogPath $LogPath
         $accResp = Invoke-CyberArkApi -Uri $accUri
         
         $accounts = if ($accResp.value) { $accResp.value } else { @() }

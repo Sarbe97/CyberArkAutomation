@@ -62,7 +62,9 @@ try {
 
         $newAdded = 0
         foreach ($s in $batch) {
-            $sName = $s.safeName -if ($s.safeName) -else $s.SafeName
+            $sName = $s.safeName
+            if (-not $sName) { $sName = $s.SafeName }
+            
             if (-not $seenSafes.ContainsKey($sName)) {
                 $seenSafes[$sName] = $true
                 $allSafes += $s
@@ -191,9 +193,10 @@ try {
     $InUsePlatformIds = @{}
     $CpmDisabledCount = 0
     $TotalAccountsFound = 0
+    $InventoryExport = @()
 
     while ($hasMore) {
-        $accUri = "$BaseUrl/PasswordVault/api/Accounts?limit=$limit&offset=$offset&Fields=platformId,safeName,secretManagement"
+        $accUri = "$BaseUrl/PasswordVault/api/Accounts?limit=$limit&offset=$offset&Fields=name,address,userName,platformId,safeName,secretType,secretManagement"
         $accResp = Invoke-CyberArkApi -Uri $accUri
         
         $accounts = if ($accResp.value) { $accResp.value } else { @() }
@@ -210,10 +213,22 @@ try {
                 }
 
                 # Check CPM disabled status
+                $cpmDisabled = $false
                 if ($acc.secretManagement) {
                     if (($acc.secretManagement.automaticManagementEnabled -eq $false) -or ($acc.secretManagement.manualManagementReason)) {
+                        $cpmDisabled = $true
                         $CpmDisabledCount++
                     }
+                }
+
+                $InventoryExport += [PSCustomObject]@{
+                    AccountName  = $acc.name
+                    Address      = $acc.address
+                    UserName     = $acc.userName
+                    PlatformID   = $platId
+                    SafeName     = $acc.safeName
+                    SecretType   = $acc.secretType
+                    CPMDisabled  = $cpmDisabled
                 }
             }
             $offset += $limit
@@ -236,10 +251,12 @@ try {
     
     $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
     
+    $invFile = Join-Path $ExportDir "DashboardInventoryDetails_$timestamp.csv"
     $safesFile = Join-Path $ExportDir "DashboardSafesDetails_$timestamp.csv"
     $platsFile = Join-Path $ExportDir "DashboardPlatformsDetails_$timestamp.csv"
     $summaryFile = Join-Path $ExportDir "DashboardCounts_$timestamp.csv"
 
+    $InventoryExport | Export-Csv -Path $invFile -NoTypeInformation
     $SafesExport | Export-Csv -Path $safesFile -NoTypeInformation
     $PlatsExport | Export-Csv -Path $platsFile -NoTypeInformation
 
@@ -257,7 +274,7 @@ try {
 
     $SummaryData | Export-Csv -Path $summaryFile -NoTypeInformation
 
-    Write-Log -Message "Reports generated: DashboardCounts, DashboardSafesDetails, DashboardPlatformsDetails" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "Reports generated: DashboardCounts, DashboardSafesDetails, DashboardPlatformsDetails, DashboardInventoryDetails" -ScriptName $ScriptName -LogPath $LogPath
 
 }
 catch {

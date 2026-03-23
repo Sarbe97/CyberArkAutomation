@@ -225,9 +225,11 @@ try {
         
         $accounts = if ($accResp.value) { $accResp.value } else { @() }
         
-        if ($accounts.Count -eq 0) {
+        if ($accounts.Count -eq 0 -or $accounts.Count -lt $limit) {
             $hasMore = $false
-        } else {
+        }
+        
+        if ($accounts.Count -gt 0) {
             $TotalAccountsFound += $accounts.Count
             foreach ($acc in $accounts) {
                 # Track in-use platform

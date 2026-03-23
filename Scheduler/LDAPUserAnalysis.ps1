@@ -116,7 +116,7 @@ function Get-CyberArkUsers {
         foreach ($user in $users) { $allUsers.Add($user) }
         $offset += $limit
         Write-Log -Message "Fetched $($allUsers.Count) users so far..." -ScriptName $ScriptName -LogPath $LogPath
-    } while ($users.Count -eq $limit)
+    } while ($users.Count -eq $limit -and $users.Count -gt 0)
     
     Write-Log -Message "Total users fetched: $($allUsers.Count)" -ScriptName $ScriptName -LogPath $LogPath
     return $allUsers.ToArray()
@@ -140,7 +140,7 @@ function Get-AllCyberArkAccounts {
         foreach ($acc in $accounts) { $allAccounts.Add($acc) }
         $offset += $limit
         Write-Log -Message "Fetched $($allAccounts.Count) accounts so far..." -ScriptName $ScriptName -LogPath $LogPath
-    } while ($accounts.Count -eq $limit)
+    } while ($accounts.Count -eq $limit -and $accounts.Count -gt 0)
     
     Write-Log -Message "Total accounts fetched: $($allAccounts.Count)" -ScriptName $ScriptName -LogPath $LogPath
     return $allAccounts.ToArray()

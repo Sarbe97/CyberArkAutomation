@@ -69,6 +69,7 @@ try {
         foreach ($s in $batch) {
             $sName = $s.safeName
             if (-not $sName) { $sName = $s.SafeName }
+            if (-not $sName) { continue }
             
             if (-not $seenSafes.ContainsKey($sName)) {
                 $seenSafes[$sName] = $true
@@ -157,8 +158,12 @@ try {
         
         $newAdded = 0
         foreach ($p in $batch) {
-            if (-not $seenPlats.ContainsKey($p.PlatformID)) {
-                $seenPlats[$p.PlatformID] = $true
+            $pId = $p.PlatformID
+            if (-not $pId) { $pId = $p.platformID }
+            if (-not $pId) { continue }
+
+            if (-not $seenPlats.ContainsKey($pId)) {
+                $seenPlats[$pId] = $true
                 $allPlats += $p
                 $newAdded++
             }

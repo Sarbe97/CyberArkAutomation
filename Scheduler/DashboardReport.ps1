@@ -158,12 +158,12 @@ try {
         
         $newAdded = 0
         foreach ($p in $batch) {
-            $pId = $p.PlatformID
-            if (-not $pId) { $pId = $p.platformID }
-            if (-not $pId) { continue }
+            $pltId = $p.PlatformID
+            if (-not $pltId) { $pltId = $p.platformID }
+            if (-not $pltId) { continue }
 
-            if (-not $seenPlats.ContainsKey($pId)) {
-                $seenPlats[$pId] = $true
+            if (-not $seenPlats.ContainsKey($pltId)) {
+                $seenPlats[$pltId] = $true
                 $allPlats += $p
                 $newAdded++
             }

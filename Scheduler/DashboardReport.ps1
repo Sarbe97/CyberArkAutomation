@@ -27,10 +27,13 @@ $config = Get-Content $ConfigPath -Raw | ConvertFrom-Json
 $BaseUrl = $config.BaseUrl
 $FeatureConfig = $config.Features.DashboardReport
 
+Write-Log -Message "Config loaded. BaseUrl: $BaseUrl" -ScriptName $ScriptName -LogPath $LogPath
+
 if ($null -eq $FeatureConfig -or -not $FeatureConfig.Enabled) {
     Write-Log -Message "DashboardReport feature disabled in config. Skipping." -ScriptName $ScriptName -LogPath $LogPath
     exit 0
 }
+Write-Log -Message "DashboardReport feature enabled. Starting data collection." -ScriptName $ScriptName -LogPath $LogPath
 
 # ------------------------
 # Get Credential from CCP and Login
@@ -38,7 +41,7 @@ if ($null -eq $FeatureConfig -or -not $FeatureConfig.Enabled) {
 Write-Log -Message "Retrieving CCP credentials..." -ScriptName $ScriptName -LogPath $LogPath
 $Credential = Get-CCPCredential -CCPConfig $config.CCP -ScriptName $ScriptName -LogPath $LogPath
 
-Write-Log -Message "Connecting to CyberArk API..." -ScriptName $ScriptName -LogPath $LogPath
+Write-Log -Message "Connecting to CyberArk API at: $BaseUrl/PasswordVault/API/Auth/CyberArk/Logon" -ScriptName $ScriptName -LogPath $LogPath
 Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential -ScriptName $ScriptName -LogPath $LogPath
 
 try {
@@ -54,11 +57,14 @@ try {
 
     while ($hasMore) {
         $safesUri = "$BaseUrl/PasswordVault/api/Safes?limit=$limit&offset=$offset"
+        Write-Log -Message "Fetching Safes from: $safesUri" -ScriptName $ScriptName -LogPath $LogPath
         $safesResponse = Invoke-CyberArkApi -Uri $safesUri
         
         $batch = @()
         if ($safesResponse.value) { $batch = $safesResponse.value }
         elseif ($safesResponse.Safes) { $batch = $safesResponse.Safes }
+
+        Write-Log -Message "Retrieved $($batch.Count) safes in this batch." -ScriptName $ScriptName -LogPath $LogPath
 
         $newAdded = 0
         foreach ($s in $batch) {
@@ -80,6 +86,7 @@ try {
     }
 
     $TotalSafes = $allSafes.Count
+    Write-Log -Message "Total Safes collected: $TotalSafes. Starting processing..." -ScriptName $ScriptName -LogPath $LogPath
     $MigratedSafes = 0
     $PersonalSafes = 0
 
@@ -137,10 +144,13 @@ try {
 
     while ($hasMore) {
         $platsUri = "$BaseUrl/PasswordVault/API/Platforms?limit=$limit&offset=$offset"
+        Write-Log -Message "Fetching Platforms from: $platsUri" -ScriptName $ScriptName -LogPath $LogPath
         $platsResponse = Invoke-CyberArkApi -Uri $platsUri
         
         $batch = @()
         if ($platsResponse.Platforms) { $batch = $platsResponse.Platforms }
+
+        Write-Log -Message "Retrieved $($batch.Count) platforms in this batch." -ScriptName $ScriptName -LogPath $LogPath
         
         $newAdded = 0
         foreach ($p in $batch) {
@@ -159,6 +169,7 @@ try {
     }
     
     $TotalPlatforms = $allPlats.Count
+    Write-Log -Message "Total Platforms collected: $TotalPlatforms. Starting processing..." -ScriptName $ScriptName -LogPath $LogPath
     $MigplatsKeywords = $FeatureConfig.MigratedPlatformKeywords
     $MigratedPlatforms = 0
 
@@ -197,6 +208,7 @@ try {
 
     while ($hasMore) {
         $accUri = "$BaseUrl/PasswordVault/api/Accounts?limit=$limit&offset=$offset&Fields=name,address,userName,platformId,safeName,secretType,secretManagement"
+        Write-Log -Message "Fetching Accounts from: $accUri" -ScriptName $ScriptName -LogPath $LogPath
         $accResp = Invoke-CyberArkApi -Uri $accUri
         
         $accounts = if ($accResp.value) { $accResp.value } else { @() }
@@ -236,6 +248,8 @@ try {
         }
     }
 
+    Write-Log -Message "Account data collection complete. Total Accounts: $TotalAccountsFound" -ScriptName $ScriptName -LogPath $LogPath
+
     $InUsePlatformsCount = $InUsePlatformIds.Keys.Count
 
     # Mark which platforms are in-use
@@ -274,7 +288,11 @@ try {
 
     $SummaryData | Export-Csv -Path $summaryFile -NoTypeInformation
 
-    Write-Log -Message "Reports generated: DashboardCounts, DashboardSafesDetails, DashboardPlatformsDetails, DashboardInventoryDetails" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "Reports generated successfully:" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "  - Inventory: $invFile" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "  - Safes: $safesFile" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "  - Platforms: $platsFile" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "  - Summary: $summaryFile" -ScriptName $ScriptName -LogPath $LogPath
 
 }
 catch {

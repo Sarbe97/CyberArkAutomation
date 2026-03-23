@@ -1,4 +1,6 @@
-param ()
+param (
+    [switch]$ManualLogin
+)
 
 # ------------------------
 # Script Identity
@@ -36,10 +38,10 @@ if ($null -eq $FeatureConfig -or -not $FeatureConfig.Enabled) {
 Write-Log -Message "DashboardReport feature enabled. Starting data collection." -ScriptName $ScriptName -LogPath $LogPath
 
 # ------------------------
-# Get Credential from CCP and Login
+# Get Credential and Login
 # ------------------------
-Write-Log -Message "Retrieving CCP credentials..." -ScriptName $ScriptName -LogPath $LogPath
-$Credential = Get-CCPCredential -CCPConfig $config.CCP -ScriptName $ScriptName -LogPath $LogPath
+Write-Log -Message "Retrieving credentials..." -ScriptName $ScriptName -LogPath $LogPath
+$Credential = Get-SchedulerCredential -CCPConfig $config.CCP -ManualLogin:$ManualLogin -ScriptName $ScriptName -LogPath $LogPath
 
 Write-Log -Message "Connecting to CyberArk API..." -ScriptName $ScriptName -LogPath $LogPath
 Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential -ScriptName $ScriptName -LogPath $LogPath

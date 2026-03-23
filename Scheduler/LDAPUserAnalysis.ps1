@@ -1,4 +1,6 @@
-param ()
+param (
+    [switch]$ManualLogin
+)
 
 # ------------------------
 # Script Identity
@@ -223,10 +225,10 @@ function Get-AllADSecondaryAccounts {
 try {
     Write-Log -Message "[DEBUG] ============ STARTING MAIN EXECUTION ============" -ScriptName $ScriptName -LogPath $LogPath
     
-    # Get Credential from CCP
-    Write-Log -Message "[DEBUG] Step 0: Retrieving CCP credentials..." -ScriptName $ScriptName -LogPath $LogPath
-    $Credential = Get-CCPCredential -CCPConfig $config.CCP -ScriptName $ScriptName -LogPath $LogPath
-    Write-Log -Message "[DEBUG] CCP credentials retrieved for user: $($Credential.Username)" -ScriptName $ScriptName -LogPath $LogPath
+    # Get Credential
+    Write-Log -Message "[DEBUG] Step 0: Retrieving credentials..." -ScriptName $ScriptName -LogPath $LogPath
+    $Credential = Get-SchedulerCredential -CCPConfig $config.CCP -ManualLogin:$ManualLogin -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "[DEBUG] Credentials retrieved for user: $($Credential.Username)" -ScriptName $ScriptName -LogPath $LogPath
     
     # Login to CyberArk (get token)
     Write-Log -Message "[DEBUG] Connecting to CyberArk API..." -ScriptName $ScriptName -LogPath $LogPath

@@ -78,6 +78,36 @@ function Get-CCPCredential {
 }
 
 # ------------------------
+# Get Credential (Choice)
+# ------------------------
+function Get-SchedulerCredential {
+    param (
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$CCPConfig,
+
+        [switch]$ManualLogin,
+
+        [string]$ScriptName = "Unknown",
+        [string]$LogPath
+    )
+
+    if ($ManualLogin) {
+        if ($LogPath) {
+            Write-Log -Message "Manual login requested. Prompting for credentials..." -ScriptName $ScriptName -LogPath $LogPath
+        }
+        $creds = Get-Credential -UserName "CyberArkUser" -Message "Enter CyberArk API Credentials"
+        
+        # Convert PSCredential to hashtable format for Connect-CyberArkApi
+        return @{
+            Username = $creds.UserName
+            Password = $creds.GetNetworkCredential().Password
+        }
+    } else {
+        return Get-CCPCredential -CCPConfig $CCPConfig -ScriptName $ScriptName -LogPath $LogPath
+    }
+}
+
+# ------------------------
 # CyberArk Logon (Get Token)
 # ------------------------
 function Connect-CyberArkApi {

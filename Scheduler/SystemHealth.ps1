@@ -1,4 +1,6 @@
-param ()
+param (
+    [switch]$ManualLogin
+)
 
 # ------------------------
 # Script Identity
@@ -42,12 +44,12 @@ if (-not $config.Features.SystemHealth.Enabled) {
 }
 
 # ------------------------
-# Get Credential from CCP and Login
+# Get Credential and Login
 # ------------------------
 Write-Log -Message "[DEBUG] ============ AUTHENTICATION ============" -ScriptName $ScriptName -LogPath $LogPath
-Write-Log -Message "[DEBUG] Retrieving CCP credentials..." -ScriptName $ScriptName -LogPath $LogPath
-$Credential = Get-CCPCredential -CCPConfig $config.CCP -ScriptName $ScriptName -LogPath $LogPath
-Write-Log -Message "[DEBUG] CCP credentials retrieved for user: $($Credential.Username)" -ScriptName $ScriptName -LogPath $LogPath
+Write-Log -Message "[DEBUG] Retrieving credentials..." -ScriptName $ScriptName -LogPath $LogPath
+$Credential = Get-SchedulerCredential -CCPConfig $config.CCP -ManualLogin:$ManualLogin -ScriptName $ScriptName -LogPath $LogPath
+Write-Log -Message "[DEBUG] Credentials retrieved for user: $($Credential.Username)" -ScriptName $ScriptName -LogPath $LogPath
 
 Write-Log -Message "[DEBUG] Connecting to CyberArk API..." -ScriptName $ScriptName -LogPath $LogPath
 Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential -ScriptName $ScriptName -LogPath $LogPath

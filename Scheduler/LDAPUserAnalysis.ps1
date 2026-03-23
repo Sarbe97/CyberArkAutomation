@@ -318,7 +318,13 @@ try {
     $excludedCount = 0
     $noMatchCount = 0
     
+    $count = 0
+    $total = $adSecondaryAccounts.Count
     foreach ($ad in $adSecondaryAccounts) {
+        $count++
+        if ($count % 100 -eq 0) {
+            Write-Log -Message "Comparing accounts: $count/$total..." -ScriptName $ScriptName -LogPath $LogPath
+        }
         # Skip excluded accounts (use short name for comparison)
         if (Test-ShouldExclude -Username $ad.Username -Domain $ad.DomainShort -Exclusions $featureConfig.Exclusions) {
             $excludedCount++

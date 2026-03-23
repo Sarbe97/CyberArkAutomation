@@ -93,8 +93,13 @@ try {
     $PersRegex = $FeatureConfig.PersonalSafePattern
 
     $SafesExport = @()
+    $count = 0
 
     foreach ($safe in $allSafes) {
+        $count++
+        if ($count % 100 -eq 0) {
+            Write-Log -Message "Processing safes: $count/$TotalSafes..." -ScriptName $ScriptName -LogPath $LogPath
+        }
         $safeName = $safe.safeName
         if (-not $safeName) { $safeName = $safe.SafeName }
 
@@ -172,8 +177,13 @@ try {
     $MigratedPlatforms = 0
 
     $PlatsExport = @()
+    $count = 0
 
     foreach ($plat in $allPlats) {
+        $count++
+        if ($count % 50 -eq 0) {
+            Write-Log -Message "Processing platforms: $count/$TotalPlatforms..." -ScriptName $ScriptName -LogPath $LogPath
+        }
         $platName = $plat.Name
         $isMigPlat = $false
         if ($MigplatsKeywords) {
@@ -241,7 +251,7 @@ try {
                 }
             }
             $offset += $limit
-            Write-Log -Message "Fetched $TotalAccountsFound accounts so far..." -ScriptName $ScriptName -LogPath $LogPath
+            Write-Log -Message "Fetched $TotalAccountsFound accounts so far. (Current batch URI: $accUri)" -ScriptName $ScriptName -LogPath $LogPath
         }
     }
 

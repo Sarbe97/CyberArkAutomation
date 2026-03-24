@@ -59,6 +59,13 @@ try {
     $platsCacheFile = Join-Path $ExportDir "Cache_Platforms_$TodayStr.csv"
     $safesCacheFile = Join-Path $ExportDir "Cache_Safes_$TodayStr.csv"
 
+    # Load shared feature config
+    $CfgDomains = if ($FeatureConfig.Domains) { $FeatureConfig.Domains } else { @() }
+    $InbuiltSafes = if ($FeatureConfig.InbuiltSafes) { $FeatureConfig.InbuiltSafes } else { @() }
+    $MigSafeKeywords = if ($FeatureConfig.MigratedSafeKeywords) { $FeatureConfig.MigratedSafeKeywords } else { @() }
+    $PersSafeRegex = $FeatureConfig.PersonalSafePattern
+    $MigPlatKeywords = if ($FeatureConfig.MigratedPlatformKeywords) { $FeatureConfig.MigratedPlatformKeywords } else { @() }
+
     # ------------------------
     # Step 1: Fetch Accounts (Inventory) & Analytics
     # ------------------------
@@ -72,8 +79,6 @@ try {
         $offset = 0
         $hasMore = $true
         $TotalAccountsFound = 0
-        $CfgDomains = $FeatureConfig.Domains
-        if ($null -eq $CfgDomains) { $CfgDomains = @() }
 
         while ($hasMore) {
             $accUri = "$BaseUrl/PasswordVault/api/Accounts?limit=$limit&offset=$offset&Fields=name,address,userName,platformId,safeName,secretType,secretManagement"
@@ -182,8 +187,6 @@ try {
         $platsUri = "$BaseUrl/PasswordVault/API/Platforms?limit=1000"
         $platsResponse = Invoke-CyberArkApi -Uri $platsUri
         $allPlats = if ($platsResponse.Platforms) { $platsResponse.Platforms } else { @() }
-        
-        $MigplatsKeywords = $FeatureConfig.MigratedPlatformKeywords
 
         foreach ($plat in $allPlats) {
             $platId = if ($plat.PlatformID) { $plat.PlatformID } else { $plat.platformID }
@@ -191,8 +194,8 @@ try {
             $isActive = ($plat.Active -eq $true)
             
             $isMigPlat = $false
-            if ($MigplatsKeywords) {
-                foreach ($kw in $MigplatsKeywords) {
+            if ($MigPlatKeywords) {
+                foreach ($kw in $MigPlatKeywords) {
                     if ($platName -match "^$kw") { $isMigPlat = $true; break }
                 }
             }
@@ -246,11 +249,6 @@ try {
             if ($batch.Count -lt $limit) { $hasMore = $false } else { $offset += $limit }
         }
 
-        $InbuiltSafes = $FeatureConfig.InbuiltSafes
-        if ($null -eq $InbuiltSafes) { $InbuiltSafes = @() }
-        $MigKeywords = $FeatureConfig.MigratedSafeKeywords
-        $PersRegex = $FeatureConfig.PersonalSafePattern
-
         foreach ($safe in $allSafes) {
             $safeName = if ($safe.safeName) { $safe.safeName } else { $safe.SafeName }
             $isInbuilt = $false
@@ -258,13 +256,13 @@ try {
             if ($isInbuilt) { continue }
 
             $isPersonal = $false
-            if ($PersRegex -and $safeName -match $PersRegex) {
+            if ($PersSafeRegex -and $safeName -match $PersSafeRegex) {
                 $isPersonal = $true
                 $isMigrated = $false
             } else {
                 $isMigrated = $false
-                if ($MigKeywords) {
-                    foreach ($kw in $MigKeywords) { if ($safeName -match "^$kw") { $isMigrated = $true; break } }
+                if ($MigSafeKeywords) {
+                    foreach ($kw in $MigSafeKeywords) { if ($safeName -match "^$kw") { $isMigrated = $true; break } }
                 }
             }
 

@@ -91,8 +91,9 @@ try {
                     # Domain vs Non-Domain
                     $isDomain = $false
                     if ($acc.address) {
+                        $firstPart = ($acc.address -split '\.')[0]
                         foreach ($d in $CfgDomains) {
-                            if ($acc.address -ieq $d -or $acc.address -ilike "*.$d") {
+                            if ($firstPart -ieq $d) {
                                 $isDomain = $true
                                 break
                             }
@@ -142,7 +143,18 @@ try {
         $sName = $row.SafeName
         if ($sName) { $InUseSafeNames[$sName] = $true }
 
-        if ($row.IsDomain -eq $true -or $row.IsDomain -eq "True") { $DomainAccountsCount++ } else { $NonDomainAccountsCount++ }
+        # Domain vs Non-Domain
+        $isDomainCalc = $false
+        if ($row.Address) {
+            $firstPart = ($row.Address -split '\.')[0]
+            foreach ($d in $CfgDomains) {
+                if ($firstPart -ieq $d) {
+                    $isDomainCalc = $true
+                    break
+                }
+            }
+        }
+        if ($isDomainCalc) { $DomainAccountsCount++ } else { $NonDomainAccountsCount++ }
         if ($row.CPMDisabled -eq $true -or $row.CPMDisabled -eq "True") { $CpmDisabledCount++ }
     }
     $InUsePlatformsCount = $InUsePlatformIds.Keys.Count

@@ -54,7 +54,7 @@
             "PersonalSafePattern": "^S-P-[A-Za-z]+-U\\d+$",
             "MigratedPlatformKeywords": ["mig_", "custom_"],
             "InbuiltSafes": ["System", "Vault", "Backup", "Notification", "AppInternal"],
-            "Domains": ["na.company.com", "nadev.company.com", "cap.company.com", "ni.company.com"]
+            "Domains": ["na", "nadev", "cap", "ni"]
         }
     }
 }

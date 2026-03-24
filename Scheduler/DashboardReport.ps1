@@ -137,8 +137,8 @@ try {
     $NonDomainAccountsCount = 0
 
     foreach ($row in $InventoryExport) {
-        $pId = $row.PlatformID
-        if ($pId) { $InUsePlatformIds[$pId] = $true }
+        $pltId = $row.PlatformID
+        if ($pltId) { $InUsePlatformIds[$pltId] = $true }
         
         $sName = $row.SafeName
         if ($sName) { $InUseSafeNames[$sName] = $true }

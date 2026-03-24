@@ -167,7 +167,7 @@ try {
     Write-Log -Message "Fetching Failed Accounts Count..." -ScriptName $ScriptName -LogPath $LogPath
     $failedAccUri = "$BaseUrl/PasswordVault/API/Accounts?savedFilter=PolicyFailures&limit=1"
     $failedAccResp = Invoke-CyberArkApi -Uri $failedAccUri
-    $FailedAccountsCount = if ($failedAccResp.Total) { $failedAccResp.Total } else { 0 }
+    $FailedAccountsCount = if ($failedAccResp.count) { $failedAccResp.count } elseif ($failedAccResp.Total) { $failedAccResp.Total } else { 0 }
     Write-Log -Message "Failed Accounts Count: $FailedAccountsCount" -ScriptName $ScriptName -LogPath $LogPath
 
     # ------------------------

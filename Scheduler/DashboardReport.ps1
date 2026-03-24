@@ -48,84 +48,106 @@ Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential -ScriptName $Scrip
 
 try {
     # ------------------------
+    # ------------------------
+    # Setup Paths and Cache
+    # ------------------------
+    $TodayStr = Get-Date -Format "yyyyMMdd"
+    $ExportDir = Join-Path $RootPath "Logs"
+    if (-not (Test-Path $ExportDir)) { New-Item -ItemType Directory -Path $ExportDir -Force | Out-Null }
+    
+    $invCacheFile = Join-Path $ExportDir "Cache_Inventory_$TodayStr.csv"
+    $platsCacheFile = Join-Path $ExportDir "Cache_Platforms_$TodayStr.csv"
+    $safesCacheFile = Join-Path $ExportDir "Cache_Safes_$TodayStr.csv"
+
+    # ------------------------
     # Step 1: Fetch Accounts (Inventory) & Analytics
     # ------------------------
-    Write-Log -Message "Fetching Accounts for Inventory and analytics. This may take a while..." -ScriptName $ScriptName -LogPath $LogPath
-    $limit = 1000
-    $offset = 0
-    $hasMore = $true
+    $InventoryExport = @()
+    if (Test-Path $invCacheFile) {
+        Write-Log -Message "Loading Inventory from cache: $invCacheFile" -ScriptName $ScriptName -LogPath $LogPath
+        $InventoryExport = Import-Csv $invCacheFile
+    } else {
+        Write-Log -Message "Fetching Accounts for Inventory and analytics. This may take a while..." -ScriptName $ScriptName -LogPath $LogPath
+        $limit = 1000
+        $offset = 0
+        $hasMore = $true
+        $TotalAccountsFound = 0
+        $CfgDomains = $FeatureConfig.Domains
+        if ($null -eq $CfgDomains) { $CfgDomains = @() }
 
+        while ($hasMore) {
+            $accUri = "$BaseUrl/PasswordVault/api/Accounts?limit=$limit&offset=$offset&Fields=name,address,userName,platformId,safeName,secretType,secretManagement"
+            $accResp = Invoke-CyberArkApi -Uri $accUri
+            
+            $accounts = if ($accResp.value) { $accResp.value } else { @() }
+            
+            if ($accounts.Count -eq 0 -or $accounts.Count -lt $limit) {
+                $hasMore = $false
+            }
+            
+            if ($accounts.Count -gt 0) {
+                $TotalAccountsFound += $accounts.Count
+                foreach ($acc in $accounts) {
+                    # Domain vs Non-Domain
+                    $isDomain = $false
+                    if ($acc.address) {
+                        foreach ($d in $CfgDomains) {
+                            if ($acc.address -ieq $d -or $acc.address -ilike "*.$d") {
+                                $isDomain = $true
+                                break
+                            }
+                        }
+                    }
+
+                    # Check CPM disabled status
+                    $cpmDisabled = $false
+                    if ($acc.secretManagement) {
+                        if (($acc.secretManagement.automaticManagementEnabled -eq $false) -or ($acc.secretManagement.manualManagementReason)) {
+                            $cpmDisabled = $true
+                        }
+                    }
+
+                    $InventoryExport += [PSCustomObject]@{
+                        AccountName  = $acc.name
+                        Address      = $acc.address
+                        UserName     = $acc.userName
+                        PlatformID   = $acc.platformId
+                        SafeName     = $acc.safeName
+                        SecretType   = $acc.secretType
+                        CPMDisabled  = $cpmDisabled
+                        IsDomain     = $isDomain
+                    }
+                }
+                $offset += $limit
+                Write-Log -Message "Fetched $TotalAccountsFound accounts so far..." -ScriptName $ScriptName -LogPath $LogPath
+            }
+        }
+        $InventoryExport | Export-Csv -Path $invCacheFile -NoTypeInformation
+        Write-Log -Message "Inventory saved to $invCacheFile" -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    # Recalculate Inventory Analytics
+    Write-Log -Message "Running Inventory analytics..." -ScriptName $ScriptName -LogPath $LogPath
+    $TotalAccountsFound = $InventoryExport.Count
     $InUsePlatformIds = @{}
     $InUseSafeNames = @{}
     $CpmDisabledCount = 0
-    $TotalAccountsFound = 0
     $DomainAccountsCount = 0
     $NonDomainAccountsCount = 0
-    $InventoryExport = @()
 
-    $CfgDomains = $FeatureConfig.Domains
-    if ($null -eq $CfgDomains) { $CfgDomains = @() }
-
-    while ($hasMore) {
-        $accUri = "$BaseUrl/PasswordVault/api/Accounts?limit=$limit&offset=$offset&Fields=name,address,userName,platformId,safeName,secretType,secretManagement"
-        $accResp = Invoke-CyberArkApi -Uri $accUri
+    foreach ($row in $InventoryExport) {
+        $pId = $row.PlatformID
+        if ($pId) { $InUsePlatformIds[$pId] = $true }
         
-        $accounts = if ($accResp.value) { $accResp.value } else { @() }
-        
-        if ($accounts.Count -eq 0 -or $accounts.Count -lt $limit) {
-            $hasMore = $false
-        }
-        
-        if ($accounts.Count -gt 0) {
-            $TotalAccountsFound += $accounts.Count
-            foreach ($acc in $accounts) {
-                # Track in-use platform and safe
-                $platId = $acc.platformId
-                if ($platId) { $InUsePlatformIds[$platId] = $true }
-                
-                $safeName = $acc.safeName
-                if ($safeName) { $InUseSafeNames[$safeName] = $true }
+        $sName = $row.SafeName
+        if ($sName) { $InUseSafeNames[$sName] = $true }
 
-                # Domain vs Non-Domain
-                $isDomain = $false
-                if ($acc.address) {
-                    foreach ($d in $CfgDomains) {
-                        if ($acc.address -ieq $d -or $acc.address -ilike "*.$d") {
-                            $isDomain = $true
-                            break
-                        }
-                    }
-                }
-                if ($isDomain) { $DomainAccountsCount++ } else { $NonDomainAccountsCount++ }
-
-                # Check CPM disabled status
-                $cpmDisabled = $false
-                if ($acc.secretManagement) {
-                    if (($acc.secretManagement.automaticManagementEnabled -eq $false) -or ($acc.secretManagement.manualManagementReason)) {
-                        $cpmDisabled = $true
-                        $CpmDisabledCount++
-                    }
-                }
-
-                $InventoryExport += [PSCustomObject]@{
-                    AccountName  = $acc.name
-                    Address      = $acc.address
-                    UserName     = $acc.userName
-                    PlatformID   = $platId
-                    SafeName     = $acc.safeName
-                    SecretType   = $acc.secretType
-                    CPMDisabled  = $cpmDisabled
-                    IsDomain     = $isDomain
-                }
-            }
-            $offset += $limit
-            Write-Log -Message "Fetched $TotalAccountsFound accounts so far..." -ScriptName $ScriptName -LogPath $LogPath
-        }
+        if ($row.IsDomain -eq $true -or $row.IsDomain -eq "True") { $DomainAccountsCount++ } else { $NonDomainAccountsCount++ }
+        if ($row.CPMDisabled -eq $true -or $row.CPMDisabled -eq "True") { $CpmDisabledCount++ }
     }
-
-    Write-Log -Message "Inventory collection complete. Total Accounts: $TotalAccountsFound" -ScriptName $ScriptName -LogPath $LogPath
     $InUsePlatformsCount = $InUsePlatformIds.Keys.Count
     $InUseSafesCount = $InUseSafeNames.Keys.Count
+    Write-Log -Message "Inventory complete. Total: $TotalAccountsFound, Domain: $DomainAccountsCount, InUsePlats: $InUsePlatformsCount" -ScriptName $ScriptName -LogPath $LogPath
 
     # ------------------------
     # Step 2: Failed Accounts Count
@@ -139,125 +161,131 @@ try {
     # ------------------------
     # Step 3: Fetch Platforms
     # ------------------------
-    Write-Log -Message "Fetching Platforms stats..." -ScriptName $ScriptName -LogPath $LogPath
-    # Get the total count and list of platforms
-    $platsUri = "$BaseUrl/PasswordVault/API/Platforms?limit=1000"
-    $platsResponse = Invoke-CyberArkApi -Uri $platsUri
-    
-    $allPlats = if ($platsResponse.Platforms) { $platsResponse.Platforms } else { @() }
-    
-    $MigplatsKeywords = $FeatureConfig.MigratedPlatformKeywords
-    $MigratedPlatformsCount = 0
-    $ActivePlatformsCount = 0
     $PlatsExport = @()
-
-    foreach ($plat in $allPlats) {
-        $platId = if ($plat.PlatformID) { $plat.PlatformID } else { $plat.platformID }
-        $platName = $plat.Name
-        $isActive = ($plat.Active -eq $true)
+    if (Test-Path $platsCacheFile) {
+        Write-Log -Message "Loading Platforms from cache: $platsCacheFile" -ScriptName $ScriptName -LogPath $LogPath
+        $PlatsExport = Import-Csv $platsCacheFile
+    } else {
+        Write-Log -Message "Fetching Platforms from API..." -ScriptName $ScriptName -LogPath $LogPath
+        $platsUri = "$BaseUrl/PasswordVault/API/Platforms?limit=1000"
+        $platsResponse = Invoke-CyberArkApi -Uri $platsUri
+        $allPlats = if ($platsResponse.Platforms) { $platsResponse.Platforms } else { @() }
         
-        if ($isActive) { $ActivePlatformsCount++ }
+        $MigplatsKeywords = $FeatureConfig.MigratedPlatformKeywords
 
-        $isMigPlat = $false
-        if ($MigplatsKeywords) {
-            foreach ($kw in $MigplatsKeywords) {
-                if ($platName -match "^$kw") { $isMigPlat = $true; break }
+        foreach ($plat in $allPlats) {
+            $platId = if ($plat.PlatformID) { $plat.PlatformID } else { $plat.platformID }
+            $platName = $plat.Name
+            $isActive = ($plat.Active -eq $true)
+            
+            $isMigPlat = $false
+            if ($MigplatsKeywords) {
+                foreach ($kw in $MigplatsKeywords) {
+                    if ($platName -match "^$kw") { $isMigPlat = $true; break }
+                }
+            }
+
+            $PlatsExport += [PSCustomObject]@{
+                PlatformID   = $platId
+                Name         = $platName
+                Active       = $isActive
+                IsMigrated   = $isMigPlat
+                IsInUse      = ($null -ne $platId -and $InUsePlatformIds.ContainsKey($platId))
             }
         }
-        if ($isMigPlat) { $MigratedPlatformsCount++ }
-
-        $PlatsExport += [PSCustomObject]@{
-            PlatformID   = $platId
-            Name         = $platName
-            Active       = $isActive
-            IsMigrated   = $isMigPlat
-            IsInUse      = $InUsePlatformIds.ContainsKey($platId)
-        }
+        $PlatsExport | Export-Csv -Path $platsCacheFile -NoTypeInformation
+        Write-Log -Message "Platforms saved to $platsCacheFile" -ScriptName $ScriptName -LogPath $LogPath
     }
-    Write-Log -Message "Platforms - Total: $($allPlats.Count), Active: $ActivePlatformsCount, Migrated: $MigratedPlatformsCount" -ScriptName $ScriptName -LogPath $LogPath
 
+    # Recalculate Platform Analytics
+    $ActivePlatformsCount = 0
+    $MigratedPlatformsCount = 0
+    foreach ($row in $PlatsExport) {
+        if ($row.Active -eq $true -or $row.Active -eq "True") { $ActivePlatformsCount++ }
+        if ($row.IsMigrated -eq $true -or $row.IsMigrated -eq "True") { $MigratedPlatformsCount++ }
+    }
 
     # ------------------------
     # Step 4: Fetch Safes
     # ------------------------
-    Write-Log -Message "Fetching Safes stats..." -ScriptName $ScriptName -LogPath $LogPath
-    $limit = 1000
-    $offset = 0
-    $hasMore = $true
-    $allSafes = @()
-    $seenSafes = @{}
+    $SafesExport = @()
+    if (Test-Path $safesCacheFile) {
+        Write-Log -Message "Loading Safes from cache: $safesCacheFile" -ScriptName $ScriptName -LogPath $LogPath
+        $SafesExport = Import-Csv $safesCacheFile
+    } else {
+        Write-Log -Message "Fetching Safes from API..." -ScriptName $ScriptName -LogPath $LogPath
+        $limit = 1000
+        $offset = 0
+        $hasMore = $true
+        $allSafes = @()
+        $seenSafes = @{}
 
-    while ($hasMore) {
-        $safesUri = "$BaseUrl/PasswordVault/api/Safes?limit=$limit&offset=$offset"
-        $safesResponse = Invoke-CyberArkApi -Uri $safesUri
-        
-        $batch = if ($safesResponse.value) { $safesResponse.value } elseif ($safesResponse.Safes) { $safesResponse.Safes } else { @() }
+        while ($hasMore) {
+            $safesUri = "$BaseUrl/PasswordVault/api/Safes?limit=$limit&offset=$offset"
+            $safesResponse = Invoke-CyberArkApi -Uri $safesUri
+            $batch = if ($safesResponse.value) { $safesResponse.value } elseif ($safesResponse.Safes) { $safesResponse.Safes } else { @() }
 
-        foreach ($s in $batch) {
-            $sName = if ($s.safeName) { $s.safeName } else { $s.SafeName }
-            if (-not $sName -or $seenSafes.ContainsKey($sName)) { continue }
-            $seenSafes[$sName] = $true
-            $allSafes += $s
+            foreach ($s in $batch) {
+                $sName = if ($s.safeName) { $s.safeName } else { $s.SafeName }
+                if (-not $sName -or $seenSafes.ContainsKey($sName)) { continue }
+                $seenSafes[$sName] = $true
+                $allSafes += $s
+            }
+            if ($batch.Count -lt $limit) { $hasMore = $false } else { $offset += $limit }
         }
 
-        if ($batch.Count -lt $limit) { $hasMore = $false } else { $offset += $limit }
+        $InbuiltSafes = $FeatureConfig.InbuiltSafes
+        if ($null -eq $InbuiltSafes) { $InbuiltSafes = @() }
+        $MigKeywords = $FeatureConfig.MigratedSafeKeywords
+        $PersRegex = $FeatureConfig.PersonalSafePattern
+
+        foreach ($safe in $allSafes) {
+            $safeName = if ($safe.safeName) { $safe.safeName } else { $safe.SafeName }
+            $isInbuilt = $false
+            foreach ($ib in $InbuiltSafes) { if ($safeName -ieq $ib) { $isInbuilt = $true; break } }
+            if ($isInbuilt) { continue }
+
+            $isPersonal = $false
+            if ($PersRegex -and $safeName -match $PersRegex) {
+                $isPersonal = $true
+                $isMigrated = $false
+            } else {
+                $isMigrated = $false
+                if ($MigKeywords) {
+                    foreach ($kw in $MigKeywords) { if ($safeName -match "^$kw") { $isMigrated = $true; break } }
+                }
+            }
+
+            $creationTime = if ($safe.creationTime) { $safe.creationTime } else { $safe.CreationDate }
+            $creator = if ($safe.creator.name) { $safe.creator.name } elseif ($safe.creator) { $safe.creator } else { "Unknown" }
+
+            $SafesExport += [PSCustomObject]@{
+                SafeName      = $safeName
+                Description   = $safe.description
+                CreationTime  = $creationTime
+                Creator       = $creator
+                IsPersonal    = $isPersonal
+                IsMigrated    = $isMigrated
+            }
+        }
+        $SafesExport | Export-Csv -Path $safesCacheFile -NoTypeInformation
+        Write-Log -Message "Safes saved to $safesCacheFile" -ScriptName $ScriptName -LogPath $LogPath
     }
 
-    $InbuiltSafes = $FeatureConfig.InbuiltSafes
-    if ($null -eq $InbuiltSafes) { $InbuiltSafes = @() }
-    
-    $MigKeywords = $FeatureConfig.MigratedSafeKeywords
-    $PersRegex = $FeatureConfig.PersonalSafePattern
-
-    $TotalSafes = 0
+    # Recalculate Safe Analytics
+    $TotalSafes = $SafesExport.Count
     $MigratedSharedSafes = 0
     $PersonalSafesCount = 0
     $SharedSafesCount = 0
-    $SafesExport = @()
-
-    foreach ($safe in $allSafes) {
-        $safeName = if ($safe.safeName) { $safe.safeName } else { $safe.SafeName }
-        
-        # Exclude Inbuilt Safes
-        $isInbuilt = $false
-        foreach ($ib in $InbuiltSafes) {
-            if ($safeName -ieq $ib) { $isInbuilt = $true; break }
-        }
-        if ($isInbuilt) { continue }
-
-        $TotalSafes++
-
-        # Check Personal
-        $isPersonal = $false
-        if ($PersRegex -and $safeName -match $PersRegex) {
-            $isPersonal = $true
+    foreach ($row in $SafesExport) {
+        if ($row.IsPersonal -eq $true -or $row.IsPersonal -eq "True") {
             $PersonalSafesCount++
         } else {
             $SharedSafesCount++
-            # Check Migrated for Shared Safes
-            $isMigrated = $false
-            if ($MigKeywords) {
-                foreach ($kw in $MigKeywords) {
-                    if ($safeName -match "^$kw") { $isMigrated = $true; break }
-                }
-            }
-            if ($isMigrated) { $MigratedSharedSafes++ }
-        }
-
-        # Creator and CreationTime
-        $creationTime = if ($safe.creationTime) { $safe.creationTime } else { $safe.CreationDate }
-        $creator = if ($safe.creator.name) { $safe.creator.name } elseif ($safe.creator) { $safe.creator } else { "Unknown" }
-
-        $SafesExport += [PSCustomObject]@{
-            SafeName      = $safeName
-            Description   = $safe.description
-            CreationTime  = $creationTime
-            Creator       = $creator
-            IsPersonal    = $isPersonal
-            IsMigrated    = $isMigrated # Only relevant for shared safes per logic
+            if ($row.IsMigrated -eq $true -or $row.IsMigrated -eq "True") { $MigratedSharedSafes++ }
         }
     }
-    Write-Log -Message "Total non-inbuilt safes: $TotalSafes. Personal: $PersonalSafesCount, Shared: $SharedSafesCount (Migrated: $MigratedSharedSafes)" -ScriptName $ScriptName -LogPath $LogPath
+
 
 
     # ------------------------
@@ -288,7 +316,7 @@ try {
         SharedSafes            = $SharedSafesCount
         MigratedSharedSafes    = $MigratedSharedSafes
         InUseSafes             = $InUseSafesCount
-        TotalPlatforms         = $allPlats.Count
+        TotalPlatforms         = $PlatsExport.Count
         ActivePlatforms        = $ActivePlatformsCount
         MigratedPlatforms      = $MigratedPlatformsCount
         InUsePlatforms         = $InUsePlatformsCount

@@ -40,7 +40,6 @@ Write-Log -Message "DashboardReport feature enabled. Starting data collection." 
 # ------------------------
 # Get Credential and Login
 # ------------------------
-Write-Log -Message "Retrieving credentials..." -ScriptName $ScriptName -LogPath $LogPath
 $Credential = Get-SchedulerCredential -CCPConfig $config.CCP -ManualLogin:$ManualLogin -ScriptName $ScriptName -LogPath $LogPath
 
 Write-Log -Message "Connecting to CyberArk API..." -ScriptName $ScriptName -LogPath $LogPath
@@ -71,11 +70,10 @@ try {
     # ------------------------
     $InventoryExport = @()
     if (Test-Path $invCacheFile) {
-        Write-Log -Message "Loading Inventory from cache: $invCacheFile" -ScriptName $ScriptName -LogPath $LogPath
         $InventoryExport = Import-Csv $invCacheFile
     } else {
         Write-Log -Message "Fetching Accounts for Inventory and analytics. This may take a while..." -ScriptName $ScriptName -LogPath $LogPath
-        $limit = 1000
+        $limit = 500
         $offset = 0
         $hasMore = $true
         $TotalAccountsFound = 0
@@ -129,11 +127,9 @@ try {
             }
         }
         $InventoryExport | Export-Csv -Path $invCacheFile -NoTypeInformation
-        Write-Log -Message "Inventory saved to $invCacheFile" -ScriptName $ScriptName -LogPath $LogPath
     }
 
     # Recalculate Inventory Analytics
-    Write-Log -Message "Running Inventory analytics..." -ScriptName $ScriptName -LogPath $LogPath
     $TotalAccountsFound = $InventoryExport.Count
     $InUsePlatformIds = @{}
     $InUseSafeNames = @{}
@@ -166,10 +162,7 @@ try {
     $InUseSafesCount = $InUseSafeNames.Keys.Count
     Write-Log -Message "Inventory complete. Total: $TotalAccountsFound, Domain: $DomainAccountsCount, InUsePlats: $InUsePlatformsCount" -ScriptName $ScriptName -LogPath $LogPath
 
-    # ------------------------
     # Step 2: Failed Accounts Count
-    # ------------------------
-    Write-Log -Message "Fetching Failed Accounts Count..." -ScriptName $ScriptName -LogPath $LogPath
     $failedAccUri = "$BaseUrl/PasswordVault/API/Accounts?savedFilter=PolicyFailures&limit=1"
     $failedAccResp = Invoke-CyberArkApi -Uri $failedAccUri
     $FailedAccountsCount = if ($failedAccResp.count) { $failedAccResp.count } elseif ($failedAccResp.Total) { $failedAccResp.Total } else { 0 }
@@ -180,18 +173,17 @@ try {
     # ------------------------
     $PlatsExport = @()
     if (Test-Path $platsCacheFile) {
-        Write-Log -Message "Loading Platforms from cache: $platsCacheFile" -ScriptName $ScriptName -LogPath $LogPath
         $PlatsExport = Import-Csv $platsCacheFile
     } else {
-        Write-Log -Message "Fetching Platforms from API..." -ScriptName $ScriptName -LogPath $LogPath
-        $platsUri = "$BaseUrl/PasswordVault/API/Platforms?limit=1000"
+        Write-Log -Message "Fetching Active Platforms from API..." -ScriptName $ScriptName -LogPath $LogPath
+        $platsUri = "$BaseUrl/PasswordVault/API/Platforms?active=true&limit=500"
         $platsResponse = Invoke-CyberArkApi -Uri $platsUri
         $allPlats = if ($platsResponse.Platforms) { $platsResponse.Platforms } else { @() }
 
         foreach ($plat in $allPlats) {
             $platId = if ($plat.PlatformID) { $plat.PlatformID } else { $plat.platformID }
             $platName = $plat.Name
-            $isActive = ($plat.Active -eq $true)
+            $isActive = $true # Explicitly filtered in API URL
             
             $isMigPlat = $false
             if ($MigPlatKeywords) {
@@ -225,11 +217,10 @@ try {
     # ------------------------
     $SafesExport = @()
     if (Test-Path $safesCacheFile) {
-        Write-Log -Message "Loading Safes from cache: $safesCacheFile" -ScriptName $ScriptName -LogPath $LogPath
         $SafesExport = Import-Csv $safesCacheFile
     } else {
         Write-Log -Message "Fetching Safes from API..." -ScriptName $ScriptName -LogPath $LogPath
-        $limit = 1000
+        $limit = 500
         $offset = 0
         $hasMore = $true
         $allSafes = @()

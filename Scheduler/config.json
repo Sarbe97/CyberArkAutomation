@@ -54,7 +54,7 @@
             "PersonalSafePattern": "^S-P-U\\d+$",
             "MigratedPlatformKeywords": ["mig_", "custom_"],
             "InbuiltSafes": ["System", "Vault", "Backup", "Notification", "AppInternal"],
-            "FailedAccountExcludeSafes": ["System", "Vault", "Backup", "Notification", "AppInternal"],
+            "FailedAccountExcludePlatforms": ["WinServerLocal", "UnixSSH"],
             "Domains": ["na", "nadev", "cap", "ni"]
         }
     }

@@ -70,7 +70,7 @@ try {
     $MigSafeKeywords = if ($FeatureConfig.MigratedSafeKeywords) { $FeatureConfig.MigratedSafeKeywords } else { @() }
     $PersSafeRegex = $FeatureConfig.PersonalSafePattern
     $MigPlatKeywords = if ($FeatureConfig.MigratedPlatformKeywords) { $FeatureConfig.MigratedPlatformKeywords } else { @() }
-    $ExcludeFailedSafes = if ($FeatureConfig.FailedAccountExcludeSafes) { $FeatureConfig.FailedAccountExcludeSafes } else { @() }
+    $ExcludeFailedPlatforms = if ($FeatureConfig.FailedAccountExcludePlatforms) { $FeatureConfig.FailedAccountExcludePlatforms } else { @() }
 
     # ------------------------
     # Step 1: Fetch Accounts (Inventory) & Analytics
@@ -180,9 +180,9 @@ try {
     $failedAccounts = if ($failedAccResp.value) { $failedAccResp.value } else { @() }
     
     $filteredFailedAccounts = $failedAccounts | Where-Object {
-        $saName = $_.safeName
+        $pltId = $_.platformId
         $isExcluded = $false
-        foreach ($ib in $ExcludeFailedSafes) { if ($saName -ieq $ib) { $isExcluded = $true; break } }
+        foreach ($ep in $ExcludeFailedPlatforms) { if ($pltId -ieq $ep) { $isExcluded = $true; break } }
         -not $isExcluded
     }
     $FailedAccountsCount = $filteredFailedAccounts.Count

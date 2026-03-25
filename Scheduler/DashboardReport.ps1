@@ -363,6 +363,41 @@ try {
     Write-Log -Message "  - Platforms: $platsFile" -ScriptName $ScriptName -LogPath $LogPath
     Write-Log -Message "  - Summary: $summaryFile" -ScriptName $ScriptName -LogPath $LogPath
 
+    # ------------------------
+    # Step 6: Automated Email Notification
+    # ------------------------
+    if (-not $ManualLogin) {
+        if ($config.Email -and $config.Email.SmtpServer -and $config.Email.To) {
+            Write-Log -Message "ManualLogin not detected. Preparing automated email notification..." -ScriptName $ScriptName -LogPath $LogPath
+            
+            try {
+                $zipFile = Join-Path $ExportDir "DashboardReports_$timestamp.zip"
+                $filesToZip = @($invFile, $safesFile, $platsFile, $summaryFile)
+                
+                Write-Log -Message "Zipping reports to $zipFile..." -ScriptName $ScriptName -LogPath $LogPath
+                Compress-Archive -Path $filesToZip -DestinationPath $zipFile -Force
+                
+                $Subject = "CyberArk Dashboard Report - $TodayStr"
+                $Body = "The automated Dashboard Report for CyberArk has been completed successfully.`n`nPlease find the zipped reports attached.`n`nTimestamp: $timestamp"
+                $SmtpServer = $config.Email.SmtpServer
+                $From = $config.Email.From
+                $To = $config.Email.To -join ","
+
+                Write-Log -Message "Sending email to $To via $SmtpServer..." -ScriptName $ScriptName -LogPath $LogPath
+                Send-MailMessage -SmtpServer $SmtpServer -From $From -To $To -Subject $Subject -Body $Body -Attachments $zipFile
+                Write-Log -Message "Email sent successfully." -ScriptName $ScriptName -LogPath $LogPath
+            }
+            catch {
+                Write-Log -Message "Failed to send email notification: $_" -Level "WARNING" -ScriptName $ScriptName -LogPath $LogPath
+            }
+        }
+        else {
+            Write-Log -Message "Email configuration missing or incomplete in config.json. Skipping notification." -Level "WARNING" -ScriptName $ScriptName -LogPath $LogPath
+        }
+    }
+    else {
+        Write-Log -Message "ManualLogin detected. Skipping automated email notification." -ScriptName $ScriptName -LogPath $LogPath
+    }
 }
 catch {
     Write-Log -Message "Dashboard Report failed: $_" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath

@@ -13,6 +13,24 @@
             "pam-ops@company.com"
         ]
     },
+    "Schedules": [
+        {
+            "Group": "Monitoring",
+            "Frequency": "Hourly",
+            "Scripts": [
+                "SystemHealth.ps1"
+            ]
+        },
+        {
+            "Group": "Reporting",
+            "Frequency": "Daily",
+            "Hour": 1,
+            "Scripts": [
+                "DashboardReport.ps1",
+                "LDAPUserAnalysis.ps1"
+            ]
+        }
+    ],
     "Features": {
         "SystemHealth": {
             "Enabled": true

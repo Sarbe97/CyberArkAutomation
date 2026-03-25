@@ -378,7 +378,14 @@ try {
                 Compress-Archive -Path $filesToZip -DestinationPath $zipFile -Force
                 
                 $Subject = "CyberArk Dashboard Report - $TodayStr"
-                $Body = "The automated Dashboard Report for CyberArk has been completed successfully.`n`nPlease find the zipped reports attached.`n`nTimestamp: $timestamp"
+                
+                # Build Summary Body
+                $SummaryBody = "`n--- Summary Counts ---`n"
+                foreach ($row in $SummaryRows) {
+                    $SummaryBody += "$($row.Metric): $($row.Value)`n"
+                }
+
+                $Body = "The automated Dashboard Report for CyberArk has been completed successfully.`n$SummaryBody`nPlease find the full details/CSV files in the attached zip.`n`nTimestamp: $timestamp"
                 $SmtpServer = $config.Email.SmtpServer
                 $From = $config.Email.From
                 $To = $config.Email.To -join ","

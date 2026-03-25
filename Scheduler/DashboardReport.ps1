@@ -10,13 +10,16 @@ $RootPath = $PSScriptRoot
 $ConfigPath = Join-Path $RootPath "config.json"
 
 # ------------------------
-# Setup Paths (yyyyMMdd Subfolder)
+# Setup Paths (Logs & Output)
 # ------------------------
 $TodayStr = Get-Date -Format "yyyyMMdd"
-$BaseLogDir = Join-Path $RootPath "Logs"
-$ExportDir = Join-Path $BaseLogDir $TodayStr
+$LogDir = Join-Path $RootPath "Logs"
+if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null }
+$LogPath = Join-Path $LogDir "$ScriptName-$TodayStr.log"
+
+$BaseOutputDir = Join-Path $RootPath "Output"
+$ExportDir = Join-Path $BaseOutputDir $TodayStr
 if (-not (Test-Path $ExportDir)) { New-Item -ItemType Directory -Path $ExportDir -Force | Out-Null }
-$LogPath = Join-Path $ExportDir "$ScriptName-$TodayStr.log"
 
 # ------------------------
 # Load Utils
@@ -340,26 +343,25 @@ try {
     $SafesExport | Export-Csv -Path $safesFile -NoTypeInformation
     $PlatsExport | Export-Csv -Path $platsFile -NoTypeInformation
 
-    $SummaryData = [PSCustomObject]@{
-        TotalAccounts          = $TotalAccountsFound
-        DomainAccounts         = $DomainAccountsCount
-        NonDomainAccounts      = $NonDomainAccountsCount
-        FailedAccounts         = $FailedAccountsCount
-        CPMDisabledAccounts    = $CpmDisabledCount
-        TotalSafes             = $TotalSafes
-        PersonalSafes          = $PersonalSafesCount
-        SharedSafes            = $SharedSafesCount
-        MigratedSharedSafes    = $MigratedSharedSafes
-        InUseSafes             = $InUseSafesCount
-        NotInUseSafes          = $NotInUseSafesCount
-        TotalPlatforms         = $PlatsExport.Count
-        ActivePlatforms        = $ActivePlatformsCount
-        MigratedPlatforms      = $MigratedPlatformsCount
-        InUsePlatforms         = $InUsePlatformsCount
-        Timestamp              = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-    }
+    $SummaryRows = @()
+    $SummaryRows += [PSCustomObject]@{ Metric = "TotalAccounts"; Value = $TotalAccountsFound }
+    $SummaryRows += [PSCustomObject]@{ Metric = "DomainAccounts"; Value = $DomainAccountsCount }
+    $SummaryRows += [PSCustomObject]@{ Metric = "NonDomainAccounts"; Value = $NonDomainAccountsCount }
+    $SummaryRows += [PSCustomObject]@{ Metric = "FailedAccounts"; Value = $FailedAccountsCount }
+    $SummaryRows += [PSCustomObject]@{ Metric = "CPMDisabledAccounts"; Value = $CpmDisabledCount }
+    $SummaryRows += [PSCustomObject]@{ Metric = "TotalSafes"; Value = $TotalSafes }
+    $SummaryRows += [PSCustomObject]@{ Metric = "PersonalSafes"; Value = $PersonalSafesCount }
+    $SummaryRows += [PSCustomObject]@{ Metric = "SharedSafes"; Value = $SharedSafesCount }
+    $SummaryRows += [PSCustomObject]@{ Metric = "MigratedSharedSafes"; Value = $MigratedSharedSafes }
+    $SummaryRows += [PSCustomObject]@{ Metric = "InUseSafes"; Value = $InUseSafesCount }
+    $SummaryRows += [PSCustomObject]@{ Metric = "NotInUseSafes"; Value = $NotInUseSafesCount }
+    $SummaryRows += [PSCustomObject]@{ Metric = "TotalPlatforms"; Value = $PlatsExport.Count }
+    $SummaryRows += [PSCustomObject]@{ Metric = "ActivePlatforms"; Value = $ActivePlatformsCount }
+    $SummaryRows += [PSCustomObject]@{ Metric = "MigratedPlatforms"; Value = $MigratedPlatformsCount }
+    $SummaryRows += [PSCustomObject]@{ Metric = "InUsePlatforms"; Value = $InUsePlatformsCount }
+    $SummaryRows += [PSCustomObject]@{ Metric = "Timestamp"; Value = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss") }
 
-    $SummaryData | Export-Csv -Path $summaryFile -NoTypeInformation
+    $SummaryRows | Export-Csv -Path $summaryFile -NoTypeInformation
 
     Write-Log -Message "Reports generated successfully:" -ScriptName $ScriptName -LogPath $LogPath
     Write-Log -Message "  - Inventory: $invFile" -ScriptName $ScriptName -LogPath $LogPath

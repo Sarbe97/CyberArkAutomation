@@ -64,6 +64,7 @@ try {
     $MigSafeKeywords = if ($FeatureConfig.MigratedSafeKeywords) { $FeatureConfig.MigratedSafeKeywords } else { @() }
     $PersSafeRegex = $FeatureConfig.PersonalSafePattern
     $MigPlatKeywords = if ($FeatureConfig.MigratedPlatformKeywords) { $FeatureConfig.MigratedPlatformKeywords } else { @() }
+    $ExcludeFailedSafes = if ($FeatureConfig.FailedAccountExcludeSafes) { $FeatureConfig.FailedAccountExcludeSafes } else { @() }
 
     # ------------------------
     # Step 1: Fetch Accounts (Inventory) & Analytics
@@ -73,7 +74,7 @@ try {
         $InventoryExport = Import-Csv $invCacheFile
     } else {
         Write-Log -Message "Fetching Accounts for Inventory and analytics. This may take a while..." -ScriptName $ScriptName -LogPath $LogPath
-        $limit = 500
+        $limit = 1000
         $offset = 0
         $hasMore = $true
         $TotalAccountsFound = 0
@@ -142,7 +143,12 @@ try {
         if ($pltId) { $InUsePlatformIds[$pltId] = $true }
         
         $sName = $row.SafeName
-        if ($sName) { $InUseSafeNames[$sName] = $true }
+        if ($sName) { 
+            # Check if this in-use safe is an inbuilt safe
+            $isIB = $false
+            foreach ($ib in $InbuiltSafes) { if ($sName -ieq $ib) { $isIB = $true; break } }
+            if (-not $isIB) { $InUseSafeNames[$sName] = $true }
+        }
 
         # Domain vs Non-Domain
         $isDomainCalc = $false
@@ -161,12 +167,20 @@ try {
     $InUsePlatformsCount = $InUsePlatformIds.Keys.Count
     $InUseSafesCount = $InUseSafeNames.Keys.Count
     Write-Log -Message "Inventory complete. Total: $TotalAccountsFound, Domain: $DomainAccountsCount, InUsePlats: $InUsePlatformsCount" -ScriptName $ScriptName -LogPath $LogPath
-
-    # Step 2: Failed Accounts Count
-    $failedAccUri = "$BaseUrl/PasswordVault/API/Accounts?savedFilter=PolicyFailures&limit=1"
+    
+    # Step 2: Failed Accounts Count (Filtered by InbuiltSafes)
+    $failedAccUri = "$BaseUrl/PasswordVault/API/Accounts?savedFilter=PolicyFailures&limit=1000"
     $failedAccResp = Invoke-CyberArkApi -Uri $failedAccUri
-    $FailedAccountsCount = if ($failedAccResp.count) { $failedAccResp.count } elseif ($failedAccResp.Total) { $failedAccResp.Total } else { 0 }
-    Write-Log -Message "Failed Accounts Count: $FailedAccountsCount" -ScriptName $ScriptName -LogPath $LogPath
+    $failedAccounts = if ($failedAccResp.value) { $failedAccResp.value } else { @() }
+    
+    $filteredFailedAccounts = $failedAccounts | Where-Object {
+        $saName = $_.safeName
+        $isExcluded = $false
+        foreach ($ib in $ExcludeFailedSafes) { if ($saName -ieq $ib) { $isExcluded = $true; break } }
+        -not $isExcluded
+    }
+    $FailedAccountsCount = $filteredFailedAccounts.Count
+    Write-Log -Message "Failed Accounts Count (filtered): $FailedAccountsCount" -ScriptName $ScriptName -LogPath $LogPath
 
     # ------------------------
     # Step 3: Fetch Platforms
@@ -181,8 +195,8 @@ try {
         $allPlats = if ($platsResponse.Platforms) { $platsResponse.Platforms } else { @() }
 
         foreach ($plat in $allPlats) {
-            $platId = if ($plat.PlatformID) { $plat.PlatformID } else { $plat.platformID }
-            $platName = $plat.Name
+            $platId = if ($plat.PlatformID) { $plat.PlatformID } elseif ($plat.platformID) { $plat.platformID } else { $plat.ID }
+            $platName = if ($plat.Name) { $plat.Name } elseif ($plat.platformName) { $plat.platformName } else { "Unknown" }
             $isActive = $true # Explicitly filtered in API URL
             
             $isMigPlat = $false
@@ -286,6 +300,7 @@ try {
             if ($row.IsMigrated -eq $true -or $row.IsMigrated -eq "True") { $MigratedSharedSafes++ }
         }
     }
+    $NotInUseSafesCount = $TotalSafes - $InUseSafesCount
 
 
 
@@ -317,6 +332,7 @@ try {
         SharedSafes            = $SharedSafesCount
         MigratedSharedSafes    = $MigratedSharedSafes
         InUseSafes             = $InUseSafesCount
+        NotInUseSafes          = $NotInUseSafesCount
         TotalPlatforms         = $PlatsExport.Count
         ActivePlatforms        = $ActivePlatformsCount
         MigratedPlatforms      = $MigratedPlatformsCount

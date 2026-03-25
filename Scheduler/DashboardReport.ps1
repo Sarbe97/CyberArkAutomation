@@ -349,7 +349,6 @@ try {
     $SummaryRows += [PSCustomObject]@{ Metric = "MigratedSharedSafes"; Value = $MigratedSharedSafes }
     $SummaryRows += [PSCustomObject]@{ Metric = "InUseSafes"; Value = $InUseSafesCount }
     $SummaryRows += [PSCustomObject]@{ Metric = "NotInUseSafes"; Value = $NotInUseSafesCount }
-    $SummaryRows += [PSCustomObject]@{ Metric = "TotalPlatforms"; Value = $PlatsExport.Count }
     $SummaryRows += [PSCustomObject]@{ Metric = "ActivePlatforms"; Value = $ActivePlatformsCount }
     $SummaryRows += [PSCustomObject]@{ Metric = "MigratedPlatforms"; Value = $MigratedPlatformsCount }
     $SummaryRows += [PSCustomObject]@{ Metric = "InUsePlatforms"; Value = $InUsePlatformsCount }

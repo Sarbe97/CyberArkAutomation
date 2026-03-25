@@ -204,9 +204,9 @@ try {
         $allPlats = if ($platsResponse.Platforms) { $platsResponse.Platforms } else { @() }
 
         foreach ($plat in $allPlats) {
-            $platId = if ($plat.PlatformID) { $plat.PlatformID } elseif ($plat.platformID) { $plat.platformID } else { $plat.ID }
-            $platName = if ($plat.Name) { $plat.Name } elseif ($plat.platformName) { $plat.platformName } else { "Unknown" }
-            $isActive = $true # Explicitly filtered in API URL
+            $platId = if ($plat.general.id) { $plat.general.id } else { $plat.platformId }
+            $platName = if ($plat.general.name) { $plat.general.name } else { $plat.name }
+            $isActive = if ($null -ne $plat.general.active) { $plat.general.active } else { $plat.active }
             
             $isMigPlat = $false
             if ($MigPlatKeywords) {

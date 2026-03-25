@@ -8,7 +8,15 @@ param (
 $ScriptName = "DashboardReport"
 $RootPath = $PSScriptRoot
 $ConfigPath = Join-Path $RootPath "config.json"
-$LogPath = Join-Path $RootPath "Logs\$ScriptName-$(Get-Date -Format yyyyMMdd).log"
+
+# ------------------------
+# Setup Paths (yyyyMMdd Subfolder)
+# ------------------------
+$TodayStr = Get-Date -Format "yyyyMMdd"
+$BaseLogDir = Join-Path $RootPath "Logs"
+$ExportDir = Join-Path $BaseLogDir $TodayStr
+if (-not (Test-Path $ExportDir)) { New-Item -ItemType Directory -Path $ExportDir -Force | Out-Null }
+$LogPath = Join-Path $ExportDir "$ScriptName-$TodayStr.log"
 
 # ------------------------
 # Load Utils
@@ -47,12 +55,10 @@ Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential -ScriptName $Scrip
 
 try {
     # ------------------------
-    # ------------------------
-    # Setup Paths and Cache
+    # Setup Cache Paths
     # ------------------------
     $TodayStr = Get-Date -Format "yyyyMMdd"
-    $ExportDir = Join-Path $RootPath "Logs"
-    if (-not (Test-Path $ExportDir)) { New-Item -ItemType Directory -Path $ExportDir -Force | Out-Null }
+    # ExportDir already created at script start
     
     $invCacheFile = Join-Path $ExportDir "Cache_Inventory_$TodayStr.csv"
     $platsCacheFile = Join-Path $ExportDir "Cache_Platforms_$TodayStr.csv"
@@ -271,13 +277,27 @@ try {
                 }
             }
 
-            $creationTime = if ($safe.creationTime) { $safe.creationTime } else { $safe.CreationDate }
+            $creationTimeEpoch = if ($safe.creationTime) { $safe.creationTime } else { $safe.CreationDate }
+            $creationTimeStr = "Unknown"
+            if ($creationTimeEpoch -match "^\d+$") {
+                try {
+                    $longVal = [long]$creationTimeEpoch
+                    if ($longVal -gt 1e11) {
+                        $creationTimeStr = [datetimeoffset]::FromUnixTimeMilliseconds($longVal).DateTime.ToString("yyyy-MM-dd HH:mm:ss")
+                    } else {
+                        $creationTimeStr = [datetimeoffset]::FromUnixTimeSeconds($longVal).DateTime.ToString("yyyy-MM-dd HH:mm:ss")
+                    }
+                } catch { $creationTimeStr = "Invalid Date ($creationTimeEpoch)" }
+            } elseif ($null -ne $creationTimeEpoch) {
+                $creationTimeStr = $creationTimeEpoch
+            }
+
             $creator = if ($safe.creator.name) { $safe.creator.name } elseif ($safe.creator) { $safe.creator } else { "Unknown" }
 
             $SafesExport += [PSCustomObject]@{
                 SafeName      = $safeName
                 Description   = $safe.description
-                CreationTime  = $creationTime
+                CreationTime  = $creationTimeStr
                 Creator       = $creator
                 IsPersonal    = $isPersonal
                 IsMigrated    = $isMigrated
@@ -307,8 +327,7 @@ try {
     # ------------------------
     # Export Data
     # ------------------------
-    $ExportDir = Join-Path $RootPath "Logs"
-    if (-not (Test-Path $ExportDir)) { New-Item -ItemType Directory -Path $ExportDir -Force | Out-Null }
+    # ExportDir already created at script start
     
     $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
     

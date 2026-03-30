@@ -72,6 +72,7 @@ try {
     $invFile     = Join-Path $ExportDir "DashboardInventoryDetails_$timestamp.csv"
     $safesFile   = Join-Path $ExportDir "DashboardSafesDetails_$timestamp.csv"
     $platsFile   = Join-Path $ExportDir "DashboardPlatformsDetails_$timestamp.csv"
+    $failFile    = Join-Path $ExportDir "DashboardFailedAccountsDetails_$timestamp.csv"
     $summaryFile = Join-Path $ExportDir "DashboardCounts_$timestamp.csv"
 
     # Load shared feature config
@@ -81,6 +82,7 @@ try {
     $PersSafeRegex = $FeatureConfig.PersonalSafePattern
     $MigPlatKeywords = if ($FeatureConfig.MigratedPlatformKeywords) { $FeatureConfig.MigratedPlatformKeywords } else { @() }
     $ExcludeFailedPlatforms = if ($FeatureConfig.FailedAccountExcludePlatforms) { $FeatureConfig.FailedAccountExcludePlatforms } else { @() }
+    $TrackedFailedAccounts = if ($FeatureConfig.TrackedFailedAccounts) { $FeatureConfig.TrackedFailedAccounts } else { @() }
 
     # ------------------------
     # Step 1: Fetch Raw Accounts
@@ -186,6 +188,16 @@ try {
     }
     $FailedAccountsCount = $filteredFailedAccounts.Count
     Write-Log -Message "Failed Accounts Count (filtered): $FailedAccountsCount" -ScriptName $ScriptName -LogPath $LogPath
+
+    # Export filtered failed accounts
+    $filteredFailedAccounts | Export-Csv -Path $failFile -NoTypeInformation
+
+    # Track specific failed accounts count
+    $TrackedFailedCounts = @{}
+    foreach ($trackedAcc in $TrackedFailedAccounts) {
+        $foundCount = ($filteredFailedAccounts | Where-Object { $_.name -match $trackedAcc -or $_.userName -match $trackedAcc -or $_.address -match $trackedAcc }).Count
+        $TrackedFailedCounts[$trackedAcc] = $foundCount
+    }
 
     # ------------------------
     # Step 3: Fetch Raw Platforms
@@ -352,6 +364,12 @@ try {
     $SummaryRows += [PSCustomObject]@{ Metric = "ActivePlatforms"; Value = $ActivePlatformsCount }
     $SummaryRows += [PSCustomObject]@{ Metric = "MigratedPlatforms"; Value = $MigratedPlatformsCount }
     $SummaryRows += [PSCustomObject]@{ Metric = "InUsePlatforms"; Value = $InUsePlatformsCount }
+    
+    # Add tracked failed account counts to summary
+    foreach ($entry in $TrackedFailedCounts.GetEnumerator()) {
+        $SummaryRows += [PSCustomObject]@{ Metric = "FailedAccount_($($entry.Key))"; Value = $entry.Value }
+    }
+    
     $SummaryRows += [PSCustomObject]@{ Metric = "Timestamp"; Value = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss") }
 
     $SummaryRows | Export-Csv -Path $summaryFile -NoTypeInformation
@@ -360,6 +378,7 @@ try {
     Write-Log -Message "  - Inventory: $invFile" -ScriptName $ScriptName -LogPath $LogPath
     Write-Log -Message "  - Safes: $safesFile" -ScriptName $ScriptName -LogPath $LogPath
     Write-Log -Message "  - Platforms: $platsFile" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "  - FailedAccounts: $failFile" -ScriptName $ScriptName -LogPath $LogPath
     Write-Log -Message "  - Summary: $summaryFile" -ScriptName $ScriptName -LogPath $LogPath
 
     # ------------------------
@@ -371,26 +390,72 @@ try {
             
             try {
                 $zipFile = Join-Path $ExportDir "DashboardReports_$timestamp.zip"
-                $filesToZip = @($invFile, $safesFile, $platsFile, $summaryFile)
+                $filesToZip = @($invFile, $safesFile, $platsFile, $failFile, $summaryFile)
                 
                 Write-Log -Message "Zipping reports to $zipFile..." -ScriptName $ScriptName -LogPath $LogPath
                 Compress-Archive -Path $filesToZip -DestinationPath $zipFile -Force
                 
                 $Subject = "CyberArk Dashboard Report - $TodayStr"
-                
-                # Build Summary Body
-                $SummaryBody = "`n--- Summary Counts ---`n"
+
+                # Premium HTML Body
+                $HtmlHead = @"
+<style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f9; color: #333; margin: 20px; }
+    h2 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }
+    .container { background-color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 800px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { text-align: left; padding: 12px; border-bottom: 1px solid #eee; }
+    th { background-color: #3498db; color: #fff; text-transform: uppercase; font-size: 0.9em; letter-spacing: 1px; }
+    tr:hover { background-color: #f9f9f9; }
+    .footer { margin-top: 30px; font-size: 0.85em; color: #7f8c8d; }
+    .metric { font-weight: bold; color: #2980b9; }
+    .priority-failed { color: #e74c3c; font-weight: bold; }
+</style>
+"@
+                $TableRows = ""
                 foreach ($row in $SummaryRows) {
-                    $SummaryBody += "$($row.Metric): $($row.Value)`n"
+                    $valStyle = if ($row.Metric -like "*Failed*") { " class='priority-failed'" } else { " class='metric'" }
+                    if ($row.Metric -ne "Timestamp") {
+                        $TableRows += "<tr><td>$($row.Metric)</td><td$valStyle>$($row.Value)</td></tr>"
+                    }
                 }
 
-                $Body = "The automated Dashboard Report for CyberArk has been completed successfully.`n$SummaryBody`nPlease find the full details/CSV files in the attached zip.`n`nTimestamp: $timestamp"
+                $Body = @"
+<html>
+<head>$HtmlHead</head>
+<body>
+    <div class="container">
+        <h2>CyberArk Dashboard Report</h2>
+        <p>The automated Dashboard Report has been completed successfully. Below is a summary of the key metrics collected.</p>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Metric Name</th>
+                    <th>Value</th>
+                </tr>
+            </thead>
+            <tbody>
+                $TableRows
+            </tbody>
+        </table>
+        
+        <p>Please find the full reports (Inventory, Safes, Platforms, Failed Accounts) in the attached zip file.</p>
+        
+        <div class="footer">
+            Generated by CyberArkAutomation | Timestamp: $( (Get-Date).ToString("yyyy-MM-dd HH:mm:ss") )
+        </div>
+    </div>
+</body>
+</html>
+"@
+
                 $SmtpServer = $config.Email.SmtpServer
                 $From = $config.Email.From
                 $To = $config.Email.To -join ","
 
                 Write-Log -Message "Sending email to $To via $SmtpServer..." -ScriptName $ScriptName -LogPath $LogPath
-                Send-MailMessage -SmtpServer $SmtpServer -From $From -To $To -Subject $Subject -Body $Body -Attachments $zipFile
+                Send-MailMessage -SmtpServer $SmtpServer -From $From -To $To -Subject $Subject -Body $Body -BodyAsHtml -Attachments $zipFile
                 Write-Log -Message "Email sent successfully." -ScriptName $ScriptName -LogPath $LogPath
             }
             catch {

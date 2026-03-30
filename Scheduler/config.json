@@ -73,7 +73,8 @@
             "MigratedPlatformKeywords": ["mig_", "custom_"],
             "InbuiltSafes": ["System", "Vault", "Backup", "Notification", "AppInternal"],
             "FailedAccountExcludePlatforms": ["WinServerLocal", "UnixSSH"],
-            "Domains": ["na", "nadev", "cap", "ni"]
+            "Domains": ["na", "nadev", "cap", "ni"],
+            "TrackedFailedAccounts": ["admin", "svc_backup", "sql_svc"]
         }
     }
 }

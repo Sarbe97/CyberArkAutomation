@@ -30,17 +30,9 @@ function Write-Log {
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logEntry = "$timestamp [$ScriptName] [$Level] $Message"
     
-    # Write to console and log file with retry logic for locking
+    # Write to console and log file (avoid pipeline leakage)
     Write-Host $logEntry
-    for ($i = 1; $i -le 3; $i++) {
-        try {
-            $logEntry | Add-Content -Path $LogPath -ErrorAction Stop
-            return
-        }
-        catch {
-            if ($i -lt 3) { Start-Sleep -Milliseconds 200 }
-        }
-    }
+    $logEntry | Add-Content -Path $LogPath
 }
 
 # ------------------------
@@ -60,43 +52,29 @@ function Get-CCPCredential {
         [string]$LogPath
     )
 
-    # Build CCP URL with proper Query format: Safe=xxx;Object=xxx
-    $query = "Safe=$($CCPConfig.Safe);Object=$($CCPConfig.Object)"
-    $uri = "$($CCPConfig.Url)?AppID=$($CCPConfig.AppId)&Query=$query"
-    
-    if ($LogPath) {
-        Write-Log -Message "Retrieving credential from CCP: $uri" -ScriptName $ScriptName -LogPath $LogPath
-    }
-
-    $ErrorMsg = ""
-    for ($i = 1; $i -le 3; $i++) {
-        try {
-            $resp = Invoke-RestMethod -Uri $uri -Method Get -ErrorAction Stop
-            
-            # CCP returns: UserName + Content (password)
-            return @{
-                Username = $resp.UserName
-                Password = $resp.Content
-            }
+    try {
+        # Build CCP URL with proper Query format: Safe=xxx;Object=xxx
+        $query = "Safe=$($CCPConfig.Safe);Object=$($CCPConfig.Object)"
+        $uri = "$($CCPConfig.Url)?AppID=$($CCPConfig.AppId)&Query=$query"
+        
+        if ($LogPath) {
+            Write-Log -Message "Retrieving credential from CCP: $uri" -ScriptName $ScriptName -LogPath $LogPath
         }
-        catch {
-            $ErrorMsg = $_.Exception.Message
-            if ($ErrorMsg -like "*remote name could not be resolved*") {
-                $ErrorMsg = "DNS Resolution Failed for '$($CCPConfig.Url)'. Please check network connectivity and DNS settings. (Original error: $ErrorMsg)"
-            }
-            
-            if ($LogPath) {
-                Write-Log -Message "CCP retrieval attempt $i failed: $ErrorMsg" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
-            }
-            
-            if ($i -lt 3) { Start-Sleep -Seconds 1 }
+
+        $resp = Invoke-RestMethod -Uri $uri -Method Get -ErrorAction Stop
+
+        # CCP returns: UserName ± Content (password)
+        return @{
+            Username = $resp.UserName
+            Password = $resp.Content
         }
     }
-
-    if ($LogPath) {
-        Write-Log -Message "CCP credential retrieval failed after 3 attempts: $ErrorMsg" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
+    catch {
+        if ($LogPath) {
+            Write-Log -Message "CCP credential retrieval failed: $_" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
+        }
+        throw
     }
-    throw "CCP Retrieval Failed: $ErrorMsg"
 }
 
 # ------------------------
@@ -124,7 +102,8 @@ function Get-SchedulerCredential {
             Username = $creds.UserName
             Password = $creds.GetNetworkCredential().Password
         }
-    } else {
+    }
+    else {
         return Get-CCPCredential -CCPConfig $CCPConfig -ScriptName $ScriptName -LogPath $LogPath
     }
 }
@@ -396,6 +375,29 @@ function Send-SchedulerEmailWithAttachment {
             # Filter only existing files
             $validAttachments = $Attachments | Where-Object { Test-Path $_ }
             if ($validAttachments.Count -gt 0) {
+                $mailParams.Attachments = $validAttachments
+            }
+            if ($LogPath) {
+                Write-Log -Message "Attaching $($validAttachments.Count) file(s)" -ScriptName $ScriptName -LogPath $LogPath
+            }
+        }
+
+        Send-MailMessage @mailParams
+
+        if ($LogPath) {
+            Write-Log -Message "Email sent successfully: $Subject" -ScriptName $ScriptName -LogPath $LogPath
+        }
+
+        return $true
+    }
+    catch {
+        if ($LogPath) {
+            Write-Log -Message "Email sending failed: $_" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
+        }
+        return $false
+    }
+}
+}
                 $mailParams.Attachments = $validAttachments
             }
             if ($LogPath) {

@@ -403,7 +403,7 @@ try {
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f9; color: #333; margin: 20px; }
     h2 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }
     .container { background-color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 800px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    table { width: 400px; border-collapse: collapse; margin-top: 20px; }
     th, td { text-align: left; padding: 12px; border-bottom: 1px solid #eee; }
     th { background-color: #3498db; color: #fff; text-transform: uppercase; font-size: 0.9em; letter-spacing: 1px; }
     tr:hover { background-color: #f9f9f9; }

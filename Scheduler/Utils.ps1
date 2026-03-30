@@ -30,9 +30,17 @@ function Write-Log {
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logEntry = "$timestamp [$ScriptName] [$Level] $Message"
     
-    # Write to console and log file (avoid pipeline leakage)
+    # Write to console and log file with retry logic for locking
     Write-Host $logEntry
-    $logEntry | Add-Content -Path $LogPath
+    for ($i = 1; $i -le 3; $i++) {
+        try {
+            $logEntry | Add-Content -Path $LogPath -ErrorAction Stop
+            return
+        }
+        catch {
+            if ($i -lt 3) { Start-Sleep -Milliseconds 200 }
+        }
+    }
 }
 
 # ------------------------
@@ -52,29 +60,43 @@ function Get-CCPCredential {
         [string]$LogPath
     )
 
-    try {
-        # Build CCP URL with proper Query format: Safe=xxx;Object=xxx
-        $query = "Safe=$($CCPConfig.Safe);Object=$($CCPConfig.Object)"
-        $uri = "$($CCPConfig.Url)?AppID=$($CCPConfig.AppId)&Query=$query"
-        
-        if ($LogPath) {
-            Write-Log -Message "Retrieving credential from CCP: $uri" -ScriptName $ScriptName -LogPath $LogPath
+    # Build CCP URL with proper Query format: Safe=xxx;Object=xxx
+    $query = "Safe=$($CCPConfig.Safe);Object=$($CCPConfig.Object)"
+    $uri = "$($CCPConfig.Url)?AppID=$($CCPConfig.AppId)&Query=$query"
+    
+    if ($LogPath) {
+        Write-Log -Message "Retrieving credential from CCP: $uri" -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    $ErrorMsg = ""
+    for ($i = 1; $i -le 3; $i++) {
+        try {
+            $resp = Invoke-RestMethod -Uri $uri -Method Get -ErrorAction Stop
+            
+            # CCP returns: UserName + Content (password)
+            return @{
+                Username = $resp.UserName
+                Password = $resp.Content
+            }
         }
-
-        $resp = Invoke-RestMethod -Uri $uri -Method Get -ErrorAction Stop
-
-        # CCP returns: UserName ± Content (password)
-        return @{
-            Username = $resp.UserName
-            Password = $resp.Content
+        catch {
+            $ErrorMsg = $_.Exception.Message
+            if ($ErrorMsg -like "*remote name could not be resolved*") {
+                $ErrorMsg = "DNS Resolution Failed for '$($CCPConfig.Url)'. Please check network connectivity and DNS settings. (Original error: $ErrorMsg)"
+            }
+            
+            if ($LogPath) {
+                Write-Log -Message "CCP retrieval attempt $i failed: $ErrorMsg" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+            }
+            
+            if ($i -lt 3) { Start-Sleep -Seconds 1 }
         }
     }
-    catch {
-        if ($LogPath) {
-            Write-Log -Message "CCP credential retrieval failed: $_" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
-        }
-        throw
+
+    if ($LogPath) {
+        Write-Log -Message "CCP credential retrieval failed after 3 attempts: $ErrorMsg" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
     }
+    throw "CCP Retrieval Failed: $ErrorMsg"
 }
 
 # ------------------------

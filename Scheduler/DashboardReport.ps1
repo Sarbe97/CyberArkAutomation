@@ -63,7 +63,7 @@ try {
     $TodayStr = Get-Date -Format "yyyyMMdd"
     # ExportDir already created at script start (Output\yyyyMMdd)
     
-    $rawAccsCache  = Join-Path $ExportDir "RawCache_Accounts_$TodayStr.csv"
+    $rawAccsCache = Join-Path $ExportDir "RawCache_Accounts_$TodayStr.csv"
     $rawPlatsCache = Join-Path $ExportDir "RawCache_Platforms_$TodayStr.csv"
     $rawSafesCache = Join-Path $ExportDir "RawCache_Safes_$TodayStr.csv"
     
@@ -82,7 +82,6 @@ try {
     $PersSafeRegex = $FeatureConfig.PersonalSafePattern
     $MigPlatKeywords = if ($FeatureConfig.MigratedPlatformKeywords) { $FeatureConfig.MigratedPlatformKeywords } else { @() }
     $ExcludeFailedPlatforms = if ($FeatureConfig.FailedAccountExcludePlatforms) { $FeatureConfig.FailedAccountExcludePlatforms } else { @() }
-    $TrackedFailedAccounts = if ($FeatureConfig.TrackedFailedAccounts) { $FeatureConfig.TrackedFailedAccounts } else { @() }
 
     # ------------------------
     # Step 1: Fetch Raw Accounts
@@ -90,7 +89,8 @@ try {
     $RawAccounts = @()
     if (Test-Path $rawAccsCache) {
         $RawAccounts = Import-Csv $rawAccsCache
-    } else {
+    }
+    else {
         Write-Log -Message "Fetching raw accounts from API. This may take a while..." -ScriptName $ScriptName -LogPath $LogPath
         $limit = 1000
         $offset = 0
@@ -105,12 +105,12 @@ try {
                 # Add batch to RawAccounts
                 foreach ($acc in $batch) {
                     $RawAccounts += [PSCustomObject]@{
-                        name       = $acc.name
-                        address    = $acc.address
-                        userName   = $acc.userName
-                        platformId = $acc.platformId
-                        safeName   = $acc.safeName
-                        secretType = $acc.secretType
+                        name                       = $acc.name
+                        address                    = $acc.address
+                        userName                   = $acc.userName
+                        platformId                 = $acc.platformId
+                        safeName                   = $acc.safeName
+                        secretType                 = $acc.secretType
                         automaticManagementEnabled = $acc.secretManagement.automaticManagementEnabled
                         manualManagementReason     = $acc.secretManagement.manualManagementReason
                     }
@@ -118,7 +118,8 @@ try {
                 $offset += $limit
                 if ($batch.Count -lt $limit) { $hasMore = $false }
                 Write-Log -Message "Fetched $($RawAccounts.Count) raw accounts so far..." -ScriptName $ScriptName -LogPath $LogPath
-            } else { $hasMore = $false }
+            }
+            else { $hasMore = $false }
         }
         $RawAccounts | Export-Csv -Path $rawAccsCache -NoTypeInformation
     }
@@ -160,14 +161,14 @@ try {
         }
 
         $InventoryExport += [PSCustomObject]@{
-            AccountName  = $acc.name
-            Address      = $acc.address
-            UserName     = $acc.userName
-            PlatformID   = $acc.platformId
-            SafeName     = $acc.safeName
-            SecretType   = $acc.secretType
-            CPMDisabled  = $cpmDisabled
-            IsDomain     = $isDomain
+            AccountName = $acc.name
+            Address     = $acc.address
+            UserName    = $acc.userName
+            PlatformID  = $acc.platformId
+            SafeName    = $acc.safeName
+            SecretType  = $acc.secretType
+            CPMDisabled = $cpmDisabled
+            IsDomain    = $isDomain
         }
     }
     $InventoryExport | Export-Csv -Path $invFile -NoTypeInformation
@@ -192,20 +193,14 @@ try {
     # Export filtered failed accounts
     $filteredFailedAccounts | Export-Csv -Path $failFile -NoTypeInformation
 
-    # Track specific failed accounts count
-    $TrackedFailedCounts = @{}
-    foreach ($trackedAcc in $TrackedFailedAccounts) {
-        $foundCount = ($filteredFailedAccounts | Where-Object { $_.name -match $trackedAcc -or $_.userName -match $trackedAcc -or $_.address -match $trackedAcc }).Count
-        $TrackedFailedCounts[$trackedAcc] = $foundCount
-    }
-
     # ------------------------
     # Step 3: Fetch Raw Platforms
     # ------------------------
     $RawPlatforms = @()
     if (Test-Path $rawPlatsCache) {
         $RawPlatforms = Import-Csv $rawPlatsCache
-    } else {
+    }
+    else {
         Write-Log -Message "Fetching raw platforms from API..." -ScriptName $ScriptName -LogPath $LogPath
         $platsUri = "$BaseUrl/PasswordVault/API/Platforms?active=true&limit=500"
         $platsResponse = Invoke-CyberArkApi -Uri $platsUri
@@ -243,11 +238,11 @@ try {
         if ($isMigPlat) { $MigratedPlatformsCount++ }
 
         $PlatsExport += [PSCustomObject]@{
-            PlatformID   = $platId
-            Name         = $platName
-            Active       = $isActive
-            IsMigrated   = $isMigPlat
-            IsInUse      = ($null -ne $platId -and $InUsePlatformIds.ContainsKey($platId))
+            PlatformID = $platId
+            Name       = $platName
+            Active     = $isActive
+            IsMigrated = $isMigPlat
+            IsInUse    = ($null -ne $platId -and $InUsePlatformIds.ContainsKey($platId))
         }
     }
     $PlatsExport | Export-Csv -Path $platsFile -NoTypeInformation
@@ -258,7 +253,8 @@ try {
     $RawSafes = @()
     if (Test-Path $rawSafesCache) {
         $RawSafes = Import-Csv $rawSafesCache
-    } else {
+    }
+    else {
         Write-Log -Message "Fetching raw safes from API..." -ScriptName $ScriptName -LogPath $LogPath
         $limit = 500
         $offset = 0
@@ -284,7 +280,8 @@ try {
                     }
                 }
                 if ($batch.Count -lt $limit) { $hasMore = $false } else { $offset += $limit }
-            } else { $hasMore = $false }
+            }
+            else { $hasMore = $false }
         }
         $RawSafes | Export-Csv -Path $rawSafesCache -NoTypeInformation
     }
@@ -310,7 +307,8 @@ try {
         if ($PersSafeRegex -and $safeName -match $PersSafeRegex) {
             $isPersonal = $true
             $PersonalSafesCount++
-        } else {
+        }
+        else {
             $SharedSafesCount++
             $isMig = $false
             if ($MigSafeKeywords) {
@@ -327,16 +325,18 @@ try {
                 $longVal = [long]$creationTimeEpoch
                 if ($longVal -gt 1e11) { $creationTimeStr = [datetimeoffset]::FromUnixTimeMilliseconds($longVal).DateTime.ToString("yyyy-MM-dd HH:mm:ss") }
                 else { $creationTimeStr = [datetimeoffset]::FromUnixTimeSeconds($longVal).DateTime.ToString("yyyy-MM-dd HH:mm:ss") }
-            } catch { $creationTimeStr = "Invalid Date ($creationTimeEpoch)" }
-        } elseif ($null -ne $creationTimeEpoch) { $creationTimeStr = $creationTimeEpoch }
+            }
+            catch { $creationTimeStr = "Invalid Date ($creationTimeEpoch)" }
+        }
+        elseif ($null -ne $creationTimeEpoch) { $creationTimeStr = $creationTimeEpoch }
 
         $SafesExport += [PSCustomObject]@{
-            SafeName      = $safeName
-            Description   = $s.description
-            CreationTime  = $creationTimeStr
-            Creator       = $s.creator
-            IsPersonal    = $isPersonal
-            IsMigrated    = ($isPersonal -eq $false -and $isMig -eq $true)
+            SafeName     = $safeName
+            Description  = $s.description
+            CreationTime = $creationTimeStr
+            Creator      = $s.creator
+            IsPersonal   = $isPersonal
+            IsMigrated   = ($isPersonal -eq $false -and $isMig -eq $true)
         }
     }
     $SafesExport | Export-Csv -Path $safesFile -NoTypeInformation
@@ -350,27 +350,24 @@ try {
     # ------------------------
 
     $SummaryRows = @()
-    $SummaryRows += [PSCustomObject]@{ Metric = "TotalAccounts"; Value = $InventoryExport.Count }
-    $SummaryRows += [PSCustomObject]@{ Metric = "DomainAccounts"; Value = $DomainAccountsCount }
-    $SummaryRows += [PSCustomObject]@{ Metric = "NonDomainAccounts"; Value = $NonDomainAccountsCount }
-    $SummaryRows += [PSCustomObject]@{ Metric = "FailedAccounts"; Value = $FailedAccountsCount }
-    $SummaryRows += [PSCustomObject]@{ Metric = "CPMDisabledAccounts"; Value = $CpmDisabledCount }
-    $SummaryRows += [PSCustomObject]@{ Metric = "TotalSafes"; Value = $TotalSafes }
-    $SummaryRows += [PSCustomObject]@{ Metric = "PersonalSafes"; Value = $PersonalSafesCount }
-    $SummaryRows += [PSCustomObject]@{ Metric = "SharedSafes"; Value = $SharedSafesCount }
-    $SummaryRows += [PSCustomObject]@{ Metric = "MigratedSharedSafes"; Value = $MigratedSharedSafes }
-    $SummaryRows += [PSCustomObject]@{ Metric = "InUseSafes"; Value = $InUseSafesCount }
-    $SummaryRows += [PSCustomObject]@{ Metric = "NotInUseSafes"; Value = $NotInUseSafesCount }
-    $SummaryRows += [PSCustomObject]@{ Metric = "ActivePlatforms"; Value = $ActivePlatformsCount }
-    $SummaryRows += [PSCustomObject]@{ Metric = "MigratedPlatforms"; Value = $MigratedPlatformsCount }
-    $SummaryRows += [PSCustomObject]@{ Metric = "InUsePlatforms"; Value = $InUsePlatformsCount }
+    $SummaryRows += [PSCustomObject]@{ Category = "Account Metrics"; Metric = "TotalAccounts"; Value = $InventoryExport.Count }
+    $SummaryRows += [PSCustomObject]@{ Category = "Account Metrics"; Metric = "DomainAccounts"; Value = $DomainAccountsCount }
+    $SummaryRows += [PSCustomObject]@{ Category = "Account Metrics"; Metric = "NonDomainAccounts"; Value = $NonDomainAccountsCount }
+    $SummaryRows += [PSCustomObject]@{ Category = "Account Metrics"; Metric = "FailedAccounts"; Value = $FailedAccountsCount }
+    $SummaryRows += [PSCustomObject]@{ Category = "Account Metrics"; Metric = "CPMDisabledAccounts"; Value = $CpmDisabledCount }
     
-    # Add tracked failed account counts to summary
-    foreach ($entry in $TrackedFailedCounts.GetEnumerator()) {
-        $SummaryRows += [PSCustomObject]@{ Metric = "FailedAccount_($($entry.Key))"; Value = $entry.Value }
-    }
+    $SummaryRows += [PSCustomObject]@{ Category = "Safe Metrics"; Metric = "TotalSafes"; Value = $TotalSafes }
+    $SummaryRows += [PSCustomObject]@{ Category = "Safe Metrics"; Metric = "PersonalSafes"; Value = $PersonalSafesCount }
+    $SummaryRows += [PSCustomObject]@{ Category = "Safe Metrics"; Metric = "SharedSafes"; Value = $SharedSafesCount }
+    $SummaryRows += [PSCustomObject]@{ Category = "Safe Metrics"; Metric = "MigratedSharedSafes"; Value = $MigratedSharedSafes }
+    $SummaryRows += [PSCustomObject]@{ Category = "Safe Metrics"; Metric = "InUseSafes"; Value = $InUseSafesCount }
+    $SummaryRows += [PSCustomObject]@{ Category = "Safe Metrics"; Metric = "NotInUseSafes"; Value = $NotInUseSafesCount }
+
+    $SummaryRows += [PSCustomObject]@{ Category = "Platform Metrics"; Metric = "ActivePlatforms"; Value = $ActivePlatformsCount }
+    $SummaryRows += [PSCustomObject]@{ Category = "Platform Metrics"; Metric = "MigratedPlatforms"; Value = $MigratedPlatformsCount }
+    $SummaryRows += [PSCustomObject]@{ Category = "Platform Metrics"; Metric = "InUsePlatforms"; Value = $InUsePlatformsCount }
     
-    $SummaryRows += [PSCustomObject]@{ Metric = "Timestamp"; Value = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss") }
+    $SummaryRows += [PSCustomObject]@{ Category = "Metadata"; Metric = "Timestamp"; Value = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss") }
 
     $SummaryRows | Export-Csv -Path $summaryFile -NoTypeInformation
 
@@ -378,7 +375,6 @@ try {
     Write-Log -Message "  - Inventory: $invFile" -ScriptName $ScriptName -LogPath $LogPath
     Write-Log -Message "  - Safes: $safesFile" -ScriptName $ScriptName -LogPath $LogPath
     Write-Log -Message "  - Platforms: $platsFile" -ScriptName $ScriptName -LogPath $LogPath
-    Write-Log -Message "  - FailedAccounts: $failFile" -ScriptName $ScriptName -LogPath $LogPath
     Write-Log -Message "  - Summary: $summaryFile" -ScriptName $ScriptName -LogPath $LogPath
 
     # ------------------------
@@ -397,58 +393,37 @@ try {
                 
                 $Subject = "CyberArk Dashboard Report - $TodayStr"
 
-                # Premium HTML Body
-                $HtmlHead = @"
-<style>
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f9; color: #333; margin: 20px; }
-    h2 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }
-    .container { background-color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 800px; }
-    table { width: 400px; border-collapse: collapse; margin-top: 20px; }
-    th, td { text-align: left; padding: 12px; border-bottom: 1px solid #eee; }
-    th { background-color: #3498db; color: #fff; text-transform: uppercase; font-size: 0.9em; letter-spacing: 1px; }
-    tr:hover { background-color: #f9f9f9; }
-    .footer { margin-top: 30px; font-size: 0.85em; color: #7f8c8d; }
-    .metric { font-weight: bold; color: #2980b9; }
-    .priority-failed { color: #e74c3c; font-weight: bold; }
-</style>
-"@
-                $TableRows = ""
-                foreach ($row in $SummaryRows) {
-                    $valStyle = if ($row.Metric -like "*Failed*") { " class='priority-failed'" } else { " class='metric'" }
-                    if ($row.Metric -ne "Timestamp") {
-                        $TableRows += "<tr><td>$($row.Metric)</td><td$valStyle>$($row.Value)</td></tr>"
-                    }
+                # Load external HTML template
+                $templatePath = Join-Path $RootPath "Templates\DashboardReport.html"
+                if (-not (Test-Path $templatePath)) {
+                    Write-Log -Message "Email template not found at $templatePath. Falling back to plain text summary." -Level "WARNING" -ScriptName $ScriptName -LogPath $LogPath
+                    $Body = "Dashboard Report completed successfully.`n"
+                    foreach ($row in $SummaryRows) { $Body += "$($row.Metric): $($row.Value)`n" }
                 }
+                else {
+                    $templateContent = Get-Content $templatePath -Raw
+                    
+                    $accRows = ""
+                    $safeRows = ""
+                    $platRows = ""
+                    
+                    foreach ($row in $SummaryRows) {
+                        if ($row.Metric -eq "Timestamp") { continue }
+                        $valClass = "metric"
+                        if ($row.Metric -like "*Failed*") { $valClass = "priority-failed" }
+                        
+                        $html = "<tr><td>$($row.Metric)</td><td class='$valClass'>$($row.Value)</td></tr>"
+                        
+                        if ($row.Category -eq "Account Metrics") { $accRows += $html }
+                        elseif ($row.Category -eq "Safe Metrics") { $safeRows += $html }
+                        elseif ($row.Category -eq "Platform Metrics") { $platRows += $html }
+                    }
 
-                $Body = @"
-<html>
-<head>$HtmlHead</head>
-<body>
-    <div class="container">
-        <h2>CyberArk Dashboard Report</h2>
-        <p>The automated Dashboard Report has been completed successfully. Below is a summary of the key metrics collected.</p>
-        
-        <table>
-            <thead>
-                <tr>
-                    <th>Metric Name</th>
-                    <th>Value</th>
-                </tr>
-            </thead>
-            <tbody>
-                $TableRows
-            </tbody>
-        </table>
-        
-        <p>Please find the full reports (Inventory, Safes, Platforms, Failed Accounts) in the attached zip file.</p>
-        
-        <div class="footer">
-            Generated by CyberArkAutomation | Timestamp: $( (Get-Date).ToString("yyyy-MM-dd HH:mm:ss") )
-        </div>
-    </div>
-</body>
-</html>
-"@
+                    $Body = $templateContent.Replace("{{AccountTable}}", $accRows)
+                    $Body = $Body.Replace("{{SafeTable}}", $safeRows)
+                    $Body = $Body.Replace("{{PlatformTable}}", $platRows)
+                    $Body = $Body.Replace("{{Timestamp}}", (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"))
+                }
 
                 $SmtpServer = $config.Email.SmtpServer
                 $From = $config.Email.From

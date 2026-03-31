@@ -6,9 +6,9 @@
         h2 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }
         h3 { color: #2c3e50; margin-top: 25px; border-left: 4px solid #3498db; padding-left: 10px; }
         .container { background-color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 800px; }
-        table { width: 400px; border-collapse: collapse; margin-top: 10px; margin-bottom: 20px; }
-        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #eee; }
-        th { background-color: #3498db; color: #fff; text-transform: uppercase; font-size: 0.9em; letter-spacing: 1px; }
+        table { width: 400px; border-collapse: collapse; margin-top: 10px; margin-bottom: 20px; border: 1px solid #ccc; }
+        th, td { text-align: left; padding: 0; border: 1px solid #ccc; line-height: 1; }
+        th { background-color: #3498db; color: #fff; font-size: 0.9em; }
         tr:hover { background-color: #f9f9f9; }
         .footer { margin-top: 30px; font-size: 0.85em; color: #7f8c8d; border-top: 1px solid #eee; padding-top: 15px; }
         .metric { font-weight: bold; color: #2980b9; }
@@ -36,6 +36,12 @@
         <table>
             <thead><tr><th>Metric</th><th>Value</th></tr></thead>
             <tbody>{{PlatformTable}}</tbody>
+        </table>
+
+        <h3>Tracked Individual Failures</h3>
+        <table>
+            <thead><tr><th>Account Name</th><th>Failure Count</th></tr></thead>
+            <tbody>{{TrackedTable}}</tbody>
         </table>
         
         <p>Please find the full reports in the attached zip file.</p>

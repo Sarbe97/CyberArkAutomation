@@ -54,7 +54,7 @@ Write-Log -Message "DashboardReport feature enabled. Starting data collection." 
 $Credential = Get-SchedulerCredential -CCPConfig $config.CCP -ManualLogin:$ManualLogin -ScriptName $ScriptName -LogPath $LogPath
 
 Write-Log -Message "Connecting to CyberArk API..." -ScriptName $ScriptName -LogPath $LogPath
-Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential -ScriptName $ScriptName -LogPath $LogPath
+$null = Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential -ScriptName $ScriptName -LogPath $LogPath
 
 try {
     # ------------------------
@@ -189,6 +189,16 @@ try {
     }
     $FailedAccountsCount = $filteredFailedAccounts.Count
     Write-Log -Message "Failed Accounts Count (filtered): $FailedAccountsCount" -ScriptName $ScriptName -LogPath $LogPath
+
+    # Filter tracked accounts failures from config
+    $TrackedFailures = @{}
+    if ($featureConfig.TrackedFailedAccounts) {
+        foreach ($name in $featureConfig.TrackedFailedAccounts) {
+            $count = ($filteredFailedAccounts | Where-Object { $_.userName -ieq $name }).Count
+            $TrackedFailures[$name] = $count
+            Write-Log -Message "Tracked account failure check: $name ($count)" -ScriptName $ScriptName -LogPath $LogPath
+        }
+    }
 
     # Export filtered failed accounts
     $filteredFailedAccounts | Export-Csv -Path $failFile -NoTypeInformation
@@ -366,6 +376,13 @@ try {
     $SummaryRows += [PSCustomObject]@{ Category = "Platform Metrics"; Metric = "ActivePlatforms"; Value = $ActivePlatformsCount }
     $SummaryRows += [PSCustomObject]@{ Category = "Platform Metrics"; Metric = "MigratedPlatforms"; Value = $MigratedPlatformsCount }
     $SummaryRows += [PSCustomObject]@{ Category = "Platform Metrics"; Metric = "InUsePlatforms"; Value = $InUsePlatformsCount }
+
+    # Add Tracked Account Failures
+    if ($TrackedFailures.Count -gt 0) {
+        foreach ($accName in $TrackedFailures.Keys) {
+            $SummaryRows += [PSCustomObject]@{ Category = "Tracked Account Metrics"; Metric = $accName; Value = $TrackedFailures[$accName] }
+        }
+    }
     
     $SummaryRows += [PSCustomObject]@{ Category = "Metadata"; Metric = "Timestamp"; Value = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss") }
 
@@ -406,22 +423,27 @@ try {
                     $accRows = ""
                     $safeRows = ""
                     $platRows = ""
+                    $trackedRows = ""
                     
                     foreach ($row in $SummaryRows) {
                         if ($row.Metric -eq "Timestamp") { continue }
                         $valClass = "metric"
                         if ($row.Metric -like "*Failed*") { $valClass = "priority-failed" }
+                        # Also mark non-zero tracked failures as priority
+                        if ($row.Category -eq "Tracked Account Metrics" -and $row.Value -gt 0) { $valClass = "priority-failed" }
                         
                         $html = "<tr><td>$($row.Metric)</td><td class='$valClass'>$($row.Value)</td></tr>"
                         
                         if ($row.Category -eq "Account Metrics") { $accRows += $html }
                         elseif ($row.Category -eq "Safe Metrics") { $safeRows += $html }
                         elseif ($row.Category -eq "Platform Metrics") { $platRows += $html }
+                        elseif ($row.Category -eq "Tracked Account Metrics") { $trackedRows += $html }
                     }
 
                     $Body = $templateContent.Replace("{{AccountTable}}", $accRows)
                     $Body = $Body.Replace("{{SafeTable}}", $safeRows)
                     $Body = $Body.Replace("{{PlatformTable}}", $platRows)
+                    $Body = $Body.Replace("{{TrackedTable}}", $trackedRows)
                     $Body = $Body.Replace("{{Timestamp}}", (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"))
                 }
 
@@ -430,7 +452,7 @@ try {
                 $To = $config.Email.To -join ","
 
                 Write-Log -Message "Sending email to $To via $SmtpServer..." -ScriptName $ScriptName -LogPath $LogPath
-                Send-MailMessage -SmtpServer $SmtpServer -From $From -To $To -Subject $Subject -Body $Body -BodyAsHtml -Attachments $zipFile
+                Send-MailMessage -SmtpServer $SmtpServer -From $From -To $To -Subject $Subject -Body $Body -BodyAsHtml -Attachments @($zipFile)
                 Write-Log -Message "Email sent successfully." -ScriptName $ScriptName -LogPath $LogPath
             }
             catch {

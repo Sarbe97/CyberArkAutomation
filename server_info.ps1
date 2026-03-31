@@ -8,7 +8,8 @@ $Servers = @(
     "Server3"
 )
 
-$OutputFile = "C:\Temp\Server_Audit_Report.csv"
+$Timestamp = Get-Date -Format "yyyyMMdd_HHmm"
+$OutputFile = "C:\Temp\Server_Audit_Report_$Timestamp.csv"
 
 # ================================
 # CREDENTIALS
@@ -55,15 +56,18 @@ function Get-ServerData {
 
         # CPU
         $CPU = (Get-CimInstance Win32_Processor).Name
+        
+        $CurrentTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
         foreach ($Disk in $Disks) {
             [PSCustomObject]@{
-                Server   = $env:COMPUTERNAME
-                Drive    = $Disk.Drive
-                SizeGB   = $Disk.SizeGB
-                FreeGB   = $Disk.FreeGB
-                RAM_GB   = $RAM_GB
-                CPU      = $CPU
+                Timestamp = $CurrentTime
+                Server    = $env:COMPUTERNAME
+                Drive     = $Disk.Drive
+                SizeGB    = $Disk.SizeGB
+                FreeGB    = $Disk.FreeGB
+                RAM_GB    = $RAM_GB
+                CPU       = $CPU
             }
         }
 
@@ -92,6 +96,7 @@ foreach ($Server in $Servers) {
         Write-Host "Ping FAILED for $Server" -ForegroundColor Red
 
         $Results += [PSCustomObject]@{
+            Timestamp      = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
             Server         = $Server
             Drive          = "N/A"
             SizeGB         = "N/A"
@@ -118,6 +123,7 @@ foreach ($Server in $Servers) {
         Write-Host "WinRM FAILED on $Server" -ForegroundColor Red
 
         $Results += [PSCustomObject]@{
+            Timestamp      = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
             Server         = $Server
             Drive          = "N/A"
             SizeGB         = "N/A"
@@ -179,6 +185,7 @@ foreach ($Server in $Servers) {
     # ----------------------------
     if (-not $Success) {
         $Results += [PSCustomObject]@{
+            Timestamp      = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
             Server         = $Server
             Drive          = "N/A"
             SizeGB         = "N/A"

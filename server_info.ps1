@@ -39,11 +39,12 @@ Write-Host "Starting server audit..." -ForegroundColor Green
 # FUNCTION: GET SERVER DATA
 # ================================
 function Get-ServerData {
-    param ($Server, $Credential)
+    param ($Server, $Credential, $ServiceNames, $ServicePrefix)
 
     Invoke-Command -ComputerName $Server `
         -Credential $Credential `
         -Authentication Negotiate `
+        -SessionOption (New-PSSessionOption -NoMachineProfile) `
         -ScriptBlock {
 
         # DISK
@@ -159,7 +160,7 @@ foreach ($Server in $Servers) {
     Write-Host "Trying PRIMARY credential..." -ForegroundColor Cyan
 
     try {
-        $Data = Get-ServerData -Server $Server -Credential $Cred1
+        $Data = Get-ServerData -Server $Server -Credential $Cred1 -ServiceNames $ServiceNames -ServicePrefix $ServicePrefix
         $Data | ForEach-Object { $_ | Add-Member -NotePropertyName CredentialUsed -NotePropertyValue "Primary" }
         $Results += $Data
 
@@ -177,7 +178,7 @@ foreach ($Server in $Servers) {
         Write-Host "Trying SECONDARY credential..." -ForegroundColor Cyan
 
         try {
-            $Data = Get-ServerData -Server $Server -Credential $Cred2
+            $Data = Get-ServerData -Server $Server -Credential $Cred2 -ServiceNames $ServiceNames -ServicePrefix $ServicePrefix
             $Data | ForEach-Object { $_ | Add-Member -NotePropertyName CredentialUsed -NotePropertyValue "Secondary" }
             $Results += $Data
 

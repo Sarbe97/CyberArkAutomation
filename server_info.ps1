@@ -36,15 +36,15 @@ $Count = 0
 Write-Host "Starting server audit..." -ForegroundColor Green
 
 # ================================
-# FUNCTION TO EXECUTE REMOTE TASK
+# FUNCTION: GET SERVER DATA
 # ================================
 function Get-ServerData {
-    param (
-        $Server,
-        $Credential
-    )
+    param ($Server, $Credential)
 
-    Invoke-Command -ComputerName $Server -Credential $Credential -ScriptBlock {
+    Invoke-Command -ComputerName $Server `
+        -Credential $Credential `
+        -Authentication Negotiate `
+        -ScriptBlock {
 
         # DISK
         $Disks = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" | ForEach-Object {
@@ -103,47 +103,105 @@ foreach ($Server in $Servers) {
         -Status "Processing $Server ($Count of $Total)" `
         -PercentComplete $PercentComplete
 
-    Write-Host "----------------------------------------" -ForegroundColor Yellow
-    Write-Host "Trying PRIMARY credential on $Server..." -ForegroundColor Cyan
+    Write-Host "========================================" -ForegroundColor Yellow
+    Write-Host "Processing: $Server" -ForegroundColor Cyan
+
+    # ----------------------------
+    # STEP 1: PING CHECK
+    # ----------------------------
+    if (-not (Test-Connection -ComputerName $Server -Count 1 -Quiet)) {
+        Write-Host "Ping FAILED for $Server" -ForegroundColor Red
+
+        $Results += [PSCustomObject]@{
+            Server         = $Server
+            Drive          = "N/A"
+            SizeGB         = "N/A"
+            FreeGB         = "N/A"
+            RAM_GB         = "N/A"
+            CPU            = "N/A"
+            Services       = "Ping Failed"
+            CredentialUsed = "None"
+        }
+        continue
+    }
+    else {
+        Write-Host "Ping SUCCESS" -ForegroundColor Green
+    }
+
+    # ----------------------------
+    # STEP 2: WINRM CHECK
+    # ----------------------------
+    try {
+        Test-WsMan $Server -ErrorAction Stop | Out-Null
+        Write-Host "WinRM OK" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "WinRM FAILED on $Server" -ForegroundColor Red
+
+        $Results += [PSCustomObject]@{
+            Server         = $Server
+            Drive          = "N/A"
+            SizeGB         = "N/A"
+            FreeGB         = "N/A"
+            RAM_GB         = "N/A"
+            CPU            = "N/A"
+            Services       = "WinRM Failed"
+            CredentialUsed = "None"
+        }
+        continue
+    }
 
     $Success = $false
 
-    # TRY PRIMARY
+    # ----------------------------
+    # STEP 3: TRY PRIMARY
+    # ----------------------------
+    Write-Host "Trying PRIMARY credential..." -ForegroundColor Cyan
+
     try {
         $Data = Get-ServerData -Server $Server -Credential $Cred1
+        $Data | ForEach-Object { $_ | Add-Member -NotePropertyName CredentialUsed -NotePropertyValue "Primary" }
         $Results += $Data
-        Write-Host "SUCCESS with PRIMARY credential on $Server" -ForegroundColor Green
+
+        Write-Host "SUCCESS with PRIMARY credential" -ForegroundColor Green
         $Success = $true
     }
     catch {
-        Write-Host "Primary credential failed on $Server" -ForegroundColor Red
+        Write-Host "Primary failed: $($_.Exception.Message)" -ForegroundColor Red
     }
 
-    # TRY SECONDARY
+    # ----------------------------
+    # STEP 4: TRY SECONDARY
+    # ----------------------------
     if (-not $Success) {
-        Write-Host "Trying SECONDARY credential on $Server..." -ForegroundColor Cyan
+        Write-Host "Trying SECONDARY credential..." -ForegroundColor Cyan
 
         try {
             $Data = Get-ServerData -Server $Server -Credential $Cred2
+            $Data | ForEach-Object { $_ | Add-Member -NotePropertyName CredentialUsed -NotePropertyValue "Secondary" }
             $Results += $Data
-            Write-Host "SUCCESS with SECONDARY credential on $Server" -ForegroundColor Green
+
+            Write-Host "SUCCESS with SECONDARY credential" -ForegroundColor Green
             $Success = $true
         }
         catch {
-            Write-Host "Secondary credential also failed on $Server" -ForegroundColor Red
+            Write-Host "Secondary failed: $($_.Exception.Message)" -ForegroundColor Red
         }
     }
 
+    # ----------------------------
     # FINAL FAILURE
+    # ----------------------------
     if (-not $Success) {
         $Results += [PSCustomObject]@{
-            Server   = $Server
-            Drive    = "N/A"
-            SizeGB   = "N/A"
-            FreeGB   = "N/A"
-            RAM_GB   = "N/A"
-            CPU      = "N/A"
-            Services = "Connection Failed (Both Credentials)"
+            Server         = $Server
+            Drive          = "N/A"
+            SizeGB         = "N/A"
+            FreeGB         = "N/A"
+            RAM_GB         = "N/A"
+            CPU            = "N/A"
+            Services       = "Connection Failed (Both Creds)"
+            CredentialUsed = "None"
         }
     }
 }

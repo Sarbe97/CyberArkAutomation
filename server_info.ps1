@@ -8,13 +8,6 @@ $Servers = @(
     "Server3"
 )
 
-$ServicePrefix = "CyberArk*"
-
-$ServiceNames = @(
-    # "CyberArk Vault",
-    # "CyberArk Password Manager"
-)
-
 $OutputFile = "C:\Temp\Server_Audit_Report.csv"
 
 # ================================
@@ -39,7 +32,7 @@ Write-Host "Starting server audit..." -ForegroundColor Green
 # FUNCTION: GET SERVER DATA
 # ================================
 function Get-ServerData {
-    param ($Server, $Credential, $ServiceNames, $ServicePrefix)
+    param ($Server, $Credential)
 
     Invoke-Command -ComputerName $Server `
         -Credential $Credential `
@@ -63,20 +56,6 @@ function Get-ServerData {
         # CPU
         $CPU = (Get-CimInstance Win32_Processor).Name
 
-        # SERVICES
-        if ($using:ServiceNames.Count -gt 0) {
-            $Services = Get-Service | Where-Object {
-                $using:ServiceNames -contains $_.Name
-            }
-        }
-        else {
-            $Services = Get-Service -Name $using:ServicePrefix -ErrorAction SilentlyContinue
-        }
-
-        $ServiceInfo = $Services | ForEach-Object {
-            "$($_.Name):$($_.Status)"
-        } -join "; "
-
         foreach ($Disk in $Disks) {
             [PSCustomObject]@{
                 Server   = $env:COMPUTERNAME
@@ -85,7 +64,6 @@ function Get-ServerData {
                 FreeGB   = $Disk.FreeGB
                 RAM_GB   = $RAM_GB
                 CPU      = $CPU
-                Services = $ServiceInfo
             }
         }
 
@@ -120,8 +98,8 @@ foreach ($Server in $Servers) {
             FreeGB         = "N/A"
             RAM_GB         = "N/A"
             CPU            = "N/A"
-            Services       = "Ping Failed"
             CredentialUsed = "None"
+            Status         = "Ping Failed"
         }
         continue
     }
@@ -146,8 +124,8 @@ foreach ($Server in $Servers) {
             FreeGB         = "N/A"
             RAM_GB         = "N/A"
             CPU            = "N/A"
-            Services       = "WinRM Failed"
             CredentialUsed = "None"
+            Status         = "WinRM Failed"
         }
         continue
     }
@@ -160,8 +138,11 @@ foreach ($Server in $Servers) {
     Write-Host "Trying PRIMARY credential..." -ForegroundColor Cyan
 
     try {
-        $Data = Get-ServerData -Server $Server -Credential $Cred1 -ServiceNames $ServiceNames -ServicePrefix $ServicePrefix
-        $Data | ForEach-Object { $_ | Add-Member -NotePropertyName CredentialUsed -NotePropertyValue "Primary" }
+        $Data = Get-ServerData -Server $Server -Credential $Cred1
+        $Data | ForEach-Object { 
+            $_ | Add-Member -NotePropertyName CredentialUsed -NotePropertyValue "Primary"
+            $_ | Add-Member -NotePropertyName Status -NotePropertyValue "Success"
+        }
         $Results += $Data
 
         Write-Host "SUCCESS with PRIMARY credential" -ForegroundColor Green
@@ -178,8 +159,11 @@ foreach ($Server in $Servers) {
         Write-Host "Trying SECONDARY credential..." -ForegroundColor Cyan
 
         try {
-            $Data = Get-ServerData -Server $Server -Credential $Cred2 -ServiceNames $ServiceNames -ServicePrefix $ServicePrefix
-            $Data | ForEach-Object { $_ | Add-Member -NotePropertyName CredentialUsed -NotePropertyValue "Secondary" }
+            $Data = Get-ServerData -Server $Server -Credential $Cred2
+            $Data | ForEach-Object { 
+                $_ | Add-Member -NotePropertyName CredentialUsed -NotePropertyValue "Secondary"
+                $_ | Add-Member -NotePropertyName Status -NotePropertyValue "Success"
+            }
             $Results += $Data
 
             Write-Host "SUCCESS with SECONDARY credential" -ForegroundColor Green
@@ -201,8 +185,8 @@ foreach ($Server in $Servers) {
             FreeGB         = "N/A"
             RAM_GB         = "N/A"
             CPU            = "N/A"
-            Services       = "Connection Failed (Both Creds)"
             CredentialUsed = "None"
+            Status         = "Connection Failed (Both Creds)"
         }
     }
 }

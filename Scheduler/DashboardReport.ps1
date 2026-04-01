@@ -100,7 +100,7 @@ try {
         $hasMore = $true
 
         while ($hasMore) {
-            $accUri = "$BaseUrl/PasswordVault/api/Accounts?limit=$limit&offset=$offset&Fields=name,address,userName,platformId,safeName,secretType,secretManagement"
+            $accUri = "$BaseUrl/PasswordVault/api/Accounts?limit=$limit&offset=$offset"
             $accResp = Invoke-CyberArkApi -Uri $accUri
             $batch = if ($accResp.value) { $accResp.value } else { @() }
             
@@ -116,6 +116,7 @@ try {
                         secretType                 = $acc.secretType
                         automaticManagementEnabled = $acc.secretManagement.automaticManagementEnabled
                         manualManagementReason     = $acc.secretManagement.manualManagementReason
+                        creationTime               = $acc.creationTime
                     }
                 }
                 $offset += $limit
@@ -165,6 +166,19 @@ try {
             if (-not $isIB) { $InUseSafeNames[$acc.safeName] = $true }
         }
 
+        # Date formatting for Account Creation Date
+        $accCreationTimeEpoch = $acc.creationTime
+        $accCreationDate = "Unknown"
+        if ($accCreationTimeEpoch -match "^\d+$") {
+            try {
+                $longVal = [long]$accCreationTimeEpoch
+                if ($longVal -gt 1e11) { $accCreationDate = [datetimeoffset]::FromUnixTimeMilliseconds($longVal).DateTime.ToString("yyyy-MM-dd HH:mm:ss") }
+                else { $accCreationDate = [datetimeoffset]::FromUnixTimeSeconds($longVal).DateTime.ToString("yyyy-MM-dd HH:mm:ss") }
+            }
+            catch { $accCreationDate = "Invalid Date ($accCreationTimeEpoch)" }
+        }
+        elseif ($null -ne $accCreationTimeEpoch) { $accCreationDate = $accCreationTimeEpoch }
+
         # Auto-onboarded account discovery logic
         if ($AutoOnboardedPattern -and $acc.safeName) {
             $isAutoSafe = $false
@@ -179,19 +193,21 @@ try {
                     UserName    = $acc.userName
                     PlatformID  = $acc.platformId
                     SafeName    = $acc.safeName
+                    CreationDate = $accCreationDate
                 }
             }
         }
 
         $InventoryExport += [PSCustomObject]@{
-            AccountName = $acc.name
-            Address     = $acc.address
-            UserName    = $acc.userName
-            PlatformID  = $acc.platformId
-            SafeName    = $acc.safeName
-            SecretType  = $acc.secretType
-            CPMDisabled = $cpmDisabled
-            IsDomain    = $isDomain
+            AccountName  = $acc.name
+            Address      = $acc.address
+            UserName     = $acc.userName
+            PlatformID   = $acc.platformId
+            SafeName     = $acc.safeName
+            SecretType   = $acc.secretType
+            CreationDate = $accCreationDate
+            CPMDisabled  = $cpmDisabled
+            IsDomain     = $isDomain
         }
     }
     $InventoryExport | Export-Csv -Path $invFile -NoTypeInformation
@@ -242,9 +258,14 @@ try {
         
         foreach ($p in $batch) {
             $RawPlatforms += [PSCustomObject]@{
-                id     = if ($p.general.id) { $p.general.id } else { $p.platformId }
-                name   = if ($p.general.name) { $p.general.name } else { $p.name }
-                active = if ($null -ne $p.general.active) { $p.general.active } else { $p.active }
+                id                         = if ($p.general.id) { $p.general.id } else { $p.platformId }
+                name                       = if ($p.general.name) { $p.general.name } else { $p.name }
+                active                     = if ($null -ne $p.general.active) { $p.general.active } else { $p.active }
+                systemType                 = $p.general.systemType
+                platformBaseID             = $p.platformBaseID
+                linkedAccounts             = $p.linkedAccounts | ConvertTo-Json -Compress -Depth 5
+                performPeriodicChange      = $p.automaticPasswordManagement.performPeriodicChange
+                privilegedAccessWorkflows   = $p.privilegedAccessWorkflows | ConvertTo-Json -Compress -Depth 5
             }
         }
         $RawPlatforms | Export-Csv -Path $rawPlatsCache -NoTypeInformation
@@ -272,11 +293,16 @@ try {
         if ($isMigPlat) { $MigratedPlatformsCount++ }
 
         $PlatsExport += [PSCustomObject]@{
-            PlatformID = $platId
-            Name       = $platName
-            Active     = $isActive
-            IsMigrated = $isMigPlat
-            IsInUse    = ($null -ne $platId -and $InUsePlatformIds.ContainsKey($platId))
+            PlatformID             = $platId
+            Name                   = $platName
+            Active                 = $isActive
+            SystemType             = $p.systemType
+            PlatformBaseID         = $p.platformBaseID
+            LinkedAccounts         = $p.linkedAccounts
+            PerformPeriodicChange  = $p.performPeriodicChange
+            PrivilegedWorkflows    = $p.privilegedAccessWorkflows
+            IsMigrated             = $isMigPlat
+            IsInUse                = ($null -ne $platId -and $InUsePlatformIds.ContainsKey($platId))
         }
     }
     $PlatsExport | Export-Csv -Path $platsFile -NoTypeInformation

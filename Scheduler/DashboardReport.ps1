@@ -74,6 +74,7 @@ try {
     $platsFile   = Join-Path $ExportDir "DashboardPlatformsDetails_$timestamp.csv"
     $failFile    = Join-Path $ExportDir "DashboardFailedAccountsDetails_$timestamp.csv"
     $summaryFile = Join-Path $ExportDir "DashboardCounts_$timestamp.csv"
+    $discFile    = Join-Path $ExportDir "DashboardDiscoveredAccountsDetails_$timestamp.csv"
 
     # Load shared feature config
     $CfgDomains = if ($FeatureConfig.Domains) { $FeatureConfig.Domains } else { @() }
@@ -135,6 +136,7 @@ try {
     $DomainAccountsCount = 0
     $NonDomainAccountsCount = 0
     $AutoOnboardedCount = 0
+    $DiscoveredAccountsExport = @()
 
     foreach ($acc in $RawAccounts) {
         # Domain vs Non-Domain
@@ -149,9 +151,9 @@ try {
 
         # CPM Disabled
         $cpmDisabled = $false
-        # Normalize CSV string booleans
+        # Normalize CSV string booleans - Fix: Use more robust check to avoid PowerShell casting bug
         $autoMgmt = $acc.automaticManagementEnabled
-        if ($null -ne $autoMgmt -and ($autoMgmt -eq $false -or $autoMgmt -eq "False")) { $cpmDisabled = $true }
+        if ($null -ne $autoMgmt -and ($autoMgmt -match 'False' -or $autoMgmt -eq $false)) { $cpmDisabled = $true }
         if ($null -ne $acc.manualManagementReason -and $acc.manualManagementReason -ne "") { $cpmDisabled = $true }
         if ($cpmDisabled) { $CpmDisabledCount++ }
 
@@ -171,6 +173,13 @@ try {
             }
             if ($isAutoSafe -and $acc.name -match $AutoOnboardedPattern) {
                 $AutoOnboardedCount++
+                $DiscoveredAccountsExport += [PSCustomObject]@{
+                    AccountName = $acc.name
+                    Address     = $acc.address
+                    UserName    = $acc.userName
+                    PlatformID  = $acc.platformId
+                    SafeName    = $acc.safeName
+                }
             }
         }
 
@@ -186,6 +195,7 @@ try {
         }
     }
     $InventoryExport | Export-Csv -Path $invFile -NoTypeInformation
+    $DiscoveredAccountsExport | Export-Csv -Path $discFile -NoTypeInformation
     $InUsePlatformsCount = $InUsePlatformIds.Keys.Count
     $InUseSafesCount = $InUseSafeNames.Keys.Count
     Write-Log -Message "Inventory Analytics: Total: $($InventoryExport.Count), Domain: $DomainAccountsCount, CPM Disabled: $CpmDisabledCount, Discovered: $AutoOnboardedCount" -ScriptName $ScriptName -LogPath $LogPath
@@ -418,7 +428,7 @@ try {
             
             try {
                 $zipFile = Join-Path $ExportDir "DashboardReports_$timestamp.zip"
-                $filesToZip = @($invFile, $safesFile, $platsFile, $failFile, $summaryFile)
+                $filesToZip = @($invFile, $safesFile, $platsFile, $failFile, $summaryFile, $discFile)
                 
                 Write-Log -Message "Zipping reports to $zipFile..." -ScriptName $ScriptName -LogPath $LogPath
                 Compress-Archive -Path $filesToZip -DestinationPath $zipFile -Force

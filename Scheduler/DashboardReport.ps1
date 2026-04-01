@@ -82,6 +82,8 @@ try {
     $PersSafeRegex = $FeatureConfig.PersonalSafePattern
     $MigPlatKeywords = if ($FeatureConfig.MigratedPlatformKeywords) { $FeatureConfig.MigratedPlatformKeywords } else { @() }
     $ExcludeFailedPlatforms = if ($FeatureConfig.FailedAccountExcludePlatforms) { $FeatureConfig.FailedAccountExcludePlatforms } else { @() }
+    $AutoOnboardedSafes = if ($FeatureConfig.AutoOnboardedSafes) { $FeatureConfig.AutoOnboardedSafes } else { @() }
+    $AutoOnboardedPattern = if ($FeatureConfig.AutoOnboardedPattern) { $FeatureConfig.AutoOnboardedPattern } else { "" }
 
     # ------------------------
     # Step 1: Fetch Raw Accounts
@@ -132,6 +134,7 @@ try {
     $CpmDisabledCount = 0
     $DomainAccountsCount = 0
     $NonDomainAccountsCount = 0
+    $AutoOnboardedCount = 0
 
     foreach ($acc in $RawAccounts) {
         # Domain vs Non-Domain
@@ -160,6 +163,17 @@ try {
             if (-not $isIB) { $InUseSafeNames[$acc.safeName] = $true }
         }
 
+        # Auto-onboarded account discovery logic
+        if ($AutoOnboardedPattern -and $acc.safeName) {
+            $isAutoSafe = $false
+            foreach ($as in $AutoOnboardedSafes) {
+                if ($acc.safeName -ieq $as) { $isAutoSafe = $true; break }
+            }
+            if ($isAutoSafe -and $acc.name -match $AutoOnboardedPattern) {
+                $AutoOnboardedCount++
+            }
+        }
+
         $InventoryExport += [PSCustomObject]@{
             AccountName = $acc.name
             Address     = $acc.address
@@ -174,7 +188,7 @@ try {
     $InventoryExport | Export-Csv -Path $invFile -NoTypeInformation
     $InUsePlatformsCount = $InUsePlatformIds.Keys.Count
     $InUseSafesCount = $InUseSafeNames.Keys.Count
-    Write-Log -Message "Inventory Analytics: Total: $($InventoryExport.Count), Domain: $DomainAccountsCount, CPM Disabled: $CpmDisabledCount" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "Inventory Analytics: Total: $($InventoryExport.Count), Domain: $DomainAccountsCount, CPM Disabled: $CpmDisabledCount, Discovered: $AutoOnboardedCount" -ScriptName $ScriptName -LogPath $LogPath
     
     # Step 2: Failed Accounts Count (Filtered by InbuiltSafes)
     $failedAccUri = "$BaseUrl/PasswordVault/API/Accounts?savedFilter=PolicyFailures&limit=1000"
@@ -365,6 +379,7 @@ try {
     $SummaryRows += [PSCustomObject]@{ Category = "Account Metrics"; Metric = "NonDomainAccounts"; Value = $NonDomainAccountsCount }
     $SummaryRows += [PSCustomObject]@{ Category = "Account Metrics"; Metric = "FailedAccounts"; Value = $FailedAccountsCount }
     $SummaryRows += [PSCustomObject]@{ Category = "Account Metrics"; Metric = "CPMDisabledAccounts"; Value = $CpmDisabledCount }
+    $SummaryRows += [PSCustomObject]@{ Category = "Account Metrics"; Metric = "DiscoveredAccounts"; Value = $AutoOnboardedCount }
     
     $SummaryRows += [PSCustomObject]@{ Category = "Safe Metrics"; Metric = "TotalSafes"; Value = $TotalSafes }
     $SummaryRows += [PSCustomObject]@{ Category = "Safe Metrics"; Metric = "PersonalSafes"; Value = $PersonalSafesCount }

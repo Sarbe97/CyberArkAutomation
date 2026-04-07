@@ -145,7 +145,7 @@ try {
         $hasMore = $true
 
         while ($hasMore) {
-            $pAccUri = "$BaseUrl/API/DiscoveredAccounts/?limit=$limit&offset=$offset"
+            $pAccUri = "$BaseUrl/PasswordVault/API/DiscoveredAccounts/?limit=$limit&offset=$offset"
             $pAccResp = Invoke-CyberArkApi -Uri $pAccUri
             $batch = if ($pAccResp.value) { $pAccResp.value } else { @() }
             
@@ -154,11 +154,12 @@ try {
                 foreach ($acc in $batch) {
                     $RawPendingDiscovered += [PSCustomObject]@{
                         Id                      = $acc.id
+                        Name                    = $acc.name
                         UserName                = $acc.userName
                         Address                 = $acc.address
                         PlatformType            = $acc.platformType
                         OSFamily                = $acc.osFamily
-                        DiscoveryDateTime       = $acc.discoveryDateTime
+                        DiscoveryDate           = if ($acc.discoveryDate) { $acc.discoveryDate } else { $acc.lastLogonDateTime }
                     }
                 }
                 $offset += $limit
@@ -173,15 +174,48 @@ try {
     # Processor 1.1: Pending Discovered Filtered
     Write-Log -Message "Processing Pending Discovered accounts filtering..." -ScriptName $ScriptName -LogPath $LogPath
     $PendingDiscoveredExport = @()
-    if ($PendingDiscNames.Count -gt 0) {
-        $PendingDiscoveredExport = $RawPendingDiscovered | Where-Object { 
-            $uName = $_.UserName
-            $match = $false
+    
+    foreach ($acc in $RawPendingDiscovered) {
+        $isMatch = $false
+        
+        # Match by name/regex pattern if defined
+        if ($AutoOnboardedPattern -and $acc.Name -match $AutoOnboardedPattern) {
+            $isMatch = $true
+        }
+        
+        # Match by config filter names if not already matched
+        if (-not $isMatch -and $PendingDiscNames.Count -gt 0) {
             foreach ($n in $PendingDiscNames) {
-                # Case-insensitive match (can use -match or -ieq based on requirement, -match allows partial)
-                if ($uName -match [regex]::Escape($n)) { $match = $true; break }
+                if ($acc.UserName -match [regex]::Escape($n)) { 
+                    $isMatch = $true
+                    break 
+                }
             }
-            $match
+        }
+        
+        if ($isMatch) {
+            # Date formatting for DiscoveryDate
+            $discTimeEpoch = $acc.DiscoveryDate
+            $discDateStr = "Unknown"
+            if ($discTimeEpoch -match "^\d+$") {
+                try {
+                    $longVal = [long]$discTimeEpoch
+                    if ($longVal -gt 1e11) { $discDateStr = [datetimeoffset]::FromUnixTimeMilliseconds($longVal).DateTime.ToString("yyyy-MM-dd HH:mm:ss") }
+                    else { $discDateStr = [datetimeoffset]::FromUnixTimeSeconds($longVal).DateTime.ToString("yyyy-MM-dd HH:mm:ss") }
+                }
+                catch { $discDateStr = "Invalid Date ($discTimeEpoch)" }
+            }
+            elseif ($null -ne $discTimeEpoch) { $discDateStr = $discTimeEpoch }
+
+            $PendingDiscoveredExport += [PSCustomObject]@{
+                Id                      = $acc.Id
+                Name                    = $acc.Name
+                UserName                = $acc.UserName
+                Address                 = $acc.Address
+                PlatformType            = $acc.PlatformType
+                OSFamily                = $acc.OSFamily
+                DiscoveryDate           = $discDateStr
+            }
         }
     }
     $PendingDiscoveredFilteredCount = $PendingDiscoveredExport.Count

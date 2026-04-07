@@ -76,7 +76,8 @@
             "Domains": ["na", "nadev", "cap", "ni"],
             "TrackedFailedAccounts": ["admin", "svc_backup", "sql_svc"],
             "AutoOnboardedSafes": ["Win-Server-Onboarding", "Unix-Server-Onboarding"],
-            "AutoOnboardedPattern": "-[a-zA-Z0-9]{8}-[a-zA-Z0-9]{4}-[a-zA-Z0-9]{4}-[a-zA-Z0-9]{4}-[a-zA-Z0-9]{12}$"
+            "AutoOnboardedPattern": "-[a-zA-Z0-9]{8}-[a-zA-Z0-9]{4}-[a-zA-Z0-9]{4}-[a-zA-Z0-9]{4}-[a-zA-Z0-9]{12}$",
+            "PendingDiscoveredFilterNames": ["admin", "svc_backup"]
         }
     }
 }

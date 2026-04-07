@@ -66,6 +66,7 @@ try {
     $rawAccsCache = Join-Path $ExportDir "RawCache_Accounts_$TodayStr.csv"
     $rawPlatsCache = Join-Path $ExportDir "RawCache_Platforms_$TodayStr.csv"
     $rawSafesCache = Join-Path $ExportDir "RawCache_Safes_$TodayStr.csv"
+    $rawPendingDiscCache = Join-Path $ExportDir "RawCache_PendingDiscovered_$TodayStr.csv"
     
     # Final Processed Report Filenames (Timestamped)
     $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
@@ -73,6 +74,7 @@ try {
     $safesFile   = Join-Path $ExportDir "DashboardSafesDetails_$timestamp.csv"
     $platsFile   = Join-Path $ExportDir "DashboardPlatformsDetails_$timestamp.csv"
     $failFile    = Join-Path $ExportDir "DashboardFailedAccountsDetails_$timestamp.csv"
+    $pendingDiscFile = Join-Path $ExportDir "DashboardPendingDiscoveredAccountsDetails_$timestamp.csv"
     $summaryFile = Join-Path $ExportDir "DashboardCounts_$timestamp.csv"
     $discFile    = Join-Path $ExportDir "DashboardDiscoveredAccountsDetails_$timestamp.csv"
 
@@ -85,6 +87,7 @@ try {
     $ExcludeFailedPlatforms = if ($FeatureConfig.FailedAccountExcludePlatforms) { $FeatureConfig.FailedAccountExcludePlatforms } else { @() }
     $AutoOnboardedSafes = if ($FeatureConfig.AutoOnboardedSafes) { $FeatureConfig.AutoOnboardedSafes } else { @() }
     $AutoOnboardedPattern = if ($FeatureConfig.AutoOnboardedPattern) { $FeatureConfig.AutoOnboardedPattern } else { "" }
+    $PendingDiscNames = if ($FeatureConfig.PendingDiscoveredFilterNames) { $FeatureConfig.PendingDiscoveredFilterNames } else { @() }
 
     # ------------------------
     # Step 1: Fetch Raw Accounts
@@ -127,6 +130,63 @@ try {
         }
         $RawAccounts | Export-Csv -Path $rawAccsCache -NoTypeInformation
     }
+
+    # ------------------------
+    # Step 1.1: Fetch Pending Discovered Accounts
+    # ------------------------
+    $RawPendingDiscovered = @()
+    if (Test-Path $rawPendingDiscCache) {
+        $RawPendingDiscovered = Import-Csv $rawPendingDiscCache
+    }
+    else {
+        Write-Log -Message "Fetching raw pending discovered accounts from API..." -ScriptName $ScriptName -LogPath $LogPath
+        $limit = 1000
+        $offset = 0
+        $hasMore = $true
+
+        while ($hasMore) {
+            $pAccUri = "$BaseUrl/API/DiscoveredAccounts/?limit=$limit&offset=$offset"
+            $pAccResp = Invoke-CyberArkApi -Uri $pAccUri
+            $batch = if ($pAccResp.value) { $pAccResp.value } else { @() }
+            
+            if ($batch.Count -gt 0) {
+                # Add batch to RawPendingDiscovered
+                foreach ($acc in $batch) {
+                    $RawPendingDiscovered += [PSCustomObject]@{
+                        Id                      = $acc.id
+                        UserName                = $acc.userName
+                        Address                 = $acc.address
+                        PlatformType            = $acc.platformType
+                        OSFamily                = $acc.osFamily
+                        DiscoveryDateTime       = $acc.discoveryDateTime
+                    }
+                }
+                $offset += $limit
+                if ($batch.Count -lt $limit) { $hasMore = $false }
+                Write-Log -Message "Fetched $($RawPendingDiscovered.Count) pending discovered accounts so far..." -ScriptName $ScriptName -LogPath $LogPath
+            }
+            else { $hasMore = $false }
+        }
+        $RawPendingDiscovered | Export-Csv -Path $rawPendingDiscCache -NoTypeInformation
+    }
+
+    # Processor 1.1: Pending Discovered Filtered
+    Write-Log -Message "Processing Pending Discovered accounts filtering..." -ScriptName $ScriptName -LogPath $LogPath
+    $PendingDiscoveredExport = @()
+    if ($PendingDiscNames.Count -gt 0) {
+        $PendingDiscoveredExport = $RawPendingDiscovered | Where-Object { 
+            $uName = $_.UserName
+            $match = $false
+            foreach ($n in $PendingDiscNames) {
+                # Case-insensitive match (can use -match or -ieq based on requirement, -match allows partial)
+                if ($uName -match [regex]::Escape($n)) { $match = $true; break }
+            }
+            $match
+        }
+    }
+    $PendingDiscoveredFilteredCount = $PendingDiscoveredExport.Count
+    $PendingDiscoveredExport | Export-Csv -Path $pendingDiscFile -NoTypeInformation
+    Write-Log -Message "Pending Discovered: Total: $($RawPendingDiscovered.Count), Filtered: $PendingDiscoveredFilteredCount" -ScriptName $ScriptName -LogPath $LogPath
 
     # Processor 1: Inventory Analytics
     Write-Log -Message "Processing Inventory analytics from raw accounts..." -ScriptName $ScriptName -LogPath $LogPath
@@ -416,6 +476,7 @@ try {
     $SummaryRows += [PSCustomObject]@{ Category = "Account Metrics"; Metric = "FailedAccounts"; Value = $FailedAccountsCount }
     $SummaryRows += [PSCustomObject]@{ Category = "Account Metrics"; Metric = "CPMDisabledAccounts"; Value = $CpmDisabledCount }
     $SummaryRows += [PSCustomObject]@{ Category = "Account Metrics"; Metric = "DiscoveredAccounts"; Value = $AutoOnboardedCount }
+    $SummaryRows += [PSCustomObject]@{ Category = "Account Metrics"; Metric = "PendingDiscoveredAccounts"; Value = $PendingDiscoveredFilteredCount }
     
     $SummaryRows += [PSCustomObject]@{ Category = "Safe Metrics"; Metric = "TotalSafes"; Value = $TotalSafes }
     $SummaryRows += [PSCustomObject]@{ Category = "Safe Metrics"; Metric = "PersonalSafes"; Value = $PersonalSafesCount }
@@ -454,7 +515,7 @@ try {
             
             try {
                 $zipFile = Join-Path $ExportDir "DashboardReports_$timestamp.zip"
-                $filesToZip = @($invFile, $safesFile, $platsFile, $failFile, $summaryFile, $discFile)
+                $filesToZip = @($invFile, $safesFile, $platsFile, $failFile, $summaryFile, $discFile, $pendingDiscFile)
                 
                 Write-Log -Message "Zipping reports to $zipFile..." -ScriptName $ScriptName -LogPath $LogPath
                 Compress-Archive -Path $filesToZip -DestinationPath $zipFile -Force
@@ -479,7 +540,7 @@ try {
                     foreach ($row in $SummaryRows) {
                         if ($row.Metric -eq "Timestamp") { continue }
                         $valClass = "metric"
-                        if ($row.Metric -like "*Failed*") { $valClass = "priority-failed" }
+                        if ($row.Metric -like "*Failed*" -or $row.Metric -like "*Pending*") { $valClass = "priority-failed" }
                         # Also mark non-zero tracked failures as priority
                         if ($row.Category -eq "Tracked Account Metrics" -and $row.Value -gt 0) { $valClass = "priority-failed" }
                         

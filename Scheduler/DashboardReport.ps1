@@ -74,9 +74,9 @@ try {
     $safesFile   = Join-Path $ExportDir "DashboardSafesDetails_$timestamp.csv"
     $platsFile   = Join-Path $ExportDir "DashboardPlatformsDetails_$timestamp.csv"
     $failFile    = Join-Path $ExportDir "DashboardFailedAccountsDetails_$timestamp.csv"
-    $pendingDiscFile = Join-Path $ExportDir "DashboardPendingDiscoveredAccountsDetails_$timestamp.csv"
+    $pendingDiscFile = Join-Path $ExportDir "DashboardDiscoveryPendingDetails_$timestamp.csv"
     $summaryFile = Join-Path $ExportDir "DashboardCounts_$timestamp.csv"
-    $discFile    = Join-Path $ExportDir "DashboardDiscoveredAccountsDetails_$timestamp.csv"
+    $discFile    = Join-Path $ExportDir "DashboardDiscoveryOnboardedDetails_$timestamp.csv"
 
     # Load shared feature config
     $CfgDomains = if ($FeatureConfig.Domains) { $FeatureConfig.Domains } else { @() }
@@ -171,20 +171,15 @@ try {
         $RawPendingDiscovered | Export-Csv -Path $rawPendingDiscCache -NoTypeInformation
     }
 
-    # Processor 1.1: Pending Discovered Filtered
-    Write-Log -Message "Processing Pending Discovered accounts filtering..." -ScriptName $ScriptName -LogPath $LogPath
-    $PendingDiscoveredExport = @()
+    # Processor 1.1: Discovery Pending Filtered
+    Write-Log -Message "Processing Discovery_Accounts_Pending filter logic..." -ScriptName $ScriptName -LogPath $LogPath
+    $DiscoveryPendingExport = @()
     
     foreach ($acc in $RawPendingDiscovered) {
         $isMatch = $false
         
-        # Match by name/regex pattern if defined
-        if ($AutoOnboardedPattern -and $acc.Name -match $AutoOnboardedPattern) {
-            $isMatch = $true
-        }
-        
-        # Match by config filter names if not already matched
-        if (-not $isMatch -and $PendingDiscNames.Count -gt 0) {
+        # Match ONLY by config filter names (case-insensitive) - UUID pattern is NOT for pending list
+        if ($PendingDiscNames.Count -gt 0) {
             foreach ($n in $PendingDiscNames) {
                 if ($acc.UserName -match [regex]::Escape($n)) { 
                     $isMatch = $true
@@ -207,7 +202,7 @@ try {
             }
             elseif ($null -ne $discTimeEpoch) { $discDateStr = $discTimeEpoch }
 
-            $PendingDiscoveredExport += [PSCustomObject]@{
+            $DiscoveryPendingExport += [PSCustomObject]@{
                 Id                      = $acc.Id
                 Name                    = $acc.Name
                 UserName                = $acc.UserName
@@ -218,9 +213,9 @@ try {
             }
         }
     }
-    $PendingDiscoveredFilteredCount = $PendingDiscoveredExport.Count
-    $PendingDiscoveredExport | Export-Csv -Path $pendingDiscFile -NoTypeInformation
-    Write-Log -Message "Pending Discovered: Total: $($RawPendingDiscovered.Count), Filtered: $PendingDiscoveredFilteredCount" -ScriptName $ScriptName -LogPath $LogPath
+    $DiscoveryPendingCount = $DiscoveryPendingExport.Count
+    $DiscoveryPendingExport | Export-Csv -Path $pendingDiscFile -NoTypeInformation
+    Write-Log -Message "Discovery_Accounts_Pending: Total: $($RawPendingDiscovered.Count), Filtered: $DiscoveryPendingCount" -ScriptName $ScriptName -LogPath $LogPath
 
     # Processor 1: Inventory Analytics
     Write-Log -Message "Processing Inventory analytics from raw accounts..." -ScriptName $ScriptName -LogPath $LogPath
@@ -230,8 +225,8 @@ try {
     $CpmDisabledCount = 0
     $DomainAccountsCount = 0
     $NonDomainAccountsCount = 0
-    $AutoOnboardedCount = 0
-    $DiscoveredAccountsExport = @()
+    $DiscoveryOnboardedCount = 0
+    $DiscoveryOnboardedExport = @()
 
     foreach ($acc in $RawAccounts) {
         # Domain vs Non-Domain
@@ -273,21 +268,19 @@ try {
         }
         elseif ($null -ne $accCreationTimeEpoch) { $accCreationDate = $accCreationTimeEpoch }
 
-        # Auto-onboarded account discovery logic
-        if ($AutoOnboardedPattern -and $acc.safeName) {
-            $isAutoSafe = $false
-            foreach ($as in $AutoOnboardedSafes) {
-                if ($acc.safeName -ieq $as) { $isAutoSafe = $true; break }
-            }
-            if ($isAutoSafe -and $acc.name -match $AutoOnboardedPattern) {
-                $AutoOnboardedCount++
-                $DiscoveredAccountsExport += [PSCustomObject]@{
-                    AccountName = $acc.name
-                    Address     = $acc.address
-                    UserName    = $acc.userName
-                    PlatformID  = $acc.platformId
-                    SafeName    = $acc.safeName
-                    CreationDate = $accCreationDate
+        # Discovery_Accounts_Onboarded Identification (already in inventory)
+        $safeName = $acc.safeName
+        $accName = $acc.name
+        if ($AutoOnboardedSafes -and ($safeName -in $AutoOnboardedSafes)) {
+            if ($AutoOnboardedPattern -and $accName -match $AutoOnboardedPattern) {
+                $DiscoveryOnboardedCount++
+                $DiscoveryOnboardedExport += [PSCustomObject]@{
+                    AccountName     = $accName
+                    Address         = $acc.address
+                    UserName        = $acc.userName
+                    PlatformID      = $acc.platformId
+                    SafeName        = $safeName
+                    CreationDate    = $accCreationDate
                 }
             }
         }
@@ -305,10 +298,10 @@ try {
         }
     }
     $InventoryExport | Export-Csv -Path $invFile -NoTypeInformation
-    $DiscoveredAccountsExport | Export-Csv -Path $discFile -NoTypeInformation
+    $DiscoveryOnboardedExport | Export-Csv -Path $discFile -NoTypeInformation
     $InUsePlatformsCount = $InUsePlatformIds.Keys.Count
     $InUseSafesCount = $InUseSafeNames.Keys.Count
-    Write-Log -Message "Inventory Analytics: Total: $($InventoryExport.Count), Domain: $DomainAccountsCount, CPM Disabled: $CpmDisabledCount, Discovered: $AutoOnboardedCount" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "Inventory Analytics: Total: $($InventoryExport.Count), Domain: $DomainAccountsCount, CPM Disabled: $CpmDisabledCount, Discovery_Accounts_Onboarded: $DiscoveryOnboardedCount" -ScriptName $ScriptName -LogPath $LogPath
     
     # Step 2: Failed Accounts Count (Filtered by InbuiltSafes)
     $failedAccUri = "$BaseUrl/PasswordVault/API/Accounts?savedFilter=PolicyFailures&limit=1000"
@@ -509,8 +502,8 @@ try {
     $SummaryRows += [PSCustomObject]@{ Category = "Account Metrics"; Metric = "NonDomainAccounts"; Value = $NonDomainAccountsCount }
     $SummaryRows += [PSCustomObject]@{ Category = "Account Metrics"; Metric = "FailedAccounts"; Value = $FailedAccountsCount }
     $SummaryRows += [PSCustomObject]@{ Category = "Account Metrics"; Metric = "CPMDisabledAccounts"; Value = $CpmDisabledCount }
-    $SummaryRows += [PSCustomObject]@{ Category = "Account Metrics"; Metric = "DiscoveredAccounts"; Value = $AutoOnboardedCount }
-    $SummaryRows += [PSCustomObject]@{ Category = "Account Metrics"; Metric = "PendingDiscoveredAccounts"; Value = $PendingDiscoveredFilteredCount }
+    $SummaryRows += [PSCustomObject]@{ Category = "Account Metrics"; Metric = "Discovery_Accounts_Onboarded"; Value = $DiscoveryOnboardedCount }
+    $SummaryRows += [PSCustomObject]@{ Category = "Account Metrics"; Metric = "Discovery_Accounts_Pending"; Value = $DiscoveryPendingCount }
     
     $SummaryRows += [PSCustomObject]@{ Category = "Safe Metrics"; Metric = "TotalSafes"; Value = $TotalSafes }
     $SummaryRows += [PSCustomObject]@{ Category = "Safe Metrics"; Metric = "PersonalSafes"; Value = $PersonalSafesCount }

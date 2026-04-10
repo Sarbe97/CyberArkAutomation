@@ -6,13 +6,17 @@
         h2 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }
         h3 { color: #2c3e50; margin-top: 25px; border-left: 4px solid #3498db; padding-left: 10px; }
         .container { background-color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 800px; }
-        table { width: 400px; border-collapse: collapse; margin-top: 10px; margin-bottom: 20px; border: 1px solid #ccc; }
-        th, td { text-align: left; padding: 0; border: 1px solid #ccc; line-height: 1; }
+        table { width: 550px; border-collapse: collapse; margin-top: 10px; margin-bottom: 20px; border: 1px solid #ccc; }
+        th, td { text-align: left; padding: 8px; border: 1px solid #ccc; line-height: 1.2; }
         th { background-color: #3498db; color: #fff; font-size: 0.9em; }
         tr:hover { background-color: #f9f9f9; }
         .footer { margin-top: 30px; font-size: 0.85em; color: #7f8c8d; border-top: 1px solid #eee; padding-top: 15px; }
         .metric { font-weight: bold; color: #2980b9; }
         .priority-failed { color: #e74c3c; font-weight: bold; }
+        .trend-up { color: #27ae60; font-weight: bold; }
+        .trend-down { color: #c0392b; font-weight: bold; }
+        .trend-good { color: #27ae60; font-weight: bold; }
+        .trend-bad { color: #e67e22; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -22,25 +26,25 @@
         
         <h3>Account Metrics</h3>
         <table>
-            <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+            <thead><tr><th>Metric</th><th>Previous</th><th>Today</th><th>Change</th></tr></thead>
             <tbody>{{AccountTable}}</tbody>
         </table>
 
         <h3>Safe Metrics</h3>
         <table>
-            <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+            <thead><tr><th>Metric</th><th>Previous</th><th>Today</th><th>Change</th></tr></thead>
             <tbody>{{SafeTable}}</tbody>
         </table>
 
         <h3>Platform Metrics</h3>
         <table>
-            <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+            <thead><tr><th>Metric</th><th>Previous</th><th>Today</th><th>Change</th></tr></thead>
             <tbody>{{PlatformTable}}</tbody>
         </table>
 
         <h3>Tracked Individual Failures</h3>
         <table>
-            <thead><tr><th>Account Name</th><th>Failure Count</th></tr></thead>
+            <thead><tr><th>Account Name</th><th>Previous</th><th>Today</th><th>Change</th></tr></thead>
             <tbody>{{TrackedTable}}</tbody>
         </table>
         

@@ -90,6 +90,29 @@ try {
     $PendingDiscNames = if ($FeatureConfig.PendingDiscoveredFilterNames) { $FeatureConfig.PendingDiscoveredFilterNames } else { @() }
 
     # ------------------------
+    # Helper: Get Previous Day Counts
+    # ------------------------
+    function Get-PreviousDayCounts {
+        param($BaseOutputDir, $TodayStr)
+        
+        $prevDirs = Get-ChildItem -Path $BaseOutputDir -Directory | Where-Object { $_.Name -lt $TodayStr } | Sort-Object Name -Descending
+        if (-not $prevDirs) { return $null }
+        
+        # Get the first match (most recent previous day)
+        $prevDir = $prevDirs[0].FullName
+        $prevSummaryFile = Get-ChildItem -Path $prevDir -Filter "DashboardCounts_*.csv" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        
+        if (-not $prevSummaryFile) { return $null }
+        
+        $counts = @{}
+        $csv = Import-Csv $prevSummaryFile.FullName
+        foreach ($row in $csv) {
+            $counts[$row.Metric] = $row.Value
+        }
+        return $counts
+    }
+
+    # ------------------------
     # Step 1: Fetch Raw Accounts
     # ------------------------
     $RawAccounts = @()
@@ -527,11 +550,10 @@ try {
 
     $SummaryRows | Export-Csv -Path $summaryFile -NoTypeInformation
 
-    Write-Log -Message "Reports generated successfully:" -ScriptName $ScriptName -LogPath $LogPath
-    Write-Log -Message "  - Inventory: $invFile" -ScriptName $ScriptName -LogPath $LogPath
-    Write-Log -Message "  - Safes: $safesFile" -ScriptName $ScriptName -LogPath $LogPath
-    Write-Log -Message "  - Platforms: $platsFile" -ScriptName $ScriptName -LogPath $LogPath
-    Write-Log -Message "  - Summary: $summaryFile" -ScriptName $ScriptName -LogPath $LogPath
+    # ------------------------
+    # Step 5.1: SharePoint Automation (Excel Update)
+    # ------------------------
+    $SummaryRows | Export-Csv -Path $summaryFile -NoTypeInformation
 
     # ------------------------
     # Step 6: Automated Email Notification
@@ -564,14 +586,45 @@ try {
                     $platRows = ""
                     $trackedRows = ""
                     
+                    $prevCounts = Get-PreviousDayCounts -BaseOutputDir $BaseOutputDir -TodayStr $TodayStr
+
                     foreach ($row in $SummaryRows) {
                         if ($row.Metric -eq "Timestamp") { continue }
+                        
+                        $todayVal = [int]$row.Value
+                        $prevValStr = if ($prevCounts -and $prevCounts.ContainsKey($row.Metric)) { $prevCounts[$row.Metric] } else { "N/A" }
+                        $prevVal = if ($prevValStr -ne "N/A") { [int]$prevValStr } else { $null }
+                        
+                        $changeText = "---"
+                        $changeClass = ""
+                        
+                        if ($null -ne $prevVal) {
+                            $diff = $todayVal - $prevVal
+                            if ($diff -gt 0) {
+                                $changeText = "+$diff"
+                                $changeClass = "trend-up"
+                                if ($row.Metric -like "*Failed*" -or $row.Metric -like "*Pending*") { $changeClass = "trend-bad" }
+                            }
+                            elseif ($diff -lt 0) {
+                                $changeText = "$diff"
+                                $changeClass = "trend-down"
+                                if ($row.Metric -like "*Failed*" -or $row.Metric -like "*Pending*") { $changeClass = "trend-good" }
+                            }
+                            else {
+                                $changeText = "0"
+                            }
+                        }
+
                         $valClass = "metric"
                         if ($row.Metric -like "*Failed*" -or $row.Metric -like "*Pending*") { $valClass = "priority-failed" }
-                        # Also mark non-zero tracked failures as priority
                         if ($row.Category -eq "Tracked Account Metrics" -and $row.Value -gt 0) { $valClass = "priority-failed" }
                         
-                        $html = "<tr><td>$($row.Metric)</td><td class='$valClass'>$($row.Value)</td></tr>"
+                        $html = "<tr>
+                            <td>$($row.Metric)</td>
+                            <td class='metric'>$prevValStr</td>
+                            <td class='$valClass'>$todayVal</td>
+                            <td class='$changeClass'>$changeText</td>
+                        </tr>"
                         
                         if ($row.Category -eq "Account Metrics") { $accRows += $html }
                         elseif ($row.Category -eq "Safe Metrics") { $safeRows += $html }

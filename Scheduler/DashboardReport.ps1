@@ -113,6 +113,70 @@ try {
     }
 
     # ------------------------
+    # Helper: Export Colored HTML-as-XLS
+    # ------------------------
+    function Export-FormattedXls {
+        param(
+            [Parameter(Mandatory=$true)]
+            [PSCustomObject[]]$Data,
+            [Parameter(Mandatory=$true)]
+            [string]$Path,
+            [string]$Title = "Report"
+        )
+        
+        $html = "<html><head><meta charset='UTF-8'><style>
+            table { border-collapse: collapse; font-family: Calibri, sans-serif; }
+            th { background-color: #34495e; color: white; padding: 10px; border: 1px solid #2c3e50; }
+            td { padding: 8px; border: 1px solid #bdc3c7; }
+            .fixed { background-color: #d4edda; color: #155724; font-weight: bold; }
+            .new { background-color: #f8d7da; color: #721c24; font-weight: bold; }
+            .existing { background-color: #fff3cd; color: #856404; }
+            .header { background-color: #3498db; color: white; font-size: 1.2em; text-align: center; }
+        </style></head><body>"
+        
+        $html += "<table><thead>"
+        $html += "<tr><th colspan='7' class='header'>$Title</th></tr>"
+        $html += "<tr>"
+        $props = $Data[0].PSObject.Properties.Name
+        foreach ($p in $props) { $html += "<th>$p</th>" }
+        $html += "</tr></thead><tbody>"
+
+        foreach ($row in $Data) {
+            $class = switch ($row.Status) {
+                "Fixed"    { "fixed" }
+                "New"      { "new" }
+                "Existing" { "existing" }
+                Default    { "" }
+            }
+            $html += "<tr>"
+            foreach ($p in $props) {
+                $val = $row.$p
+                if ($p -eq "Status") { $html += "<td class='$class'>$val</td>" }
+                else { $html += "<td>$val</td>" }
+            }
+            $html += "</tr>"
+        }
+        $html += "</tbody></table></body></html>"
+        $html | Set-Content -Path $Path -Force
+    }
+
+    # ------------------------
+    # Helper: Get Previous Day File
+    # ------------------------
+    function Get-PreviousDayFile {
+        param($BaseOutputDir, $TodayStr, $FilePattern)
+        
+        $prevDirs = Get-ChildItem -Path $BaseOutputDir -Directory | Where-Object { $_.Name -lt $TodayStr } | Sort-Object Name -Descending
+        if (-not $prevDirs) { return $null }
+        
+        foreach ($dir in $prevDirs) {
+            $prevFile = Get-ChildItem -Path $dir.FullName -Filter $FilePattern | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if ($prevFile) { return $prevFile.FullName }
+        }
+        return $null
+    }
+
+    # ------------------------
     # Step 1: Fetch Raw Accounts
     # ------------------------
     $RawAccounts = @()
@@ -354,6 +418,82 @@ try {
     $filteredFailedAccounts | Export-Csv -Path $failFile -NoTypeInformation
 
     # ------------------------
+    # Comparison Logic for Failed Accounts
+    # ------------------------
+    Write-Log -Message "Performing failure comparison with previous report..." -ScriptName $ScriptName -LogPath $LogPath
+    $comparisonFile = Join-Path $ExportDir "DashboardFailedComparison_$timestamp.csv"
+    $prevFailFile = Get-PreviousDayFile -BaseOutputDir $BaseOutputDir -TodayStr $TodayStr -FilePattern "DashboardFailedAccountsDetails_*.csv"
+    
+    $ComparisonExport = @()
+    $FixedCount = 0
+    $NewCount = 0
+    $ExistingCount = 0
+
+    if ($prevFailFile) {
+        Write-Log -Message "Found previous failure report: $prevFailFile" -ScriptName $ScriptName -LogPath $LogPath
+        $prevFailures = Import-Csv $prevFailFile
+        
+        $currentIds = $filteredFailedAccounts | ForEach-Object { $_.id }
+        $prevIds = $prevFailures | ForEach-Object { $_.id }
+
+        # 1. Fixed (Present in prev, not in current)
+        foreach ($prev in $prevFailures) {
+            if ($prev.id -notin $currentIds) {
+                $FixedCount++
+                $ComparisonExport += [PSCustomObject]@{
+                    Status     = "Fixed"
+                    AccountID  = $prev.id
+                    AccountName = $prev.name
+                    Address    = $prev.address
+                    UserName   = $prev.userName
+                    PlatformID = $prev.platformId
+                    SafeName   = $prev.safeName
+                }
+            }
+        }
+
+        # 2. Existing & New
+        foreach ($curr in $filteredFailedAccounts) {
+            $status = "New"
+            if ($curr.id -in $prevIds) {
+                $status = "Existing"
+                $ExistingCount++
+            } else {
+                $NewCount++
+            }
+            
+            $ComparisonExport += [PSCustomObject]@{
+                Status     = $status
+                AccountID  = $curr.id
+                AccountName = $curr.name
+                Address    = $curr.address
+                UserName   = $curr.userName
+                PlatformID = $curr.platformId
+                SafeName   = $curr.safeName
+            }
+        }
+    } else {
+        Write-Log -Message "No previous failure report found. Marking all as New." -ScriptName $ScriptName -LogPath $LogPath
+        foreach ($curr in $filteredFailedAccounts) {
+            $NewCount++
+            $ComparisonExport += [PSCustomObject]@{
+                Status     = "New"
+                AccountID  = $curr.id
+                AccountName = $curr.name
+                Address    = $curr.address
+                UserName   = $curr.userName
+                PlatformID = $curr.platformId
+                SafeName   = $curr.safeName
+            }
+        }
+    }
+    $failCompXls = Join-Path $ExportDir "DashboardFailedComparison_$timestamp.xls"
+    Export-FormattedXls -Data $ComparisonExport -Path $failCompXls -Title "Failure Comparison Report ($TodayStr)"
+    
+    $ComparisonExport | Export-Csv -Path $comparisonFile -NoTypeInformation
+    Write-Log -Message "Failure Comparison: Fixed: $FixedCount, New: $NewCount, Existing: $ExistingCount" -ScriptName $ScriptName -LogPath $LogPath
+
+    # ------------------------
     # Step 3: Fetch Raw Platforms
     # ------------------------
     $RawPlatforms = @()
@@ -539,6 +679,10 @@ try {
     $SummaryRows += [PSCustomObject]@{ Category = "Platform Metrics"; Metric = "MigratedPlatforms"; Value = $MigratedPlatformsCount }
     $SummaryRows += [PSCustomObject]@{ Category = "Platform Metrics"; Metric = "InUsePlatforms"; Value = $InUsePlatformsCount }
 
+    $SummaryRows += [PSCustomObject]@{ Category = "Failure Comparison"; Metric = "Fixed_Resolved"; Value = "-$FixedCount" }
+    $SummaryRows += [PSCustomObject]@{ Category = "Failure Comparison"; Metric = "New_Added"; Value = "+$NewCount" }
+    $SummaryRows += [PSCustomObject]@{ Category = "Failure Comparison"; Metric = "Existing_Pending"; Value = $ExistingCount }
+
     # Add Tracked Account Failures
     if ($TrackedFailures.Count -gt 0) {
         foreach ($accName in $TrackedFailures.Keys) {
@@ -564,7 +708,7 @@ try {
             
             try {
                 $zipFile = Join-Path $ExportDir "DashboardReports_$timestamp.zip"
-                $filesToZip = @($invFile, $safesFile, $platsFile, $failFile, $summaryFile, $discFile, $pendingDiscFile)
+                $filesToZip = @($invFile, $safesFile, $platsFile, $failFile, $comparisonFile, $failCompXls, $summaryFile, $discFile, $pendingDiscFile)
                 
                 Write-Log -Message "Zipping reports to $zipFile..." -ScriptName $ScriptName -LogPath $LogPath
                 Compress-Archive -Path $filesToZip -DestinationPath $zipFile -Force
@@ -585,6 +729,7 @@ try {
                     $safeRows = ""
                     $platRows = ""
                     $trackedRows = ""
+                    $compRows = ""
                     
                     $prevCounts = Get-PreviousDayCounts -BaseOutputDir $BaseOutputDir -TodayStr $TodayStr
 
@@ -630,12 +775,14 @@ try {
                         elseif ($row.Category -eq "Safe Metrics") { $safeRows += $html }
                         elseif ($row.Category -eq "Platform Metrics") { $platRows += $html }
                         elseif ($row.Category -eq "Tracked Account Metrics") { $trackedRows += $html }
+                        elseif ($row.Category -eq "Failure Comparison") { $compRows += $html }
                     }
 
                     $Body = $templateContent.Replace("{{AccountTable}}", $accRows)
                     $Body = $Body.Replace("{{SafeTable}}", $safeRows)
                     $Body = $Body.Replace("{{PlatformTable}}", $platRows)
                     $Body = $Body.Replace("{{TrackedTable}}", $trackedRows)
+                    $Body = $Body.Replace("{{ComparisonTable}}", $compRows)
                     $Body = $Body.Replace("{{Timestamp}}", (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"))
                 }
 
@@ -644,8 +791,10 @@ try {
                 $To = $config.Email.To -join ","
 
                 Write-Log -Message "Sending email to $To via $SmtpServer..." -ScriptName $ScriptName -LogPath $LogPath
-                Send-MailMessage -SmtpServer $SmtpServer -From $From -To $To -Subject $Subject -Body $Body -BodyAsHtml -Attachments @($zipFile)
-                Write-Log -Message "Email sent successfully." -ScriptName $ScriptName -LogPath $LogPath
+                # Attach both the ZIP and the simplified XLS report separately
+                $attachments = @($zipFile, $failCompXls)
+                Send-MailMessage -SmtpServer $SmtpServer -From $From -To $To -Subject $Subject -Body $Body -BodyAsHtml -Attachments $attachments
+                Write-Log -Message "Email sent successfully (Reports zipped + Comparison XLS attached separately)." -ScriptName $ScriptName -LogPath $LogPath
             }
             catch {
                 Write-Log -Message "Failed to send email notification: $_" -Level "WARNING" -ScriptName $ScriptName -LogPath $LogPath

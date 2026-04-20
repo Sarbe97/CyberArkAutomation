@@ -702,9 +702,18 @@ try {
     # ------------------------
     # Step 6: Automated Email Notification
     # ------------------------
-    if (-not $ManualLogin) {
+    $sendEmail = -not $ManualLogin
+    if ($ManualLogin) {
+        Write-Log -Message "ManualLogin detected. Prompting for email notification..." -ScriptName $ScriptName -LogPath $LogPath
+        $choice = Read-Host "Do you want to send the dashboard report via email? (Y/N)"
+        if ($choice -ieq "Y" -or $choice -ieq "Yes") {
+            $sendEmail = $true
+        }
+    }
+
+    if ($sendEmail) {
         if ($config.Email -and $config.Email.SmtpServer -and $config.Email.To) {
-            Write-Log -Message "ManualLogin not detected. Preparing automated email notification..." -ScriptName $ScriptName -LogPath $LogPath
+            Write-Log -Message "Preparing email notification..." -ScriptName $ScriptName -LogPath $LogPath
             
             try {
                 $zipFile = Join-Path $ExportDir "DashboardReports_$timestamp.zip"
@@ -803,9 +812,6 @@ try {
         else {
             Write-Log -Message "Email configuration missing or incomplete in config.json. Skipping notification." -Level "WARNING" -ScriptName $ScriptName -LogPath $LogPath
         }
-    }
-    else {
-        Write-Log -Message "ManualLogin detected. Skipping automated email notification." -ScriptName $ScriptName -LogPath $LogPath
     }
 }
 catch {

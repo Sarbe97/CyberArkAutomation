@@ -125,17 +125,15 @@ try {
         )
         
         $html = "<html><head><meta charset='UTF-8'><style>
-            table { border-collapse: collapse; font-family: Calibri, sans-serif; }
-            th { background-color: #34495e; color: white; padding: 10px; border: 1px solid #2c3e50; }
+            table { border-collapse: collapse; font-family: Calibri, sans-serif; width: 100%; }
+            th { background-color: #34495e; color: white; padding: 10px; border: 1px solid #2c3e50; text-align: left; }
             td { padding: 8px; border: 1px solid #bdc3c7; }
-            .fixed { background-color: #d4edda; color: #155724; font-weight: bold; }
-            .new { background-color: #f8d7da; color: #721c24; font-weight: bold; }
-            .existing { background-color: #fff3cd; color: #856404; }
-            .header { background-color: #3498db; color: white; font-size: 1.2em; text-align: center; }
+            .fixed { background-color: #e2f3e5; color: #155724; }
+            .new { background-color: #fce8e9; color: #721c24; }
+            .existing { background-color: #fff9e6; color: #856404; }
         </style></head><body>"
         
         $html += "<table><thead>"
-        $html += "<tr><th colspan='7' class='header'>$Title</th></tr>"
         $html += "<tr>"
         $props = $Data[0].PSObject.Properties.Name
         foreach ($p in $props) { $html += "<th>$p</th>" }
@@ -148,11 +146,9 @@ try {
                 "Existing" { "existing" }
                 Default    { "" }
             }
-            $html += "<tr>"
+            $html += "<tr class='$class'>"
             foreach ($p in $props) {
-                $val = $row.$p
-                if ($p -eq "Status") { $html += "<td class='$class'>$val</td>" }
-                else { $html += "<td>$val</td>" }
+                $html += "<td>$($row.$p)</td>"
             }
             $html += "</tr>"
         }

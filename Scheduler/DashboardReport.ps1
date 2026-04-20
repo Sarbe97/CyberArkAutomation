@@ -125,9 +125,9 @@ try {
         )
         
         $html = "<html><head><meta charset='UTF-8'><style>
-            table { border-collapse: collapse; font-family: Calibri, sans-serif; width: 100%; }
-            th { background-color: #34495e; color: white; padding: 10px; border: 1px solid #2c3e50; text-align: left; }
-            td { padding: 8px; border: 1px solid #bdc3c7; }
+            table { border-collapse: collapse; font-family: Calibri, sans-serif; }
+            th { background-color: #34495e; color: white; padding: 6px 10px; border: 1px solid #2c3e50; text-align: left; font-size: 11pt; }
+            td { padding: 4px 8px; border: 1px solid #bdc3c7; font-size: 10.5pt; white-space: nowrap; }
             .fixed { background-color: #e2f3e5; color: #155724; }
             .new { background-color: #fce8e9; color: #721c24; }
             .existing { background-color: #fff9e6; color: #856404; }
@@ -146,9 +146,9 @@ try {
                 "Existing" { "existing" }
                 Default    { "" }
             }
-            $html += "<tr class='$class'>"
+            $html += "<tr>"
             foreach ($p in $props) {
-                $html += "<td>$($row.$p)</td>"
+                $html += "<td class='$class'>$($row.$p)</td>"
             }
             $html += "</tr>"
         }

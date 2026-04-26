@@ -394,7 +394,7 @@ try {
     $filteredFailedAccounts = $failedAccounts | Where-Object {
         $pltId = $_.platformId
         $isExcluded = $false
-        foreach ($ep in $ExcludeFailedPlatforms) { if ($pltId -ieq $ep) { $isExcluded = $true; break } }
+        foreach ($ep in $ExcludeFailedPlatforms) { if ($pltId -like "*$ep*") { $isExcluded = $true; break } }
         -not $isExcluded
     }
     $FailedAccountsCount = $filteredFailedAccounts.Count

@@ -391,10 +391,18 @@ try {
     $failedAccResp = Invoke-CyberArkApi -Uri $failedAccUri
     $failedAccounts = if ($failedAccResp.value) { $failedAccResp.value } else { @() }
     
+    Write-Log -Message "Filtering $($failedAccounts.Count) failed accounts using ExcludePlatforms: $($ExcludeFailedPlatforms -join ', ')" -ScriptName $ScriptName -LogPath $LogPath
+
+    
     $filteredFailedAccounts = $failedAccounts | Where-Object {
         $pltId = $_.platformId
         $isExcluded = $false
-        foreach ($ep in $ExcludeFailedPlatforms) { if ($pltId -like "*$ep*") { $isExcluded = $true; break } }
+        foreach ($ep in $ExcludeFailedPlatforms) { 
+            if ($pltId -like "*$ep*") { 
+                Write-Log -Message "Excluding account $($_.userName) on platform $pltId (Matches keyword: $ep)" -ScriptName $ScriptName -LogPath $LogPath
+                $isExcluded = $true; break 
+            } 
+        }
         -not $isExcluded
     }
     $FailedAccountsCount = $filteredFailedAccounts.Count

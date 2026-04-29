@@ -1,0 +1,12 @@
+Since both the port test and the manual connection failed with **Error 64**, the issue is confirmed to be at the network or OS level—most likely a firewall block or the SMB service being disabled on the target.
+Here is a concise draft you can send to your Wintel or Firewall team:
+**Subject:** Connectivity Issue: SMB Port 445 / IPC$ Access - [Target Server Name]
+**Hi Team,**
+We are experiencing a "Windows Error 64" while attempting to manage a local account on the following server via CyberArk:
+ * **Target Server:** PPRNHAMIFNAG01A.nisource.net
+ * **CPM Server:** [Insert your CPM Server Name/IP here]
+**Troubleshooting performed:**
+ 1. **Ping:** Successful.
+ 2. **TNC (Port 445):** Failed (TcpTestSucceeded: False).
+ 3. **Manual IPC$ Map:** Failed with Error 64 (Network name no longer available).
+Could you please verify if **Port 445 (SMB)** is open between the CPM and the target server? Additionally, please ensure the **"Server" service** is running and that **File and Printer Sharing** is enabled on the target.

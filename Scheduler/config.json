@@ -68,6 +68,17 @@
         },
         "DashboardReport": {
             "Enabled": true,
+            "SharePoint": {
+                "EnableSharePointUpload": true,
+                "SiteUrl": "https://company.sharepoint.com/sites/YourSite",
+                "FileRelativePath": "/sites/YourSite/Shared Documents/DashboardCounts.xlsx",
+                "CCP": {
+                    "Url": "https://ccp.company.com/AIMWebService/api/Accounts",
+                    "AppId": "CyberArkHealthCheck",
+                    "Safe": "PAM-Health",
+                    "Object": "SharePointServiceAccount"
+                }
+            },
             "MigratedSafeKeywords": [
                 "wi",
                 "UX"

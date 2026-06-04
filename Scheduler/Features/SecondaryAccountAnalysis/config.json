@@ -1,0 +1,169 @@
+{
+  "Features": {
+    "SecondaryAccountAnalysis": {
+      "Enabled": true,
+
+      "_Comment_Mode": "Supported values: Discovery | Analysis | Onboarding | Simulation",
+      "Mode": "Simulation",
+
+      "PrimaryAccount": {
+        "_Comment": "Primary accounts exist ONLY in the domain where IsPrimary=true",
+        "Pattern": "^U\\d{6}$",
+        "EmployeeNumberCapture": "^U(\\d{6})$"
+      },
+
+      "SecondaryAccount": {
+        "_Comment": "Prefix list is checked with -like 'PREFIX*' against SamAccountName",
+        "Prefixes": [ "AIMSW" ],
+        "EmployeeNumberCapture": "(\\d{6})$"
+      },
+
+      "_Comment_RequiredGroup": "Primary account must be a member of this CyberArk group",
+      "RequiredCyberArkGroup": "kapamprodusers",
+
+      "PersonalSafe": {
+        "_Comment_NamingPattern": "Tokens: {EmployeeNumber}, {PrimaryAccount}",
+        "NamingPattern": "S-P-U{EmployeeNumber}",
+        "NamingPatternRegex": "^S-P-U\\d{6}$",
+        "NumberOfDaysRetention": 30,
+        "NumberOfVersionsRetention": 5,
+        "ManagingCPM": "PasswordManager",
+        "Members": [
+          {
+            "_Comment": "Static group member — no token substitution needed",
+            "Name": "CyberArk Admins",
+            "Type": "Group",
+            "PermissionSet": "VAULT_ADMIN"
+          },
+          {
+            "_Comment": "{PrimaryAccount} is resolved at runtime, e.g. U123456",
+            "Name": "{PrimaryAccount}",
+            "Type": "User",
+            "PermissionSet": "USER_ACCESS"
+          }
+        ]
+      },
+
+      "_Comment_SafePermissionSets": "Mirrors CyberArkCLI/config.json pattern. Add sets here; reference by name in Members[].PermissionSet",
+      "SafePermissionSets": {
+        "VAULT_ADMIN": [
+          "ManageSafe",
+          "ManageSafeMembers",
+          "BackupSafe",
+          "ViewAuditLog",
+          "ViewSafeMembers",
+          "AccessWithoutConfirmation",
+          "UnlockAccounts",
+          "MoveAccountsAndFolders"
+        ],
+        "USER_ACCESS": [
+          "UseAccounts",
+          "ListAccounts",
+          "RetrieveAccounts",
+          "InitiateCPMAccountManagementOperations"
+        ],
+        "SAFE_READ": [
+          "UseAccounts",
+          "ListAccounts",
+          "RetrieveAccounts",
+          "ViewAuditLog",
+          "ViewSafeMembers"
+        ],
+        "_AvailablePermissions_Reference": [
+          "--- Account Usage ---",
+          "UseAccounts",
+          "RetrieveAccounts",
+          "ListAccounts",
+          "--- Account Management ---",
+          "AddAccounts",
+          "UpdateAccountContent",
+          "UpdateAccountProperties",
+          "DeleteAccounts",
+          "RenameAccounts",
+          "MoveAccountsAndFolders",
+          "UnlockAccounts",
+          "InitiateCPMAccountManagementOperations",
+          "SpecifyNextAccountContent",
+          "--- Safe Administration ---",
+          "ManageSafe",
+          "ManageSafeMembers",
+          "ViewSafeMembers",
+          "ViewAuditLog",
+          "BackupSafe",
+          "DeleteFolders",
+          "CreateFolders",
+          "AccessWithoutConfirmation"
+        ]
+      },
+
+      "_Comment_Domains": "IsPrimary=true identifies the primary domain (U-prefix accounts). All domains are queried for secondary accounts. PlatformId is per-domain for onboarding.",
+      "Domains": [
+        {
+          "Name": "NA",
+          "FQDN": "na.company.com",
+          "Server": "na-dc.company.com",
+          "PlatformId": "WinDomain-NA",
+          "IsPrimary": true,
+          "CCP": {
+            "AppId": "CyberArkHealthCheck",
+            "Safe": "PAM-AD-NA",
+            "Object": "AD-NA-ScanAccount"
+          }
+        },
+        {
+          "Name": "NADEV",
+          "FQDN": "nadev.company.com",
+          "Server": "nadev-dc.company.com",
+          "PlatformId": "WinDomain-NADEV",
+          "IsPrimary": false,
+          "CCP": {
+            "AppId": "CyberArkHealthCheck",
+            "Safe": "PAM-AD-NADEV",
+            "Object": "AD-NADEV-ScanAccount"
+          }
+        },
+        {
+          "Name": "CAP",
+          "FQDN": "cap.company.com",
+          "Server": "cap-dc.company.com",
+          "PlatformId": "WinDomain-CAP",
+          "IsPrimary": false,
+          "CCP": {
+            "AppId": "CyberArkHealthCheck",
+            "Safe": "PAM-AD-CAP",
+            "Object": "AD-CAP-ScanAccount"
+          }
+        },
+        {
+          "Name": "NI",
+          "FQDN": "ni.company.com",
+          "Server": "ni-dc.company.com",
+          "PlatformId": "WinDomain-NI",
+          "IsPrimary": false,
+          "CCP": {
+            "AppId": "CyberArkHealthCheck",
+            "Safe": "PAM-AD-NI",
+            "Object": "AD-NI-ScanAccount"
+          }
+        }
+      ],
+
+      "Exclusions": {
+        "_Comment": "Domains: skip entire domain. UsernamePatterns: regex patterns to skip specific usernames.",
+        "Domains": [],
+        "UsernamePatterns": []
+      },
+
+      "Notifications": {
+        "_Comment_AdminTo": "Admin alert recipients for missing access, safe creation, and failures",
+        "AdminTo": [ "pam-admins@company.com" ],
+        "AdminCC": [],
+        "_Comment_UserEmail": "UseADMailAttribute=true fetches the mail attribute from AD for user notifications",
+        "UseADMailAttribute": true,
+        "UserEmailFallbackDomain": "company.com",
+        "_Comment_SendSimulationSummary": "If true, sends a summary email at the end of a Simulation run",
+        "SendSimulationSummary": true
+      }
+    }
+  }
+}

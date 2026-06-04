@@ -5,43 +5,55 @@ param (
 # ------------------------
 # Script Identity
 # ------------------------
-$ScriptName = "DashboardReport"
-$RootPath   = $PSScriptRoot
-$ConfigPath = Join-Path $RootPath "config.json"
+$ScriptName    = "DashboardReport"
+$FeatureRoot   = $PSScriptRoot                                              # Scheduler/Features/DashboardReport/
+$SchedulerRoot = Split-Path -Parent (Split-Path -Parent $FeatureRoot)       # Scheduler/
+$ConfigPath    = Join-Path $FeatureRoot "config.json"
 
 # ------------------------
 # Setup Paths (Logs & Output)
 # ------------------------
 $TodayStr      = Get-Date -Format "yyyyMMdd"
-$LogDir        = Join-Path $RootPath "Logs"
+$LogDir        = Join-Path $SchedulerRoot "Logs\DashboardReport"
 if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null }
 $LogPath       = Join-Path $LogDir "$ScriptName-$TodayStr.log"
 
-$BaseOutputDir = Join-Path $RootPath "Output"
+$BaseOutputDir = Join-Path $SchedulerRoot "Output"
 $ExportDir     = Join-Path $BaseOutputDir $TodayStr
 if (-not (Test-Path $ExportDir)) { New-Item -ItemType Directory -Path $ExportDir -Force | Out-Null }
 
 # ------------------------
 # Load Shared Utils + Modules
 # ------------------------
-. (Join-Path $RootPath "Utils.ps1")
-. (Join-Path $RootPath "Modules\DR_DataCollection.ps1")
-. (Join-Path $RootPath "Modules\DR_Analytics.ps1")
-. (Join-Path $RootPath "Modules\DR_Summary.ps1")
-. (Join-Path $RootPath "Modules\DR_SharePoint.ps1")
-. (Join-Path $RootPath "Modules\DR_Email.ps1")
+. (Join-Path $SchedulerRoot "Utils.ps1")
+. (Join-Path $FeatureRoot "Modules\DR_DataCollection.ps1")
+. (Join-Path $FeatureRoot "Modules\DR_Analytics.ps1")
+. (Join-Path $FeatureRoot "Modules\DR_Summary.ps1")
+. (Join-Path $FeatureRoot "Modules\DR_SharePoint.ps1")
+. (Join-Path $FeatureRoot "Modules\DR_Email.ps1")
 
 Write-Log -Message "Execution started" -ScriptName $ScriptName -LogPath $LogPath
 
 # ------------------------
 # Load Config
+# Global settings (BaseUrl, CCP, Email) come from the root Scheduler config.
+# Feature-specific settings come from this feature's own config.json.
 # ------------------------
+$GlobalConfigPath = Join-Path $SchedulerRoot "config.json"
+
+if (-not (Test-Path $GlobalConfigPath)) {
+    Write-Log -Message "Global config.json not found at: $GlobalConfigPath" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
+    exit 1
+}
 if (-not (Test-Path $ConfigPath)) {
-    Write-Log -Message "config.json not found" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "Feature config.json not found at: $ConfigPath" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
     exit 1
 }
 
-$config        = Get-Content $ConfigPath -Raw | ConvertFrom-Json
+$config          = Get-Content $GlobalConfigPath -Raw | ConvertFrom-Json
+$featureSettings = (Get-Content $ConfigPath -Raw | ConvertFrom-Json).Features
+$config | Add-Member -MemberType NoteProperty -Name "Features" -Value $featureSettings -Force
+
 $BaseUrl       = $config.BaseUrl
 $FeatureConfig = $config.Features.DashboardReport
 
@@ -184,7 +196,8 @@ try {
                 -FallbackCredential  $Credential `
                 -ManualLogin:$ManualLogin `
                 -ScriptName          $ScriptName `
-                -LogPath             $LogPath
+                -LogPath             $LogPath `
+                -GlobalCCPUrl        $config.CCP.Url
         }
         catch {
             Write-Log -Message "SharePoint automation failed: $_" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
@@ -216,7 +229,7 @@ try {
                     -ExportDir      $ExportDir `
                     -TodayStr       $TodayStr `
                     -Timestamp      $timestamp `
-                    -RootPath       $RootPath `
+                    -RootPath       $FeatureRoot `
                     -BaseOutputDir  $BaseOutputDir `
                     -ScriptName     $ScriptName `
                     -LogPath        $LogPath

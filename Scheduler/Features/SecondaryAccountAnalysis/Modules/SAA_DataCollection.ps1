@@ -1,0 +1,472 @@
+# =============================================================================
+# SAA_DataCollection.ps1
+# Fetches and caches all raw data needed by SecondaryAccountAnalysis.
+#
+# Caching behaviour (matches DR_DataCollection.ps1 pattern):
+#   - If today's cache CSV exists for that entity → load it, skip live query.
+#   - Otherwise query the source (AD or CyberArk API) and save to cache.
+#   - Per-domain caching for AD: each domain gets its own dated file.
+#
+# Exposes:
+#   Get-SAAPrimaryADUsers       - Primary domain AD users (U-prefix) with mail attribute
+#   Get-SAASecondaryADAccounts  - All domains, secondary prefix accounts, with mail attribute
+#   Get-SAACyberArkUsers        - CyberArk LDAP EPVUsers (for access verification)
+#   Get-SAAPersonalSafes        - CyberArk safes matching the naming pattern regex
+#   Get-SAAOnboardedAccounts    - CyberArk accounts inside personal safes
+#   Get-SAAGroupMemberSet       - HashSet of usernames in a CyberArk group
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Get-SAAPrimaryADUsers
+# Queries the primary domain (IsPrimary=true) for users matching the
+# primary account pattern. Captures the mail attribute for user notifications.
+# Cache file: RawCache_PrimaryADUsers_<TodayStr>.csv
+# ---------------------------------------------------------------------------
+function Get-SAAPrimaryADUsers {
+    param (
+        [Parameter(Mandatory=$true)] [array]  $Domains,
+        [Parameter(Mandatory=$true)] [string] $PrimaryPattern,
+        [Parameter(Mandatory=$true)] [string] $EmpNbrCapture,
+        [Parameter(Mandatory=$true)] [string] $CacheDir,
+        [Parameter(Mandatory=$true)] [string] $TodayStr,
+        [Parameter(Mandatory=$true)] [string] $ScriptName,
+        [Parameter(Mandatory=$true)] [string] $LogPath,
+        [Parameter(Mandatory=$true)] [string] $GlobalCCPUrl,
+        [Parameter(Mandatory=$true)] [bool]   $ManualLogin
+    )
+
+    $CachePath = Join-Path $CacheDir "RawCache_PrimaryADUsers_$TodayStr.csv"
+
+    if (Test-Path $CachePath) {
+        Write-Log -Message "Loading primary AD users from cache: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
+        return @(Import-Csv $CachePath)
+    }
+
+    $primaryDomain = $Domains | Where-Object { $_.IsPrimary -eq $true } | Select-Object -First 1
+    if (-not $primaryDomain) {
+        Write-Log -Message "No primary domain (IsPrimary=true) found in config. Skipping primary user collection." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+        return @()
+    }
+
+    Write-Log -Message "Querying primary domain '$($primaryDomain.Name)' ($($primaryDomain.FQDN)) for primary accounts..." -ScriptName $ScriptName -LogPath $LogPath
+
+    $result = [System.Collections.Generic.List[object]]::new()
+
+    # Construct optimized AD filter
+    $adFilter = "*"
+    if ($PrimaryPattern -match '^\^([A-Za-z0-9\-]+)') {
+        $prefix = $Matches[1]
+        $adFilter = "SamAccountName -like '$prefix*'"
+    }
+
+    # Fetch domain-specific credentials from CCP if configured
+    $credentialObj = $null
+    if ($primaryDomain.CCP) {
+        try {
+            $domainCCP = [PSCustomObject]@{
+                Url    = $GlobalCCPUrl
+                AppId  = $primaryDomain.CCP.AppId
+                Safe   = $primaryDomain.CCP.Safe
+                Object = $primaryDomain.CCP.Object
+            }
+            $creds = Get-SchedulerCredential -CCPConfig $domainCCP -ManualLogin:$ManualLogin -ScriptName $ScriptName -LogPath $LogPath
+            $secPass = ConvertTo-SecureString $creds.Password -AsPlainText -Force
+            $credentialObj = New-Object System.Management.Automation.PSCredential($creds.Username, $secPass)
+        }
+        catch {
+            Write-Log -Message "Failed to fetch CCP credentials for primary domain '$($primaryDomain.Name)': $($_.Exception.Message)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
+            return @()
+        }
+    }
+
+    $adParams = @{
+        Filter      = $adFilter
+        Server      = $primaryDomain.Server
+        Properties  = @("SamAccountName", "Enabled", "Mail", "GivenName", "Surname")
+        ErrorAction = "Stop"
+    }
+    if ($null -ne $credentialObj) {
+        $adParams["Credential"] = $credentialObj
+    }
+
+    try {
+        $adUsers = Get-ADUser @adParams
+
+        foreach ($user in $adUsers) {
+            if ($user.SamAccountName -notmatch $PrimaryPattern) { continue }
+
+            $empNbr = if ($user.SamAccountName -match $EmpNbrCapture) { $Matches[1] } else { "" }
+
+            $result.Add([PSCustomObject]@{
+                Username    = $user.SamAccountName
+                EmployeeNbr = $empNbr
+                Domain      = $primaryDomain.Name
+                DomainFQDN  = $primaryDomain.FQDN
+                Enabled     = $user.Enabled
+                Mail        = if ($user.Mail)     { $user.Mail }     else { "" }
+                GivenName   = if ($user.GivenName) { $user.GivenName } else { "" }
+                Surname     = if ($user.Surname)   { $user.Surname }   else { "" }
+            })
+        }
+
+        Write-Log -Message "Found $($result.Count) primary accounts in '$($primaryDomain.Name)'" -ScriptName $ScriptName -LogPath $LogPath
+    }
+    catch {
+        Write-Log -Message "Error querying primary domain '$($primaryDomain.Name)': $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    $result | Export-Csv -Path $CachePath -NoTypeInformation -Encoding UTF8
+    Write-Log -Message "Primary AD users cached: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
+    return $result.ToArray()
+}
+
+# ---------------------------------------------------------------------------
+# Get-SAASecondaryADAccounts
+# Queries ALL configured domains for secondary accounts matching any of the
+# configured prefixes (e.g. AIMSW). Captures the mail attribute.
+# Cache file per domain: RawCache_ADAccounts_<DomainName>_<TodayStr>.csv
+# ---------------------------------------------------------------------------
+function Get-SAASecondaryADAccounts {
+    param (
+        [Parameter(Mandatory=$true)] [array]  $Domains,
+        [Parameter(Mandatory=$true)] [array]  $Prefixes,
+        [Parameter(Mandatory=$true)] [string] $EmpNbrCapture,
+        [Parameter(Mandatory=$true)] [PSCustomObject] $Exclusions,
+        [Parameter(Mandatory=$true)] [string] $CacheDir,
+        [Parameter(Mandatory=$true)] [string] $TodayStr,
+        [Parameter(Mandatory=$true)] [string] $ScriptName,
+        [Parameter(Mandatory=$true)] [string] $LogPath,
+        [Parameter(Mandatory=$true)] [string] $GlobalCCPUrl,
+        [Parameter(Mandatory=$true)] [bool]   $ManualLogin
+    )
+
+    $allAccounts = [System.Collections.Generic.List[object]]::new()
+
+    foreach ($domain in $Domains) {
+        $CachePath = Join-Path $CacheDir "RawCache_ADAccounts_$($domain.Name)_$TodayStr.csv"
+
+        # Check if domain is excluded
+        if ($Exclusions.Domains -and ($domain.Name -in $Exclusions.Domains)) {
+            Write-Log -Message "Domain '$($domain.Name)' is in the exclusion list. Skipping." -ScriptName $ScriptName -LogPath $LogPath
+            continue
+        }
+
+        if (Test-Path $CachePath) {
+            Write-Log -Message "Loading AD accounts for '$($domain.Name)' from cache: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
+            $cached = @(Import-Csv $CachePath)
+            foreach ($row in $cached) { $allAccounts.Add($row) }
+            continue
+        }
+
+        Write-Log -Message "Querying domain '$($domain.Name)' ($($domain.FQDN)) for secondary accounts (prefixes: $($Prefixes -join ', '))..." -ScriptName $ScriptName -LogPath $LogPath
+
+        # Fetch domain-specific credentials from CCP if configured
+        $credentialObj = $null
+        if ($domain.CCP) {
+            try {
+                $domainCCP = [PSCustomObject]@{
+                    Url    = $GlobalCCPUrl
+                    AppId  = $domain.CCP.AppId
+                    Safe   = $domain.CCP.Safe
+                    Object = $domain.CCP.Object
+                }
+                $creds = Get-SchedulerCredential -CCPConfig $domainCCP -ManualLogin:$ManualLogin -ScriptName $ScriptName -LogPath $LogPath
+                $secPass = ConvertTo-SecureString $creds.Password -AsPlainText -Force
+                $credentialObj = New-Object System.Management.Automation.PSCredential($creds.Username, $secPass)
+            }
+            catch {
+                Write-Log -Message "Failed to fetch CCP credentials for domain '$($domain.Name)': $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+                # Skip domain if we can't retrieve credentials
+                continue
+            }
+        }
+
+        $domainResult = [System.Collections.Generic.List[object]]::new()
+
+        try {
+            $filterParts = @()
+            foreach ($prefix in $Prefixes) {
+                $filterParts += "SamAccountName -like '$prefix*'"
+            }
+            $adFilter = $filterParts -join " -or "
+            if (-not $adFilter) { $adFilter = "*" }
+
+            $adParams = @{
+                Filter      = $adFilter
+                Server      = $domain.Server
+                Properties  = @("SamAccountName", "Enabled", "Mail")
+                ErrorAction = "Stop"
+            }
+            if ($null -ne $credentialObj) {
+                $adParams["Credential"] = $credentialObj
+            }
+
+            $adUsers = Get-ADUser @adParams
+
+            foreach ($user in $adUsers) {
+                # Check exclusion by username pattern
+                $shouldExclude = $false
+                if ($Exclusions.UsernamePatterns) {
+                    foreach ($pattern in $Exclusions.UsernamePatterns) {
+                        if ($user.SamAccountName -match $pattern) { $shouldExclude = $true; break }
+                    }
+                }
+                if ($shouldExclude) { continue }
+
+                # Check if username starts with any configured prefix
+                $matchedPrefix = $null
+                foreach ($prefix in $Prefixes) {
+                    if ($user.SamAccountName -like "$prefix*") {
+                        $matchedPrefix = $prefix
+                        break
+                    }
+                }
+                if (-not $matchedPrefix) { continue }
+
+                $empNbr = if ($user.SamAccountName -match $EmpNbrCapture) { $Matches[1] } else { "" }
+
+                $row = [PSCustomObject]@{
+                    Username    = $user.SamAccountName
+                    Prefix      = $matchedPrefix
+                    EmployeeNbr = $empNbr
+                    Domain      = $domain.Name
+                    DomainFQDN  = $domain.FQDN
+                    Enabled     = $user.Enabled
+                    Mail        = if ($user.Mail) { $user.Mail } else { "" }
+                    PlatformId  = $domain.PlatformId
+                }
+                $domainResult.Add($row)
+                $allAccounts.Add($row)
+            }
+
+            Write-Log -Message "Found $($domainResult.Count) secondary accounts in '$($domain.Name)'" -ScriptName $ScriptName -LogPath $LogPath
+            $domainResult | Export-Csv -Path $CachePath -NoTypeInformation -Encoding UTF8
+            Write-Log -Message "AD accounts for '$($domain.Name)' cached: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
+        }
+        catch {
+            Write-Log -Message "Error querying domain '$($domain.Name)': $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+        }
+    }
+
+    Write-Log -Message "Total secondary AD accounts collected across all domains: $($allAccounts.Count)" -ScriptName $ScriptName -LogPath $LogPath
+    return $allAccounts.ToArray()
+}
+
+# ---------------------------------------------------------------------------
+# Get-SAACyberArkUsers
+# Fetches all CyberArk LDAP EPVUsers. Used to verify that a primary account
+# has an active CyberArk user record.
+# Cache file: RawCache_CyberArkUsers_<TodayStr>.csv
+# ---------------------------------------------------------------------------
+function Get-SAACyberArkUsers {
+    param (
+        [Parameter(Mandatory=$true)] [string] $BaseUrl,
+        [Parameter(Mandatory=$true)] [string] $CachePath,
+        [Parameter(Mandatory=$true)] [string] $ScriptName,
+        [Parameter(Mandatory=$true)] [string] $LogPath
+    )
+
+    if (Test-Path $CachePath) {
+        Write-Log -Message "Loading CyberArk users from cache: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
+        return @(Import-Csv $CachePath)
+    }
+
+    Write-Log -Message "Fetching CyberArk LDAP EPVUsers (paginated)..." -ScriptName $ScriptName -LogPath $LogPath
+
+    $allUsers = [System.Collections.Generic.List[object]]::new()
+    $offset   = 0
+    $limit    = 100
+
+    do {
+        $uri      = "$BaseUrl/PasswordVault/api/Users?limit=$limit&offset=$offset&userType=EPVUser"
+        $response = Invoke-CyberArkApi -Uri $uri
+        $users    = if ($response.Users) { $response.Users } else { @() }
+
+        foreach ($user in $users) {
+            if ($user.source -ne "LDAP") { continue }
+            $allUsers.Add([PSCustomObject]@{
+                Username = $user.username
+                Id       = $user.id
+                Source   = $user.source
+                UserType = $user.userType
+                Enabled  = $user.enableUser
+            })
+        }
+
+        $offset += $limit
+        Write-Log -Message "CyberArk LDAP users fetched so far: $($allUsers.Count)..." -ScriptName $ScriptName -LogPath $LogPath
+    } while ($users.Count -eq $limit -and $users.Count -gt 0)
+
+    Write-Log -Message "Total CyberArk LDAP EPVUsers: $($allUsers.Count)" -ScriptName $ScriptName -LogPath $LogPath
+    $allUsers | Export-Csv -Path $CachePath -NoTypeInformation -Encoding UTF8
+    return $allUsers.ToArray()
+}
+
+# ---------------------------------------------------------------------------
+# Get-SAAPersonalSafes
+# Fetches all CyberArk safes and filters by the naming pattern regex.
+# Cache file: RawCache_PersonalSafes_<TodayStr>.csv
+# ---------------------------------------------------------------------------
+function Get-SAAPersonalSafes {
+    param (
+        [Parameter(Mandatory=$true)] [string] $BaseUrl,
+        [Parameter(Mandatory=$true)] [string] $NamingPatternRegex,
+        [Parameter(Mandatory=$true)] [string] $CachePath,
+        [Parameter(Mandatory=$true)] [string] $ScriptName,
+        [Parameter(Mandatory=$true)] [string] $LogPath
+    )
+
+    if (Test-Path $CachePath) {
+        Write-Log -Message "Loading personal safes from cache: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
+        return @(Import-Csv $CachePath)
+    }
+
+    Write-Log -Message "Fetching CyberArk safes (pattern: $NamingPatternRegex)..." -ScriptName $ScriptName -LogPath $LogPath
+
+    $result    = [System.Collections.Generic.List[object]]::new()
+    $seenSafes = @{}
+    $offset    = 0
+    $limit     = 500
+    $hasMore   = $true
+
+    while ($hasMore) {
+        $uri   = "$BaseUrl/PasswordVault/api/Safes?limit=$limit&offset=$offset"
+        $resp  = Invoke-CyberArkApi -Uri $uri
+        $batch = if ($resp.value) { $resp.value } elseif ($resp.Safes) { $resp.Safes } else { @() }
+
+        if ($batch.Count -gt 0) {
+            foreach ($safe in $batch) {
+                $safeName = if ($safe.safeName) { $safe.safeName } else { $safe.SafeName }
+                if (-not $safeName -or $seenSafes.ContainsKey($safeName)) { continue }
+                if ($safeName -notmatch $NamingPatternRegex) { continue }
+
+                $seenSafes[$safeName] = $true
+                $result.Add([PSCustomObject]@{
+                    SafeName     = $safeName
+                    Description  = $safe.description
+                    CreationTime = $safe.creationTime
+                    Creator      = if ($safe.creator.name) { $safe.creator.name } else { $safe.creator }
+                })
+            }
+            if ($batch.Count -lt $limit) { $hasMore = $false } else { $offset += $limit }
+        }
+        else { $hasMore = $false }
+    }
+
+    Write-Log -Message "Personal safes matching pattern: $($result.Count)" -ScriptName $ScriptName -LogPath $LogPath
+    $result | Export-Csv -Path $CachePath -NoTypeInformation -Encoding UTF8
+    return $result.ToArray()
+}
+
+# ---------------------------------------------------------------------------
+# Get-SAAOnboardedAccounts
+# Fetches CyberArk accounts in personal safes (matching naming pattern).
+# Cache file: RawCache_OnboardedAccounts_<TodayStr>.csv
+# ---------------------------------------------------------------------------
+function Get-SAAOnboardedAccounts {
+    param (
+        [Parameter(Mandatory=$true)] [string] $BaseUrl,
+        [Parameter(Mandatory=$true)] [string] $NamingPatternRegex,
+        [Parameter(Mandatory=$true)] [string] $CachePath,
+        [Parameter(Mandatory=$true)] [string] $ScriptName,
+        [Parameter(Mandatory=$true)] [string] $LogPath
+    )
+
+    if (Test-Path $CachePath) {
+        Write-Log -Message "Loading onboarded accounts from cache: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
+        return @(Import-Csv $CachePath)
+    }
+
+    Write-Log -Message "Fetching CyberArk accounts inside personal safes..." -ScriptName $ScriptName -LogPath $LogPath
+
+    $result  = [System.Collections.Generic.List[object]]::new()
+    $offset  = 0
+    $limit   = 1000
+    $hasMore = $true
+
+    while ($hasMore) {
+        $uri   = "$BaseUrl/PasswordVault/api/Accounts?limit=$limit&offset=$offset"
+        $resp  = Invoke-CyberArkApi -Uri $uri
+        $batch = if ($resp.value) { $resp.value } else { @() }
+
+        if ($batch.Count -gt 0) {
+            foreach ($acc in $batch) {
+                if ($acc.safeName -notmatch $NamingPatternRegex) { continue }
+                $result.Add([PSCustomObject]@{
+                    AccountId  = $acc.id
+                    Username   = $acc.userName
+                    Address    = $acc.address
+                    SafeName   = $acc.safeName
+                    PlatformId = $acc.platformId
+                })
+            }
+            $offset += $limit
+            if ($batch.Count -lt $limit) { $hasMore = $false }
+            Write-Log -Message "Accounts scanned: $offset - in personal safes: $($result.Count)..." -ScriptName $ScriptName -LogPath $LogPath
+        }
+        else { $hasMore = $false }
+    }
+
+    Write-Log -Message "Total onboarded accounts in personal safes: $($result.Count)" -ScriptName $ScriptName -LogPath $LogPath
+    $result | Export-Csv -Path $CachePath -NoTypeInformation -Encoding UTF8
+    return $result.ToArray()
+}
+
+# ---------------------------------------------------------------------------
+# Get-SAAGroupMemberSet
+# Returns a case-insensitive HashSet of usernames who are members of the
+# specified CyberArk group.
+# NOT cached — group membership can change between runs.
+# ---------------------------------------------------------------------------
+function Get-SAAGroupMemberSet {
+    param (
+        [Parameter(Mandatory=$true)] [string] $BaseUrl,
+        [Parameter(Mandatory=$true)] [string] $GroupName,
+        [Parameter(Mandatory=$true)] [string] $ScriptName,
+        [Parameter(Mandatory=$true)] [string] $LogPath
+    )
+
+    Write-Log -Message "Fetching members of CyberArk group: '$GroupName'..." -ScriptName $ScriptName -LogPath $LogPath
+
+    $memberSet = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase
+    )
+
+    try {
+        # Step 1: Find the group by name
+        $searchUri = "$BaseUrl/PasswordVault/API/UserGroups?search=$([uri]::EscapeDataString($GroupName))&limit=50"
+        $response  = Invoke-CyberArkApi -Uri $searchUri
+        $groups    = if ($response.value) { $response.value } `
+                     elseif ($response.Groups) { $response.Groups } `
+                     else { @() }
+
+        $targetGroup = $groups | Where-Object { $_.groupName -ieq $GroupName } | Select-Object -First 1
+
+        if (-not $targetGroup) {
+            Write-Log -Message "Group '$GroupName' not found in CyberArk. Group membership check will be skipped." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+            return $memberSet
+        }
+
+        $groupId = $targetGroup.id
+        Write-Log -Message "Found group '$GroupName' (ID: $groupId). Fetching members..." -ScriptName $ScriptName -LogPath $LogPath
+
+        # Step 2: Fetch group members
+        $membUri = "$BaseUrl/PasswordVault/API/UserGroups/$groupId/Members"
+        $membResp = Invoke-CyberArkApi -Uri $membUri
+        $members  = if ($membResp.value) { $membResp.value } `
+                    elseif ($membResp.Members) { $membResp.Members } `
+                    else { @() }
+
+        foreach ($m in $members) {
+            $username = if ($m.username) { $m.username } elseif ($m.UserName) { $m.UserName } else { "" }
+            if ($username) { [void]$memberSet.Add($username) }
+        }
+
+        Write-Log -Message "Group '$GroupName' has $($memberSet.Count) members." -ScriptName $ScriptName -LogPath $LogPath
+    }
+    catch {
+        Write-Log -Message "Failed to retrieve group '$GroupName': $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    return $memberSet
+}

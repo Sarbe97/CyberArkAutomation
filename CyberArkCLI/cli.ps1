@@ -134,12 +134,14 @@ function Show-LoginMenu {
                 Write-Host "  1. CyberArk (Username/Password)"
                 Write-Host "  2. LDAP (Domain Credentials)"
                 Write-Host "  3. SAML (SSO)"
-                $loginMode = Read-Host "Enter mode (1/2/3)"
+                Write-Host "  4. CCP (Central Credential Provider)"
+                $loginMode = Read-Host "Enter mode (1/2/3/4)"
 
                 $loginSuccess = $false
                 switch ($loginMode) {
                     '2' { $loginSuccess = Invoke-CACLogin -LDAP }
                     '3' { $loginSuccess = Invoke-CACLogin -SAML }
+                    '4' { $loginSuccess = Invoke-CACLogin -CCP }
                     default { $loginSuccess = Invoke-CACLogin }
                 }
 

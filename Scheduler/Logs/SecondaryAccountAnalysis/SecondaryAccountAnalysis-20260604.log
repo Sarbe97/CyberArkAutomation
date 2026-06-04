@@ -1,0 +1,56 @@
+2026-06-04 02:14:53 [SecondaryAccountAnalysis] [INFO] Execution started
+2026-06-04 02:14:53 [SecondaryAccountAnalysis] [INFO] Config loaded. BaseUrl: https://vault.company.com
+2026-06-04 02:14:53 [SecondaryAccountAnalysis] [INFO] Effective execution mode: Simulation
+2026-06-04 02:14:53 [SecondaryAccountAnalysis] [INFO] [SIMULATION] No write operations will be performed. All planned actions will be recorded in PlannedActions.csv.
+2026-06-04 02:14:53 [SecondaryAccountAnalysis] [INFO] Primary pattern: ^U\d{6}$ | Domain: NA
+2026-06-04 02:14:53 [SecondaryAccountAnalysis] [INFO] Secondary prefixes: AIMSW
+2026-06-04 02:14:53 [SecondaryAccountAnalysis] [INFO] Required CyberArk group: kapamprodusers
+2026-06-04 02:14:53 [SecondaryAccountAnalysis] [INFO] Domains configured: 4
+2026-06-04 02:14:53 [SecondaryAccountAnalysis] [INFO] Safe naming pattern: S-P-U{EmployeeNumber}
+2026-06-04 02:14:53 [SecondaryAccountAnalysis] [INFO] Retrieving credential from CCP: https://ccp.company.com/AIMWebService/api/Accounts?AppID=CyberArkHealthCheck&Query=Safe=PAM-Health;Object=SchedulerServiceAccount
+2026-06-04 02:14:54 [SecondaryAccountAnalysis] [WARN] CCP retrieval attempt 1 failed: DNS Resolution Failed for 'https://ccp.company.com/AIMWebService/api/Accounts'. Please check network connectivity and DNS settings. (Original error: The remote name could not be resolved: 'ccp.company.com')
+2026-06-04 02:14:55 [SecondaryAccountAnalysis] [WARN] CCP retrieval attempt 2 failed: DNS Resolution Failed for 'https://ccp.company.com/AIMWebService/api/Accounts'. Please check network connectivity and DNS settings. (Original error: The remote name could not be resolved: 'ccp.company.com')
+2026-06-04 02:14:56 [SecondaryAccountAnalysis] [WARN] CCP retrieval attempt 3 failed: DNS Resolution Failed for 'https://ccp.company.com/AIMWebService/api/Accounts'. Please check network connectivity and DNS settings. (Original error: The remote name could not be resolved: 'ccp.company.com')
+2026-06-04 02:14:56 [SecondaryAccountAnalysis] [ERROR] CCP credential retrieval failed after 3 attempts: DNS Resolution Failed for 'https://ccp.company.com/AIMWebService/api/Accounts'. Please check network connectivity and DNS settings. (Original error: The remote name could not be resolved: 'ccp.company.com')
+2026-06-04 02:16:17 [SecondaryAccountAnalysis] [INFO] Execution started
+2026-06-04 02:16:17 [SecondaryAccountAnalysis] [INFO] Config loaded. BaseUrl: https://vault.company.com
+2026-06-04 02:16:17 [SecondaryAccountAnalysis] [INFO] Effective execution mode: Simulation
+2026-06-04 02:16:17 [SecondaryAccountAnalysis] [INFO] [SIMULATION] No write operations will be performed. All planned actions will be recorded in PlannedActions.csv.
+2026-06-04 02:16:17 [SecondaryAccountAnalysis] [INFO] Primary pattern: ^U\d{6}$ | Domain: NA
+2026-06-04 02:16:17 [SecondaryAccountAnalysis] [INFO] Secondary prefixes: AIMSW
+2026-06-04 02:16:17 [SecondaryAccountAnalysis] [INFO] Required CyberArk group: kapamprodusers
+2026-06-04 02:16:17 [SecondaryAccountAnalysis] [INFO] Domains configured: 4
+2026-06-04 02:16:17 [SecondaryAccountAnalysis] [INFO] Safe naming pattern: S-P-U{EmployeeNumber}
+2026-06-04 02:16:17 [SecondaryAccountAnalysis] [INFO] Retrieving credential from CCP: https://ccp.company.com/AIMWebService/api/Accounts?AppID=CyberArkHealthCheck&Query=Safe=PAM-Health;Object=SchedulerServiceAccount
+2026-06-04 02:16:17 [SecondaryAccountAnalysis] [WARN] CCP retrieval attempt 1 failed: DNS Resolution Failed for 'https://ccp.company.com/AIMWebService/api/Accounts'. Please check network connectivity and DNS settings. (Original error: The remote name could not be resolved: 'ccp.company.com')
+2026-06-04 02:16:18 [SecondaryAccountAnalysis] [WARN] CCP retrieval attempt 2 failed: DNS Resolution Failed for 'https://ccp.company.com/AIMWebService/api/Accounts'. Please check network connectivity and DNS settings. (Original error: The remote name could not be resolved: 'ccp.company.com')
+2026-06-04 02:16:19 [SecondaryAccountAnalysis] [WARN] CCP retrieval attempt 3 failed: DNS Resolution Failed for 'https://ccp.company.com/AIMWebService/api/Accounts'. Please check network connectivity and DNS settings. (Original error: The remote name could not be resolved: 'ccp.company.com')
+2026-06-04 02:16:19 [SecondaryAccountAnalysis] [ERROR] CCP credential retrieval failed after 3 attempts: DNS Resolution Failed for 'https://ccp.company.com/AIMWebService/api/Accounts'. Please check network connectivity and DNS settings. (Original error: The remote name could not be resolved: 'ccp.company.com')
+2026-06-04 02:16:30 [SecondaryAccountAnalysis] [INFO] Execution started
+2026-06-04 02:16:30 [SecondaryAccountAnalysis] [INFO] Config loaded. BaseUrl: https://vault.company.com
+2026-06-04 02:16:30 [SecondaryAccountAnalysis] [INFO] Effective execution mode: Simulation
+2026-06-04 02:16:30 [SecondaryAccountAnalysis] [INFO] [SIMULATION] No write operations will be performed. All planned actions will be recorded in PlannedActions.csv.
+2026-06-04 02:16:30 [SecondaryAccountAnalysis] [INFO] Primary pattern: ^U\d{6}$ | Domain: NA
+2026-06-04 02:16:30 [SecondaryAccountAnalysis] [INFO] Secondary prefixes: AIMSW
+2026-06-04 02:16:30 [SecondaryAccountAnalysis] [INFO] Required CyberArk group: kapamprodusers
+2026-06-04 02:16:30 [SecondaryAccountAnalysis] [INFO] Domains configured: 4
+2026-06-04 02:16:30 [SecondaryAccountAnalysis] [INFO] Safe naming pattern: S-P-U{EmployeeNumber}
+2026-06-04 02:16:31 [SecondaryAccountAnalysis] [INFO] Retrieving credential from CCP: https://ccp.company.com/AIMWebService/api/Accounts?AppID=CyberArkHealthCheck&Query=Safe=PAM-Health;Object=SchedulerServiceAccount
+2026-06-04 02:16:31 [SecondaryAccountAnalysis] [WARN] CCP retrieval attempt 1 failed: DNS Resolution Failed for 'https://ccp.company.com/AIMWebService/api/Accounts'. Please check network connectivity and DNS settings. (Original error: The remote name could not be resolved: 'ccp.company.com')
+2026-06-04 02:16:32 [SecondaryAccountAnalysis] [WARN] CCP retrieval attempt 2 failed: DNS Resolution Failed for 'https://ccp.company.com/AIMWebService/api/Accounts'. Please check network connectivity and DNS settings. (Original error: The remote name could not be resolved: 'ccp.company.com')
+2026-06-04 02:16:33 [SecondaryAccountAnalysis] [WARN] CCP retrieval attempt 3 failed: DNS Resolution Failed for 'https://ccp.company.com/AIMWebService/api/Accounts'. Please check network connectivity and DNS settings. (Original error: The remote name could not be resolved: 'ccp.company.com')
+2026-06-04 02:16:33 [SecondaryAccountAnalysis] [ERROR] CCP credential retrieval failed after 3 attempts: DNS Resolution Failed for 'https://ccp.company.com/AIMWebService/api/Accounts'. Please check network connectivity and DNS settings. (Original error: The remote name could not be resolved: 'ccp.company.com')
+2026-06-04 14:13:34 [SecondaryAccountAnalysis] [INFO] Execution started
+2026-06-04 14:13:34 [SecondaryAccountAnalysis] [INFO] Config loaded. BaseUrl: https://vault.company.com
+2026-06-04 14:13:34 [SecondaryAccountAnalysis] [INFO] Effective execution mode: Simulation
+2026-06-04 14:13:34 [SecondaryAccountAnalysis] [INFO] [SIMULATION] No write operations will be performed. All planned actions will be recorded in PlannedActions.csv.
+2026-06-04 14:13:34 [SecondaryAccountAnalysis] [INFO] Primary pattern: ^U\d{6}$ | Domain: NA
+2026-06-04 14:13:34 [SecondaryAccountAnalysis] [INFO] Secondary prefixes: AIMSW
+2026-06-04 14:13:34 [SecondaryAccountAnalysis] [INFO] Required CyberArk group: kapamprodusers
+2026-06-04 14:13:34 [SecondaryAccountAnalysis] [INFO] Domains configured: 4
+2026-06-04 14:13:34 [SecondaryAccountAnalysis] [INFO] Safe naming pattern: S-P-U{EmployeeNumber}
+2026-06-04 14:13:34 [SecondaryAccountAnalysis] [INFO] Retrieving credential from CCP: https://ccp.company.com/AIMWebService/api/Accounts?AppID=CyberArkHealthCheck&Query=Safe=PAM-Health;Object=SchedulerServiceAccount
+2026-06-04 14:13:34 [SecondaryAccountAnalysis] [WARN] CCP retrieval attempt 1 failed: DNS Resolution Failed for 'https://ccp.company.com/AIMWebService/api/Accounts'. Please check network connectivity and DNS settings. (Original error: The remote name could not be resolved: 'ccp.company.com')
+2026-06-04 14:13:35 [SecondaryAccountAnalysis] [WARN] CCP retrieval attempt 2 failed: DNS Resolution Failed for 'https://ccp.company.com/AIMWebService/api/Accounts'. Please check network connectivity and DNS settings. (Original error: The remote name could not be resolved: 'ccp.company.com')
+2026-06-04 14:13:36 [SecondaryAccountAnalysis] [WARN] CCP retrieval attempt 3 failed: DNS Resolution Failed for 'https://ccp.company.com/AIMWebService/api/Accounts'. Please check network connectivity and DNS settings. (Original error: The remote name could not be resolved: 'ccp.company.com')
+2026-06-04 14:13:36 [SecondaryAccountAnalysis] [ERROR] CCP credential retrieval failed after 3 attempts: DNS Resolution Failed for 'https://ccp.company.com/AIMWebService/api/Accounts'. Please check network connectivity and DNS settings. (Original error: The remote name could not be resolved: 'ccp.company.com')

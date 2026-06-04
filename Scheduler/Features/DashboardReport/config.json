@@ -1,0 +1,58 @@
+{
+    "Features": {
+        "DashboardReport": {
+            "Enabled": true,
+            "SharePoint": {
+                "EnableSharePointUpload": false,
+                "SiteUrl": "https://nisource.sharepoint.com/sites/ITPMO_Technology",
+                "FileRelativePath": "/sites/ITPMO_Technology/SPIdIQ/Project Documents/Project Deliverables/CyberArk_Wipro/Migration/DashboardCounts.xlsx",
+                "CCP": {
+                    "AppId": "CyberArkHealthCheck",
+                    "Safe": "PAM-Health",
+                    "Object": "SharePointServiceAccount"
+                }
+            },
+            "MigratedSafeKeywords": [
+                "wi",
+                "UX"
+            ],
+            "PersonalSafePattern": "^S-P-U\\d+$",
+            "MigratedPlatformKeywords": [
+                "mig_",
+                "custom_"
+            ],
+            "InbuiltSafes": [
+                "System",
+                "Vault",
+                "Backup",
+                "Notification",
+                "AppInternal"
+            ],
+            "FailedAccountExcludePlatforms": [
+                "WinServerLocal",
+                "UnixSSH"
+            ],
+            "Domains": [
+                "na",
+                "nadev",
+                "cap",
+                "ni"
+            ],
+            "TrackedFailedAccounts": [
+                "admin",
+                "svc_backup",
+                "sql_svc"
+            ],
+            "AutoOnboardedSafes": [
+                "Win-Server-Onboarding",
+                "Unix-Server-Onboarding"
+            ],
+            "AutoOnboardedPattern": "-[a-zA-Z0-9]{8}-[a-zA-Z0-9]{4}-[a-zA-Z0-9]{4}-[a-zA-Z0-9]{4}-[a-zA-Z0-9]{12}$",
+            "PendingDiscoveredFilterNames": [
+                "acc1",
+                "acc2",
+                "admin"
+            ]
+        }
+    }
+}

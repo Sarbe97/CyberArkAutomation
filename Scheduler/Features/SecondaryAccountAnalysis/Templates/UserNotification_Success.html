@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 700px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #1a5276 0%, #2e86c1 100%);
+            color: white;
+            padding: 20px 30px;
+        }
+        .header h1 { margin: 0; font-size: 22px; }
+        .header .subtitle { margin-top: 5px; opacity: 0.85; font-size: 13px; }
+        .content { padding: 30px; }
+        .welcome-box {
+            background-color: #eaf4fb;
+            border-left: 4px solid #2e86c1;
+            padding: 15px 20px;
+            border-radius: 0 8px 8px 0;
+            margin-bottom: 25px;
+        }
+        .welcome-box p { margin: 0; font-size: 14px; color: #1a3f5c; line-height: 1.6; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th {
+            background-color: #f0f0f0;
+            text-align: left;
+            padding: 10px 14px;
+            font-size: 13px;
+            color: #555;
+            border-bottom: 2px solid #ddd;
+        }
+        td {
+            padding: 10px 14px;
+            font-size: 14px;
+            border-bottom: 1px solid #eee;
+            color: #333;
+        }
+        td.val { font-weight: bold; color: #111; }
+        .access-info {
+            background-color: #f0fdf4;
+            border-left: 4px solid #27ae60;
+            padding: 15px 20px;
+            border-radius: 0 8px 8px 0;
+            margin-top: 20px;
+        }
+        .access-info p { margin: 0; font-size: 13px; color: #1a5c35; }
+        .footer {
+            background-color: #f8f9fa;
+            padding: 15px 30px;
+            text-align: center;
+            font-size: 12px;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>✅ Your CyberArk Personal Safe is Ready</h1>
+            <div class="subtitle">Generated: {{GeneratedDate}}</div>
+        </div>
+        <div class="content">
+            <div class="welcome-box">
+                <p>Your secondary account has been successfully onboarded into CyberArk.
+                You can now access it through your personal safe using the CyberArk Portal
+                or the Credential Provider.</p>
+            </div>
+
+            <table>
+                <tr><th>Field</th><th>Value</th></tr>
+                <tr><td>Your Primary Account</td><td class="val">{{PrimaryAccount}}</td></tr>
+                <tr><td>Onboarded Account</td><td class="val">{{SecondaryAccount}}</td></tr>
+                <tr><td>Domain</td><td class="val">{{Domain}}</td></tr>
+                <tr><td>Personal Safe</td><td class="val">{{SafeName}}</td></tr>
+                <tr><td>Completion Date</td><td class="val">{{GeneratedDate}}</td></tr>
+            </table>
+
+            <div class="access-info">
+                <p><strong>ℹ️ Access Instructions:</strong> Log in to the CyberArk Portal and navigate to
+                the safe <strong>{{SafeName}}</strong> to view and retrieve your credentials.
+                If you encounter any issues, contact the PAM Operations team.</p>
+            </div>
+        </div>
+        <div class="footer">
+            This is an automated notification from CyberArk PAM. Do not reply to this email.
+        </div>
+    </div>
+</body>
+</html>

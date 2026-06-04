@@ -22,7 +22,8 @@ function Update-SharePointDashboard {
         [System.Management.Automation.PSCredential]$FallbackCredential,
         [switch]$ManualLogin,
         [string]$ScriptName,
-        [string]$LogPath
+        [string]$LogPath,
+        [string]$GlobalCCPUrl
     )
 
     Write-Log -Message "SharePoint Excel Update started..." -ScriptName $ScriptName -LogPath $LogPath
@@ -37,7 +38,13 @@ function Update-SharePointDashboard {
     $SpCredential = $FallbackCredential
     if ($null -ne $SharePointConfig.CCP) {
         Write-Log -Message "Fetching SharePoint service account credential from CyberArk CCP..." -ScriptName $ScriptName -LogPath $LogPath
-        $SpCredential = Get-SchedulerCredential -CCPConfig $SharePointConfig.CCP -ManualLogin:$ManualLogin -ScriptName $ScriptName -LogPath $LogPath
+        $ccpConfig = [PSCustomObject]@{
+            Url    = if ($SharePointConfig.CCP.Url) { $SharePointConfig.CCP.Url } else { $GlobalCCPUrl }
+            AppId  = $SharePointConfig.CCP.AppId
+            Safe   = $SharePointConfig.CCP.Safe
+            Object = $SharePointConfig.CCP.Object
+        }
+        $SpCredential = Get-SchedulerCredential -CCPConfig $ccpConfig -ManualLogin:$ManualLogin -ScriptName $ScriptName -LogPath $LogPath
     }
 
     # -- Connect --

@@ -29,7 +29,8 @@ function Invoke-CACLogin {
     [CmdletBinding()]
     param(
         [switch]$LDAP,
-        [switch]$SAML
+        [switch]$SAML,
+        [switch]$CCP
     )
 
     $cfg = Get-CACConfig
@@ -39,46 +40,69 @@ function Invoke-CACLogin {
 
     if (-not $SAML) {
         # ========================================
-        # STANDARD/LDAP AUTHENTICATION FLOW
+        # STANDARD/LDAP/CCP AUTHENTICATION FLOW
         # ========================================
-        $authType = if ($LDAP) { "LDAP" } else { "CyberArk" }
+        $authType = if ($LDAP) { "LDAP" } elseif ($CCP) { "CCP" } else { "CyberArk" }
         
-        $result = Show-CACLoginForm -PVWAURL $cfg.PVWAURL
-        if (-not $result) { return $false }
+        $username = $null
+        $password = $null
+        $baseUrl = $cfg.PVWAURL.TrimEnd('/')
 
-        if ([string]::IsNullOrWhiteSpace($result.Url)) {
-            Write-Log "PVWA URL cannot be empty." "ERROR"
-            return $false
+        if ($CCP) {
+            Write-Log "Retrieving credentials from CCP..." "INFO"
+            try {
+                $query = "Safe=$($cfg.CCP.Safe);Object=$($cfg.CCP.Object)"
+                $ccpUri = "$($cfg.CCP.Url)?AppID=$($cfg.CCP.AppId)&Query=$query"
+                
+                $ccpResp = Invoke-RestMethod -Uri $ccpUri -Method Get -ErrorAction Stop
+                $username = $ccpResp.UserName
+                $password = $ccpResp.Content
+                Write-Log "Credentials retrieved for user: $username" "SUCCESS"
+            }
+            catch {
+                Write-Log "CCP Retrieval Failed: $($_.Exception.Message)" "ERROR"
+                return $false
+            }
+        }
+        else {
+            $result = Show-CACLoginForm -PVWAURL $cfg.PVWAURL
+            if (-not $result) { return $false }
+
+            if ([string]::IsNullOrWhiteSpace($result.Url)) {
+                Write-Log "PVWA URL cannot be empty." "ERROR"
+                return $false
+            }
+            $baseUrl = $result.Url.TrimEnd('/')
+            $username = $result.Username
+            $password = $result.Password
         }
 
-        # NOTE: PVWAURL must be configured manually in config.json
-
-        $baseUrl = $result.Url.TrimEnd('/')
         $pvwaBase = "$baseUrl/PasswordVault"
-        $loginUrl = "$pvwaBase/api/Auth/$authType/Logon"
+        $loginType = if ($LDAP) { "LDAP" } else { "CyberArk" }
+        $loginUrl = "$pvwaBase/api/Auth/$loginType/Logon"
 
-        Write-Log "Attempting $authType login to $loginUrl" "INFO"
+        Write-Log "Attempting $loginType login to $loginUrl" "INFO"
 
         try {
             # Build credentials body
             $body = @{
-                username          = $result.Username
-                password          = $result.Password
+                username          = $username
+                password          = $password
                 concurrentSession = $true
             } | ConvertTo-Json
 
             # Make login request
             $response = Invoke-RestMethod -Uri $loginUrl -Method POST -Body $body -ContentType "application/json" -ErrorAction Stop
-
+            
             # Response is the session token (string)
             $token = $response
-
+            
             if ([string]::IsNullOrWhiteSpace($token)) {
                 throw "No session token received from CyberArk"
             }
 
             # Initialize session
-            Initialize-CACSession -BaseURI $pvwaBase -Token $token -User $result.Username
+            Initialize-CACSession -BaseURI $pvwaBase -Token $token -User $username
             
             # Store login method for auto-relogin
             $global:CACLoginMethod = $authType

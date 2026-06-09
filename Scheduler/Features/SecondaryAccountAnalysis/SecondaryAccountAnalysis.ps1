@@ -95,7 +95,7 @@ foreach ($key in $featureConfig.SafePermissionSets.PSObject.Properties.Name) {
     if ($key -notlike "_*") { $cfgPermSets[$key] = $featureConfig.SafePermissionSets.$key }
 }
 $cfgNotif          = $featureConfig.Notifications
-$requiredGroup     = $featureConfig.RequiredCyberArkGroup
+$requiredGroup     = $featureConfig.RequiredADGroup
 $templatesPath     = Join-Path $FeatureRoot "Templates"
 
 Write-Log -Message "Primary pattern: $($cfgPrimary.Pattern) | Domain: $($($cfgDomains | Where-Object IsPrimary).Name)" -ScriptName $ScriptName -LogPath $LogPath

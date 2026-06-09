@@ -406,44 +406,50 @@ function Get-SAAPersonalSafes {
 
     Write-Log -Message "Fetching ALL CyberArk safes (will filter for pattern '$NamingPatternRegex' after)..." -ScriptName $ScriptName -LogPath $LogPath
 
-    # --- Step 1: Collect ALL safes from the API ---
     $allRaw    = [System.Collections.Generic.List[object]]::new()
-    $seenNames = @{}
-    $offset    = 0
-    $limit     = 500
-    $hasMore   = $true
 
-    while ($hasMore) {
-        Write-Progress -Id 40 -Activity "CyberArk Safes" -Status "Fetching safes at offset $offset (collected: $($allRaw.Count))..." -PercentComplete -1
-        $uri   = "$BaseUrl/PasswordVault/api/Safes?limit=$limit&offset=$offset"
-        $resp  = Invoke-CyberArkApi -Uri $uri -TimeoutSec 120
-        $batch = if ($resp.value) { $resp.value } elseif ($resp.Safes) { $resp.Safes } else { @() }
+    if ($RawCachePath -and (Test-Path $RawCachePath)) {
+        Write-Log -Message "Loading ALL CyberArk safes from raw cache: $RawCachePath" -ScriptName $ScriptName -LogPath $LogPath
+        $rawCsv = @(Import-Csv $RawCachePath)
+        foreach ($row in $rawCsv) { $allRaw.Add($row) }
+    } else {
+        $seenNames = @{}
+        $offset    = 0
+        $limit     = 500
+        $hasMore   = $true
 
-        if ($batch.Count -gt 0) {
-            foreach ($safe in $batch) {
-                $safeName = if ($safe.safeName) { $safe.safeName } else { $safe.SafeName }
-                if (-not $safeName -or $seenNames.ContainsKey($safeName)) { continue }
-                $seenNames[$safeName] = $true
-                $allRaw.Add([PSCustomObject]@{
-                    SafeName     = $safeName
-                    Description  = $safe.description
-                    CreationTime = $safe.creationTime
-                    Creator      = if ($safe.creator.name) { $safe.creator.name } else { [string]$safe.creator }
-                })
+        while ($hasMore) {
+            Write-Progress -Id 40 -Activity "CyberArk Safes" -Status "Fetching safes at offset $offset (collected: $($allRaw.Count))..." -PercentComplete -1
+            $uri   = "$BaseUrl/PasswordVault/api/Safes?limit=$limit&offset=$offset"
+            $resp  = Invoke-CyberArkApi -Uri $uri -TimeoutSec 120
+            $batch = if ($resp.value) { $resp.value } elseif ($resp.Safes) { $resp.Safes } else { @() }
+
+            if ($batch.Count -gt 0) {
+                foreach ($safe in $batch) {
+                    $safeName = if ($safe.safeName) { $safe.safeName } else { $safe.SafeName }
+                    if (-not $safeName -or $seenNames.ContainsKey($safeName)) { continue }
+                    $seenNames[$safeName] = $true
+                    $allRaw.Add([PSCustomObject]@{
+                        SafeName     = $safeName
+                        Description  = $safe.description
+                        CreationTime = $safe.creationTime
+                        Creator      = if ($safe.creator.name) { $safe.creator.name } else { [string]$safe.creator }
+                    })
+                }
+                Write-Log -Message "Safes fetched so far: $($offset + $batch.Count)..." -ScriptName $ScriptName -LogPath $LogPath
+                if ($batch.Count -lt $limit) { $hasMore = $false } else { $offset += $limit }
             }
-            Write-Log -Message "Safes fetched so far: $($offset + $batch.Count)..." -ScriptName $ScriptName -LogPath $LogPath
-            if ($batch.Count -lt $limit) { $hasMore = $false } else { $offset += $limit }
+            else { $hasMore = $false }
         }
-        else { $hasMore = $false }
-    }
 
-    Write-Progress -Id 40 -Activity "CyberArk Safes" -Completed
-    Write-Log -Message "Total safes fetched from API: $($allRaw.Count)" -ScriptName $ScriptName -LogPath $LogPath
+        Write-Progress -Id 40 -Activity "CyberArk Safes" -Completed
+        Write-Log -Message "Total safes fetched from API: $($allRaw.Count)" -ScriptName $ScriptName -LogPath $LogPath
 
-    # --- Step 2: Save raw (unfiltered) safe list ---
-    if ($RawCachePath) {
-        $allRaw | Export-CsvNoBom -Path $RawCachePath
-        Write-Log -Message "All safes (raw) cached: $RawCachePath" -ScriptName $ScriptName -LogPath $LogPath
+        # --- Step 2: Save raw (unfiltered) safe list ---
+        if ($RawCachePath) {
+            $allRaw | Export-CsvNoBom -Path $RawCachePath
+            Write-Log -Message "All safes (raw) cached: $RawCachePath" -ScriptName $ScriptName -LogPath $LogPath
+        }
     }
 
     # --- Step 3: Filter for personal safes matching the naming pattern ---
@@ -485,41 +491,48 @@ function Get-SAAOnboardedAccounts {
     Write-Log -Message "Fetching ALL CyberArk accounts (will filter for personal safes after)..." -ScriptName $ScriptName -LogPath $LogPath
 
     $allRaw  = [System.Collections.Generic.List[object]]::new()
-    $offset  = 0
-    $limit   = 1000
-    $hasMore = $true
 
-    # --- Step 1: Collect ALL accounts ---
-    while ($hasMore) {
-        Write-Progress -Id 50 -Activity "CyberArk Accounts" -Status "Fetching accounts at offset $offset (collected: $($allRaw.Count))..." -PercentComplete -1
-        $uri   = "$BaseUrl/PasswordVault/api/Accounts?limit=$limit&offset=$offset"
-        $resp  = Invoke-CyberArkApi -Uri $uri -TimeoutSec 120
-        $batch = if ($resp.value) { $resp.value } else { @() }
+    if ($RawCachePath -and (Test-Path $RawCachePath)) {
+        Write-Log -Message "Loading ALL CyberArk accounts from raw cache: $RawCachePath" -ScriptName $ScriptName -LogPath $LogPath
+        $rawCsv = @(Import-Csv $RawCachePath)
+        foreach ($row in $rawCsv) { $allRaw.Add($row) }
+    } else {
+        $offset  = 0
+        $limit   = 1000
+        $hasMore = $true
 
-        if ($batch.Count -gt 0) {
-            foreach ($acc in $batch) {
-                $allRaw.Add([PSCustomObject]@{
-                    AccountId  = $acc.id
-                    Username   = $acc.userName
-                    Address    = $acc.address
-                    SafeName   = $acc.safeName
-                    PlatformId = $acc.platformId
-                })
+        # --- Step 1: Collect ALL accounts ---
+        while ($hasMore) {
+            Write-Progress -Id 50 -Activity "CyberArk Accounts" -Status "Fetching accounts at offset $offset (collected: $($allRaw.Count))..." -PercentComplete -1
+            $uri   = "$BaseUrl/PasswordVault/api/Accounts?limit=$limit&offset=$offset"
+            $resp  = Invoke-CyberArkApi -Uri $uri -TimeoutSec 120
+            $batch = if ($resp.value) { $resp.value } else { @() }
+
+            if ($batch.Count -gt 0) {
+                foreach ($acc in $batch) {
+                    $allRaw.Add([PSCustomObject]@{
+                        AccountId  = $acc.id
+                        Username   = $acc.userName
+                        Address    = $acc.address
+                        SafeName   = $acc.safeName
+                        PlatformId = $acc.platformId
+                    })
+                }
+                $offset += $limit
+                if ($batch.Count -lt $limit) { $hasMore = $false }
+                Write-Log -Message "Accounts fetched so far: $($allRaw.Count)..." -ScriptName $ScriptName -LogPath $LogPath
             }
-            $offset += $limit
-            if ($batch.Count -lt $limit) { $hasMore = $false }
-            Write-Log -Message "Accounts fetched so far: $($allRaw.Count)..." -ScriptName $ScriptName -LogPath $LogPath
+            else { $hasMore = $false }
         }
-        else { $hasMore = $false }
-    }
 
-    Write-Progress -Id 50 -Activity "CyberArk Accounts" -Completed
-    Write-Log -Message "Total accounts fetched from API: $($allRaw.Count)" -ScriptName $ScriptName -LogPath $LogPath
+        Write-Progress -Id 50 -Activity "CyberArk Accounts" -Completed
+        Write-Log -Message "Total accounts fetched from API: $($allRaw.Count)" -ScriptName $ScriptName -LogPath $LogPath
 
-    # --- Step 2: Save raw (unfiltered) account list ---
-    if ($RawCachePath) {
-        $allRaw | Export-CsvNoBom -Path $RawCachePath
-        Write-Log -Message "All accounts (raw) cached: $RawCachePath" -ScriptName $ScriptName -LogPath $LogPath
+        # --- Step 2: Save raw (unfiltered) account list ---
+        if ($RawCachePath) {
+            $allRaw | Export-CsvNoBom -Path $RawCachePath
+            Write-Log -Message "All accounts (raw) cached: $RawCachePath" -ScriptName $ScriptName -LogPath $LogPath
+        }
     }
 
     # --- Step 3: Filter for accounts in personal safes ---

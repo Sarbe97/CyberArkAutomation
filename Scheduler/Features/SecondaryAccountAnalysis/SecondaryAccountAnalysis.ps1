@@ -297,7 +297,7 @@ try {
         }
 
         $hasPrimary         = $null -ne $primaryADUser
-        $primaryEnabled     = if ($hasPrimary) { [bool]$primaryADUser.Enabled } else { $false }
+        $primaryEnabled     = if ($hasPrimary) { $primaryADUser.Enabled -in @($true, 'True') } else { $false }
         $primaryInGroup     = $hasPrimary -and $groupMemberSet.Contains($primaryUsername)
 
         # Resolve expected safe name for this user

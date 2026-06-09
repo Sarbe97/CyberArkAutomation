@@ -273,6 +273,7 @@ try {
     $countNeedsOnboarding = 0
     $countMissingGroup    = 0
     $countPrimaryDisabled = 0
+    $countSecondaryDisabled = 0
     $countMissingPrimary  = 0
 
     $totalSecondary = $secondaryADAccounts.Count
@@ -298,6 +299,7 @@ try {
 
         $hasPrimary         = $null -ne $primaryADUser
         $primaryEnabled     = if ($hasPrimary) { [string]$primaryADUser.Enabled -eq 'True' } else { $false }
+        $secondaryEnabled   = [string]$secondary.Enabled -eq 'True'
         $primaryInGroup     = $hasPrimary -and $groupMemberSet.Contains($primaryUsername)
 
         # Resolve expected safe name for this user
@@ -328,6 +330,7 @@ try {
         $status = switch ($true) {
             { -not $hasPrimary        } { "MissingPrimary";       break }
             { -not $primaryEnabled    } { "PrimaryDisabled";      break }
+            { -not $secondaryEnabled  } { "SecondaryDisabled";    break }
             { -not $primaryInGroup    } { "MissingGroupAccess";   break }
             { $isOnboarded            } { "Managed";              break }
             { $safeExists             } { "NeedsOnboarding";      break }
@@ -341,6 +344,7 @@ try {
             "NeedsOnboarding"      { $countNeedsOnboarding++ }
             "MissingGroupAccess"   { $countMissingGroup++ }
             "PrimaryDisabled"      { $countPrimaryDisabled++ }
+            "SecondaryDisabled"    { $countSecondaryDisabled++ }
             "MissingPrimary"       { $countMissingPrimary++ }
         }
 
@@ -364,7 +368,7 @@ try {
         }
         $analysisReport.Add($reportRow)
 
-        if ($status -in @("MissingPrimary", "PrimaryDisabled")) {
+        if ($status -in @("MissingPrimary", "PrimaryDisabled", "SecondaryDisabled")) {
             $skippedAccountsList.Add($reportRow)
         }
         if ($status -eq "MissingGroupAccess") {
@@ -672,6 +676,7 @@ try {
             CountNeedsOnboarding  = $countNeedsOnboarding
             CountMissingGroup     = $countMissingGroup
             CountPrimaryDisabled  = $countPrimaryDisabled
+            CountSecondaryDisabled = $countSecondaryDisabled
             GeneratedDate         = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
         }
 

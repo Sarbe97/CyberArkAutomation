@@ -16,6 +16,27 @@
 #   Get-SAAGroupMemberSet       - HashSet of usernames in a CyberArk group
 # =============================================================================
 
+
+# ---------------------------------------------------------------------------
+# Export-CsvNoBom  (private helper)
+# PowerShell 5.1's Export-Csv -Encoding UTF8 writes a BOM (EF BB BF) at the
+# start of every file. Excel reads those bytes as garbage characters in A1.
+# This helper uses [System.IO.File]::WriteAllLines with an explicit no-BOM
+# UTF-8 encoder to produce clean files that Excel opens without any prefix.
+# ---------------------------------------------------------------------------
+function Export-CsvNoBom {
+    param(
+        [Parameter(Mandatory=$true, ValueFromPipeline=$true)] [object] $InputObject,
+        [Parameter(Mandatory=$true)] [string] $Path
+    )
+    begin   { $rows = [System.Collections.Generic.List[object]]::new() }
+    process { $rows.Add($InputObject) }
+    end {
+        $csvLines = $rows | ConvertTo-Csv -NoTypeInformation
+        [System.IO.File]::WriteAllLines($Path, $csvLines, [System.Text.UTF8Encoding]::new($false))
+    }
+}
+
 # ---------------------------------------------------------------------------
 # Get-SAAPrimaryADUsers
 # Queries the primary domain (IsPrimary=true) for users matching the
@@ -136,7 +157,7 @@ function Get-SAAPrimaryADUsers {
         Write-Log -Message "Error querying primary domain '$($primaryDomain.Name)': $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
     }
 
-    $result | Export-Csv -Path $CachePath -NoTypeInformation -Encoding UTF8
+    $result | Export-CsvNoBom -Path $CachePath
     Write-Log -Message "Primary AD users cached: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
     return $result.ToArray()
 }
@@ -287,6 +308,9 @@ function Get-SAASecondaryADAccounts {
 
                 $empNbr = if ($user.SamAccountName -match $EmpNbrCapture) { $Matches[1] } else { "" }
 
+                # Skip accounts that don't end in exactly 6 digits — they are not valid employee accounts
+                if ([string]::IsNullOrEmpty($empNbr)) { continue }
+
                 $row = [PSCustomObject]@{
                     Username    = $user.SamAccountName
                     Prefix      = $matchedPrefix
@@ -303,7 +327,7 @@ function Get-SAASecondaryADAccounts {
 
             Write-Progress -Id 21 -Activity "AD Query" -Completed
             Write-Log -Message "Found $($domainResult.Count) secondary accounts in '$($domain.Name)'" -ScriptName $ScriptName -LogPath $LogPath
-            $domainResult | Export-Csv -Path $CachePath -NoTypeInformation -Encoding UTF8
+            $domainResult | Export-CsvNoBom -Path $CachePath
             Write-Log -Message "AD accounts for '$($domain.Name)' cached: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
         }
         catch {
@@ -365,7 +389,7 @@ function Get-SAACyberArkUsers {
 
     Write-Progress -Id 30 -Activity "CyberArk Users" -Completed
     Write-Log -Message "Total CyberArk LDAP EPVUsers: $($allUsers.Count)" -ScriptName $ScriptName -LogPath $LogPath
-    $allUsers | Export-Csv -Path $CachePath -NoTypeInformation -Encoding UTF8
+    $allUsers | Export-CsvNoBom -Path $CachePath
     return $allUsers.ToArray()
 }
 
@@ -424,7 +448,8 @@ function Get-SAAPersonalSafes {
 
     Write-Progress -Id 40 -Activity "CyberArk Personal Safes" -Completed
     Write-Log -Message "Personal safes matching pattern: $($result.Count)" -ScriptName $ScriptName -LogPath $LogPath
-    $result | Export-Csv -Path $CachePath -NoTypeInformation -Encoding UTF8
+    $result | Export-CsvNoBom -Path $CachePath
+    Write-Log -Message "Personal safes cached: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
     return $result.ToArray()
 }
 
@@ -480,7 +505,8 @@ function Get-SAAOnboardedAccounts {
 
     Write-Progress -Id 50 -Activity "CyberArk Onboarded Accounts" -Completed
     Write-Log -Message "Total onboarded accounts in personal safes: $($result.Count)" -ScriptName $ScriptName -LogPath $LogPath
-    $result | Export-Csv -Path $CachePath -NoTypeInformation -Encoding UTF8
+    $result | Export-CsvNoBom -Path $CachePath
+    Write-Log -Message "Onboarded accounts cached: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
     return $result.ToArray()
 }
 

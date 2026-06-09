@@ -24,12 +24,19 @@
         .header h1 { margin: 0; font-size: 22px; }
         .header .subtitle { margin-top: 5px; opacity: 0.85; font-size: 13px; }
         .sim-banner {
-            background-color: #fff3cd;
-            border-bottom: 2px solid #f39c12;
             padding: 10px 30px;
             font-size: 13px;
-            color: #7d5a00;
             font-weight: bold;
+        }
+        .sim-banner.Simulation {
+            background-color: #fff3cd;
+            border-bottom: 2px solid #f39c12;
+            color: #7d5a00;
+        }
+        .sim-banner.Onboarding {
+            background-color: #d4edda;
+            border-bottom: 2px solid #28a745;
+            color: #155724;
         }
         .content { padding: 30px; }
         .summary-grid {
@@ -101,11 +108,11 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🔬 SecondaryAccountAnalysis — Simulation Run Complete</h1>
+            <h1>🔬 SecondaryAccountAnalysis — {{ModeTitle}}</h1>
             <div class="subtitle">Generated: {{GeneratedDate}}</div>
         </div>
-        <div class="sim-banner">
-            ⚠ SIMULATION MODE — No safes were created. No accounts were onboarded. No operational emails were sent.
+        <div class="sim-banner {{EffectiveMode}}">
+            {{ModeBanner}}
         </div>
         <div class="content">
             <div class="summary-grid">
@@ -115,19 +122,19 @@
                 </div>
                 <div class="stat-box safes">
                     <div class="number">{{PlannedSafes}}</div>
-                    <div class="label">Safes Would Be Created</div>
+                    <div class="label">{{SafesLabel}}</div>
                 </div>
                 <div class="stat-box planned">
                     <div class="number">{{PlannedOnboards}}</div>
-                    <div class="label">Accounts Would Be Onboarded</div>
+                    <div class="label">{{OnboardsLabel}}</div>
                 </div>
                 <div class="stat-box alerts">
                     <div class="number">{{PlannedAdminAlerts}}</div>
-                    <div class="label">Admin Alerts Would Be Sent</div>
+                    <div class="label">{{AdminAlertsLabel}}</div>
                 </div>
                 <div class="stat-box alerts">
                     <div class="number">{{PlannedUserAlerts}}</div>
-                    <div class="label">User Notifications Would Be Sent</div>
+                    <div class="label">{{UserAlertsLabel}}</div>
                 </div>
                 <div class="stat-box">
                     <div class="number">{{MissingPrimary}}</div>
@@ -142,8 +149,8 @@
                     <tr><td>Managed</td><td class="val">{{CountManaged}}</td><td>Already fully onboarded</td></tr>
                     <tr><td>Needs All</td><td class="val">{{CountNeedsAll}}</td><td>Requires safe creation + onboarding</td></tr>
                     <tr><td>Needs Onboarding</td><td class="val">{{CountNeedsOnboarding}}</td><td>Safe exists, account not yet onboarded</td></tr>
-                    <tr><td>Missing Group Access</td><td class="val">{{CountMissingGroup}}</td><td>Primary not in required CyberArk group</td></tr>
-                    <tr><td>Missing CyberArk Access</td><td class="val">{{CountMissingCyberArk}}</td><td>Primary has no CyberArk account</td></tr>
+                    <tr><td>Missing Group Access</td><td class="val">{{CountMissingGroup}}</td><td>Primary not in required AD group</td></tr>
+                    <tr><td>Primary Disabled</td><td class="val">{{CountPrimaryDisabled}}</td><td>Primary account is disabled in AD</td></tr>
                     <tr><td>Missing Primary</td><td class="val">{{MissingPrimary}}</td><td>No matching primary U-account in NA domain</td></tr>
                 </table>
             </div>
@@ -153,6 +160,8 @@
                 <ul style="margin: 8px 0 0 0; padding-left: 20px; font-size: 13px; color: #1a3f5c;">
                     <li><strong>PlannedActions.csv</strong> — Full list of actions that would execute in Onboarding mode</li>
                     <li><strong>AnalysisReport.csv</strong> — Per-account status across all scanned domains</li>
+                    <li><strong>SkippedAccounts.csv</strong> — Accounts skipped due to missing or disabled primary users</li>
+                    <li><strong>MissingGroupAccess.csv</strong> — Accounts skipped due to missing AD group access</li>
                 </ul>
             </div>
         </div>

@@ -31,113 +31,7 @@ function Get-SAAEmailConfig {
     return $obj
 }
 
-# ---------------------------------------------------------------------------
-# Send-SAAAdminMissingAccessAlert
-# Triggered when the primary account is NOT a member of the required group.
-# In SimulationMode: logs only, does not send email.
-# ---------------------------------------------------------------------------
-function Send-SAAAdminMissingAccessAlert {
-    param (
-        [Parameter(Mandatory=$true)] [hashtable]      $Tokens,
-        [Parameter(Mandatory=$true)] [PSCustomObject]  $GlobalEmailConfig,
-        [Parameter(Mandatory=$true)] [string[]]        $AdminTo,
-        [string[]]                                     $AdminCC = @(),
-        [Parameter(Mandatory=$true)] [string]          $TemplatesPath,
-        [Parameter(Mandatory=$true)] [string]          $ScriptName,
-        [Parameter(Mandatory=$true)] [string]          $LogPath,
-        [bool] $SimulationMode = $false
-    )
 
-    if ($SimulationMode) {
-        Write-Log -Message "[SIMULATION] Would send MissingAccess admin alert - Primary: $($Tokens['PrimaryAccount']), Group: $($Tokens['RequiredGroup'])" `
-            -ScriptName $ScriptName -LogPath $LogPath
-        return
-    }
-
-    try {
-        $body     = Get-TemplateContent -TemplateName "AdminAlert_MissingAccess" -Data $Tokens -TemplatesPath $TemplatesPath
-        $subject  = "CyberArk Alert: Missing Group Access - $($Tokens['PrimaryAccount'])"
-        $emailCfg = Get-SAAEmailConfig -GlobalEmailConfig $GlobalEmailConfig -To $AdminTo -CC $AdminCC
-        Send-SchedulerEmail -Subject $subject -Body $body -EmailConfig $emailCfg -IsHtml `
-            -ScriptName $ScriptName -LogPath $LogPath
-    }
-    catch {
-        Write-Log -Message "Failed to send MissingAccess alert for '$($Tokens['PrimaryAccount'])': $($_.Exception.Message)" `
-            -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
-    }
-}
-
-# ---------------------------------------------------------------------------
-# Send-SAASafeCreatedAlert
-# Sent to admins when a personal safe is successfully created.
-# In SimulationMode: logs only.
-# ---------------------------------------------------------------------------
-function Send-SAASafeCreatedAlert {
-    param (
-        [Parameter(Mandatory=$true)] [hashtable]      $Tokens,
-        [Parameter(Mandatory=$true)] [PSCustomObject]  $GlobalEmailConfig,
-        [Parameter(Mandatory=$true)] [string[]]        $AdminTo,
-        [string[]]                                     $AdminCC = @(),
-        [Parameter(Mandatory=$true)] [string]          $TemplatesPath,
-        [Parameter(Mandatory=$true)] [string]          $ScriptName,
-        [Parameter(Mandatory=$true)] [string]          $LogPath,
-        [bool] $SimulationMode = $false
-    )
-
-    if ($SimulationMode) {
-        Write-Log -Message "[SIMULATION] Would send SafeCreated admin alert - Safe: $($Tokens['SafeName'])" `
-            -ScriptName $ScriptName -LogPath $LogPath
-        return
-    }
-
-    try {
-        $body     = Get-TemplateContent -TemplateName "AdminAlert_SafeCreated" -Data $Tokens -TemplatesPath $TemplatesPath
-        $subject  = "CyberArk: Personal Safe Created - $($Tokens['SafeName'])"
-        $emailCfg = Get-SAAEmailConfig -GlobalEmailConfig $GlobalEmailConfig -To $AdminTo -CC $AdminCC
-        Send-SchedulerEmail -Subject $subject -Body $body -EmailConfig $emailCfg -IsHtml `
-            -ScriptName $ScriptName -LogPath $LogPath
-    }
-    catch {
-        Write-Log -Message "Failed to send SafeCreated alert for '$($Tokens['SafeName'])': $($_.Exception.Message)" `
-            -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
-    }
-}
-
-# ---------------------------------------------------------------------------
-# Send-SAAFailureAlert
-# Sent to admins when any onboarding or safe creation operation fails.
-# In SimulationMode: logs only.
-# ---------------------------------------------------------------------------
-function Send-SAAFailureAlert {
-    param (
-        [Parameter(Mandatory=$true)] [hashtable]      $Tokens,
-        [Parameter(Mandatory=$true)] [PSCustomObject]  $GlobalEmailConfig,
-        [Parameter(Mandatory=$true)] [string[]]        $AdminTo,
-        [string[]]                                     $AdminCC = @(),
-        [Parameter(Mandatory=$true)] [string]          $TemplatesPath,
-        [Parameter(Mandatory=$true)] [string]          $ScriptName,
-        [Parameter(Mandatory=$true)] [string]          $LogPath,
-        [bool] $SimulationMode = $false
-    )
-
-    if ($SimulationMode) {
-        Write-Log -Message "[SIMULATION] Would send Failure admin alert - Primary: $($Tokens['PrimaryAccount']), Error: $($Tokens['ErrorMessage'])" `
-            -ScriptName $ScriptName -LogPath $LogPath
-        return
-    }
-
-    try {
-        $body     = Get-TemplateContent -TemplateName "AdminAlert_Failure" -Data $Tokens -TemplatesPath $TemplatesPath
-        $subject  = "CyberArk ALERT: Onboarding Failed - $($Tokens['PrimaryAccount'])"
-        $emailCfg = Get-SAAEmailConfig -GlobalEmailConfig $GlobalEmailConfig -To $AdminTo -CC $AdminCC
-        Send-SchedulerEmail -Subject $subject -Body $body -EmailConfig $emailCfg -IsHtml `
-            -ScriptName $ScriptName -LogPath $LogPath
-    }
-    catch {
-        Write-Log -Message "Failed to send Failure alert for '$($Tokens['PrimaryAccount'])': $($_.Exception.Message)" `
-            -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
-    }
-}
 
 # ---------------------------------------------------------------------------
 # Send-SAAUserSuccessNotification
@@ -184,15 +78,17 @@ function Send-SAAUserSuccessNotification {
 }
 
 # ---------------------------------------------------------------------------
-# Send-SAASimulationSummary
-# Sent to admins at the end of a Simulation run.
-# Attaches PlannedActions.csv and AnalysisReport.csv.
+# Send-SAARunSummary
+# Sent to admins at the end of a Simulation or Onboarding run.
+# Attaches CSV reports with results and planned actions.
 # ---------------------------------------------------------------------------
-function Send-SAASimulationSummary {
+function Send-SAARunSummary {
     param (
         [Parameter(Mandatory=$true)] [hashtable]      $Tokens,
         [Parameter(Mandatory=$true)] [string]          $PlannedActionsFile,
         [Parameter(Mandatory=$true)] [string]          $AnalysisReportFile,
+        [Parameter(Mandatory=$false)][string]          $SkippedAccountsFile,
+        [Parameter(Mandatory=$false)][string]          $MissingGroupFile,
         [Parameter(Mandatory=$true)] [PSCustomObject]  $GlobalEmailConfig,
         [Parameter(Mandatory=$true)] [string[]]        $AdminTo,
         [string[]]                                     $AdminCC = @(),
@@ -202,18 +98,19 @@ function Send-SAASimulationSummary {
     )
 
     try {
-        $body     = Get-TemplateContent -TemplateName "SimulationSummary" -Data $Tokens -TemplatesPath $TemplatesPath
-        $subject  = "CyberArk SAA: Simulation Run Complete - $(Get-Date -Format 'yyyy-MM-dd')"
+        $body     = Get-TemplateContent -TemplateName "RunSummary" -Data $Tokens -TemplatesPath $TemplatesPath
+        $modeStr  = if ($Tokens["EffectiveMode"] -eq "Simulation") { "Simulation" } else { "Execution" }
+        $subject  = "CyberArk SAA: $modeStr Run Complete - $(Get-Date -Format 'yyyy-MM-dd')"
         $emailCfg = Get-SAAEmailConfig -GlobalEmailConfig $GlobalEmailConfig -To $AdminTo -CC $AdminCC
 
-        $attachments = @($PlannedActionsFile, $AnalysisReportFile) | Where-Object { Test-Path $_ }
+        $attachments = @($PlannedActionsFile, $AnalysisReportFile, $SkippedAccountsFile, $MissingGroupFile) | Where-Object { $_ -and (Test-Path $_) }
 
         Send-SchedulerEmailWithAttachment -Subject $subject -Body $body -EmailConfig $emailCfg `
             -Attachments $attachments -IsHtml `
             -ScriptName $ScriptName -LogPath $LogPath
     }
     catch {
-        Write-Log -Message "Failed to send simulation summary email: $($_.Exception.Message)" `
+        Write-Log -Message "Failed to send run summary email: $($_.Exception.Message)" `
             -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
     }
 }

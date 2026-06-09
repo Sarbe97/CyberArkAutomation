@@ -143,6 +143,15 @@
             </div>
 
             <div class="section">
+                <h2>EPV License Utilization</h2>
+                <table>
+                    <tr><th>Metric</th><th>Count</th><th>Description</th></tr>
+                    <tr><td>Current LDAP EPVUsers</td><td class="val">{{TotalEPVUsers}}</td><td>Total existing EPV users in CyberArk before this run</td></tr>
+                    <tr><td>New Licenses to Consume</td><td class="val" style="color:#e74c3c;">{{NewEPVUsersConsumed}}</td><td>New primary users that will be provisioned as EPVUsers during safe creation</td></tr>
+                </table>
+            </div>
+
+            <div class="section">
                 <h2>Status Breakdown</h2>
                 <table>
                     <tr><th>Status</th><th>Count</th><th>Description</th></tr>

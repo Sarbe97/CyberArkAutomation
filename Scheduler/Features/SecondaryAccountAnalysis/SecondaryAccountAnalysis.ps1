@@ -180,6 +180,11 @@ try {
 
     Write-Log -Message "CyberArk LDAP users collected: $($cyberArkUsers.Count)" -ScriptName $ScriptName -LogPath $LogPath
 
+    $epvUserSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($u in $cyberArkUsers) {
+        if ($u.Username) { [void]$epvUserSet.Add($u.Username) }
+    }
+
     # 1d. Existing personal safes (matching naming pattern)
     $personalSafes = Get-SAAPersonalSafes `
         -BaseUrl            $BaseUrl `
@@ -275,6 +280,8 @@ try {
     $countPrimaryDisabled = 0
     $countSecondaryDisabled = 0
     $countMissingPrimary  = 0
+
+    $newEpvUsersConsumed = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
     $totalSecondary = $secondaryADAccounts.Count
     $processed      = 0
@@ -393,6 +400,10 @@ try {
             }
 
             if ($status -eq "NeedsAll") {
+                if (-not $epvUserSet.Contains($primaryUsername)) {
+                    [void]$newEpvUsersConsumed.Add($primaryUsername)
+                }
+
                 $seq++
                 $plannedActions.Add([PSCustomObject]@{
                     Sequence        = $seq
@@ -677,6 +688,8 @@ try {
             CountMissingGroup     = $countMissingGroup
             CountPrimaryDisabled  = $countPrimaryDisabled
             CountSecondaryDisabled = $countSecondaryDisabled
+            TotalEPVUsers         = $cyberArkUsers.Count
+            NewEPVUsersConsumed   = $newEpvUsersConsumed.Count
             GeneratedDate         = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
         }
 

@@ -23,8 +23,8 @@
 
       "PersonalSafe": {
         "_Comment_NamingPattern": "Tokens: {EmployeeNumber}, {PrimaryAccount}",
-        "NamingPattern": "S-P-U{EmployeeNumber}",
-        "NamingPatternRegex": "^S-P-U\\d{6}$",
+        "NamingPattern": "S-A-PR-WI-{PrimaryAccount}",
+        "NamingPatternRegex": "^S-A-PR-WI-U\\d{6}$",
         "NumberOfDaysRetention": 30,
         "NumberOfVersionsRetention": 5,
         "ManagingCPM": "PasswordManager",

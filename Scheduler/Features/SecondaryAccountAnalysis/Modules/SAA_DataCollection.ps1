@@ -33,7 +33,7 @@ function Export-CsvNoBom {
     process { $rows.Add($InputObject) }
     end {
         # ConvertTo-Csv returns $null on an empty collection; guard before WriteAllLines
-        $csvLines = if ($rows.Count -gt 0) { $rows | ConvertTo-Csv -NoTypeInformation } else { @() }
+        [string[]]$csvLines = if ($rows.Count -gt 0) { $rows | ConvertTo-Csv -NoTypeInformation } else { @() }
         [System.IO.File]::WriteAllLines($Path, $csvLines, [System.Text.UTF8Encoding]::new($false))
     }
 }

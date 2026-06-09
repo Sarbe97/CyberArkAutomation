@@ -157,6 +157,24 @@ function Get-SAASecondaryADAccounts {
         [Parameter(Mandatory=$true)] [bool]   $ManualLogin
     )
 
+    # If "AIMSW" is passed as a prefix, expand it to individual characters A, I, M, S, W
+    $expandedPrefixes = [System.Collections.Generic.List[string]]::new()
+    $expandedCount = 0
+    foreach ($prefix in $Prefixes) {
+        if ($prefix -ieq "AIMSW") {
+            foreach ($char in "AIMSW".ToCharArray()) {
+                $expandedPrefixes.Add([string]$char)
+            }
+            $expandedCount++
+        } else {
+            $expandedPrefixes.Add($prefix)
+        }
+    }
+    if ($expandedCount -gt 0) {
+        $Prefixes = $expandedPrefixes.ToArray()
+        Write-Log -Message "Expanded 'AIMSW' prefix to individual character prefixes: $($Prefixes -join ', ')" -ScriptName $ScriptName -LogPath $LogPath
+    }
+
     $allAccounts = [System.Collections.Generic.List[object]]::new()
     $totalDomains = $Domains.Count
     $domainIndex = 0
@@ -368,7 +386,7 @@ function Get-SAAPersonalSafes {
 
     while ($hasMore) {
         $uri   = "$BaseUrl/PasswordVault/api/Safes?limit=$limit&offset=$offset"
-        $resp  = Invoke-CyberArkApi -Uri $uri
+        $resp  = Invoke-CyberArkApi -Uri $uri -TimeoutSec 120
         $batch = if ($resp.value) { $resp.value } elseif ($resp.Safes) { $resp.Safes } else { @() }
 
         if ($batch.Count -gt 0) {
@@ -424,7 +442,7 @@ function Get-SAAOnboardedAccounts {
 
     while ($hasMore) {
         $uri   = "$BaseUrl/PasswordVault/api/Accounts?limit=$limit&offset=$offset"
-        $resp  = Invoke-CyberArkApi -Uri $uri
+        $resp  = Invoke-CyberArkApi -Uri $uri -TimeoutSec 120
         $batch = if ($resp.value) { $resp.value } else { @() }
 
         if ($batch.Count -gt 0) {

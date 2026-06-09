@@ -228,7 +228,9 @@ function Invoke-CyberArkApi {
         [ValidateSet("Get", "Post", "Put", "Delete")]
         [string]$Method = "Get",
 
-        [object]$Body = $null
+        [object]$Body = $null,
+
+        [int]$TimeoutSec = 30
     )
 
     if (-not $script:CyberArkSession) {
@@ -250,7 +252,7 @@ function Invoke-CyberArkApi {
             Method      = $Method
             Headers     = $headers
             ErrorAction = "Stop"
-            TimeoutSec  = 30 # Prevent indefinite hang
+            TimeoutSec  = $TimeoutSec # Prevent indefinite hang
         }
         
         if ($Method -ne "Get" -or $Body) {

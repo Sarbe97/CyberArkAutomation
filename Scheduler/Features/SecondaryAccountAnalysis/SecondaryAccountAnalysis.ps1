@@ -316,9 +316,13 @@ try {
         $tokenMap["SafeName"] = $expectedSafe
 
         $safeExists  = $expectedSafe -and $safeSet.Contains($expectedSafe)
-        $onboardKey  = "$($secondary.Username.ToUpper())|$($secondary.Domain.ToUpper())"
-        $isOnboarded = $onboardedMap.ContainsKey($onboardKey)
-        $onboardedIn = if ($isOnboarded) { $onboardedMap[$onboardKey] } else { "" }
+        $onboardKeyShort = "$($secondary.Username.ToUpper())|$($secondary.Domain.ToUpper())"
+        $onboardKeyFQDN  = "$($secondary.Username.ToUpper())|$($secondary.DomainFQDN.ToUpper())"
+        
+        $isOnboarded = $onboardedMap.ContainsKey($onboardKeyShort) -or $onboardedMap.ContainsKey($onboardKeyFQDN)
+        $onboardedIn = if ($onboardedMap.ContainsKey($onboardKeyShort)) { $onboardedMap[$onboardKeyShort] } 
+                       elseif ($onboardedMap.ContainsKey($onboardKeyFQDN)) { $onboardedMap[$onboardKeyFQDN] } 
+                       else { "" }
 
         # ── Determine status ──
         $status = switch ($true) {
@@ -344,6 +348,7 @@ try {
         $reportRow = [PSCustomObject]@{
             PrimaryAccount      = $primaryUsername
             SecondaryAccount    = $secondary.Username
+            ShortDomain         = $secondary.Domain
             Domain              = $secondary.DomainFQDN
             EmployeeNumber      = $empNbr
             ADEnabled           = $secondary.Enabled

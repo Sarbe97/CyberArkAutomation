@@ -482,11 +482,12 @@ function Get-SAAPersonalSafes {
 # ---------------------------------------------------------------------------
 function Get-SAAOnboardedAccounts {
     param (
-        [Parameter(Mandatory=$true)] [string] $BaseUrl,
-        [Parameter(Mandatory=$true)] [string] $NamingPatternRegex,
-        [Parameter(Mandatory=$true)] [string] $CachePath,
-        [Parameter(Mandatory=$true)] [string] $ScriptName,
-        [Parameter(Mandatory=$true)] [string] $LogPath
+        [Parameter(Mandatory=$true)]  [string] $BaseUrl,
+        [Parameter(Mandatory=$true)]  [string] $NamingPatternRegex,
+        [Parameter(Mandatory=$true)]  [string] $CachePath,
+        [Parameter(Mandatory=$true)]  [string] $ScriptName,
+        [Parameter(Mandatory=$true)]  [string] $LogPath,
+        [Parameter(Mandatory=$false)] [string] $RawCachePath = ""
     )
 
     if (Test-Path $CachePath) {
@@ -494,23 +495,23 @@ function Get-SAAOnboardedAccounts {
         return @(Import-Csv $CachePath)
     }
 
-    Write-Log -Message "Fetching CyberArk accounts inside personal safes..." -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "Fetching ALL CyberArk accounts (will filter for personal safes after)..." -ScriptName $ScriptName -LogPath $LogPath
 
-    $result  = [System.Collections.Generic.List[object]]::new()
+    $allRaw  = [System.Collections.Generic.List[object]]::new()
     $offset  = 0
     $limit   = 1000
     $hasMore = $true
 
+    # --- Step 1: Collect ALL accounts ---
     while ($hasMore) {
-        Write-Progress -Id 50 -Activity "CyberArk Onboarded Accounts" -Status "Scanning accounts at offset $offset (in personal safes: $($result.Count))..." -PercentComplete -1
+        Write-Progress -Id 50 -Activity "CyberArk Accounts" -Status "Fetching accounts at offset $offset (collected: $($allRaw.Count))..." -PercentComplete -1
         $uri   = "$BaseUrl/PasswordVault/api/Accounts?limit=$limit&offset=$offset"
         $resp  = Invoke-CyberArkApi -Uri $uri -TimeoutSec 120
         $batch = if ($resp.value) { $resp.value } else { @() }
 
         if ($batch.Count -gt 0) {
             foreach ($acc in $batch) {
-                if ($acc.safeName -notmatch $NamingPatternRegex) { continue }
-                $result.Add([PSCustomObject]@{
+                $allRaw.Add([PSCustomObject]@{
                     AccountId  = $acc.id
                     Username   = $acc.userName
                     Address    = $acc.address
@@ -520,13 +521,30 @@ function Get-SAAOnboardedAccounts {
             }
             $offset += $limit
             if ($batch.Count -lt $limit) { $hasMore = $false }
-            Write-Log -Message "Accounts scanned: $offset - in personal safes: $($result.Count)..." -ScriptName $ScriptName -LogPath $LogPath
+            Write-Log -Message "Accounts fetched so far: $($allRaw.Count)..." -ScriptName $ScriptName -LogPath $LogPath
         }
         else { $hasMore = $false }
     }
 
-    Write-Progress -Id 50 -Activity "CyberArk Onboarded Accounts" -Completed
-    Write-Log -Message "Total onboarded accounts in personal safes: $($result.Count)" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Progress -Id 50 -Activity "CyberArk Accounts" -Completed
+    Write-Log -Message "Total accounts fetched from API: $($allRaw.Count)" -ScriptName $ScriptName -LogPath $LogPath
+
+    # --- Step 2: Save raw (unfiltered) account list ---
+    if ($RawCachePath) {
+        $allRaw | Export-CsvNoBom -Path $RawCachePath
+        Write-Log -Message "All accounts (raw) cached: $RawCachePath" -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    # --- Step 3: Filter for accounts in personal safes ---
+    $result = [System.Collections.Generic.List[object]]::new()
+    foreach ($row in $allRaw) {
+        if ($row.SafeName -match $NamingPatternRegex) {
+            $result.Add($row)
+        }
+    }
+    Write-Log -Message "Onboarded accounts in personal safes: $($result.Count) of $($allRaw.Count)" -ScriptName $ScriptName -LogPath $LogPath
+
+    # --- Step 4: Save filtered account list ---
     $result | Export-CsvNoBom -Path $CachePath
     Write-Log -Message "Onboarded accounts cached: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
     return $result.ToArray()
@@ -535,17 +553,19 @@ function Get-SAAOnboardedAccounts {
 # ---------------------------------------------------------------------------
 # Get-SAAGroupMemberSet
 # Returns a case-insensitive HashSet of usernames who are members of the
-# specified CyberArk group.
+# specified Active Directory group. Queries the Primary Domain.
 # Cache file (optional): RawCache_GroupMembers_<TodayStr>.csv
 #   If the cache file exists for today, the HashSet is rebuilt from it.
-#   Otherwise the API is queried and the result is saved to the cache.
+#   Otherwise AD is queried and the result is saved to the cache.
 # ---------------------------------------------------------------------------
 function Get-SAAGroupMemberSet {
     param (
-        [Parameter(Mandatory=$true)]  [string] $BaseUrl,
+        [Parameter(Mandatory=$true)]  [array]  $Domains,
         [Parameter(Mandatory=$true)]  [string] $GroupName,
         [Parameter(Mandatory=$true)]  [string] $ScriptName,
         [Parameter(Mandatory=$true)]  [string] $LogPath,
+        [Parameter(Mandatory=$true)]  [string] $GlobalCCPUrl,
+        [Parameter(Mandatory=$true)]  [bool]   $ManualLogin,
         [Parameter(Mandatory=$false)] [string] $CachePath = ""
     )
 
@@ -564,47 +584,67 @@ function Get-SAAGroupMemberSet {
         return $memberSet
     }
 
-    Write-Log -Message "Fetching members of CyberArk group: '$GroupName'..." -ScriptName $ScriptName -LogPath $LogPath
+    $primaryDomain = $Domains | Where-Object { $_.IsPrimary -eq $true } | Select-Object -First 1
+    if (-not $primaryDomain) {
+        Write-Log -Message "No primary domain found. Cannot check AD group '$GroupName'." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+        return $memberSet
+    }
+
+    Write-Log -Message "Fetching members of AD group '$GroupName' from primary domain '$($primaryDomain.Name)'..." -ScriptName $ScriptName -LogPath $LogPath
+
+    # Fetch domain-specific credentials
+    $credentialObj = $null
+    $hasDirectPassword = $primaryDomain.PSObject.Properties['Password'] -and -not [string]::IsNullOrWhiteSpace($primaryDomain.Password)
+
+    if ($hasDirectPassword) {
+        $username = $primaryDomain.Username
+        $secPass = ConvertTo-SecureString $primaryDomain.Password -AsPlainText -Force
+        $credentialObj = New-Object System.Management.Automation.PSCredential($username, $secPass)
+    } elseif ($primaryDomain.CCP) {
+        try {
+            $domainCCP = [PSCustomObject]@{
+                Url    = $GlobalCCPUrl
+                AppId  = $primaryDomain.CCP.AppId
+                Safe   = $primaryDomain.CCP.Safe
+                Object = $primaryDomain.CCP.Object
+            }
+            $creds = Get-SchedulerCredential -CCPConfig $domainCCP -ManualLogin:$ManualLogin -ScriptName $ScriptName -LogPath $LogPath
+            $secPass = ConvertTo-SecureString $creds.Password -AsPlainText -Force
+            $credentialObj = New-Object System.Management.Automation.PSCredential($creds.Username, $secPass)
+        }
+        catch {
+            Write-Log -Message "Failed to fetch CCP credentials for AD group lookup: $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+        }
+    }
+
+    $adParams = @{
+        Identity    = $GroupName
+        Server      = $primaryDomain.Server
+        Recursive   = $true
+        ErrorAction = "Stop"
+    }
+    if ($null -ne $credentialObj) {
+        $adParams["Credential"] = $credentialObj
+    }
 
     try {
-        # Step 1: Find the group by name
-        Write-Progress -Id 60 -Activity "CyberArk Group Members" -Status "Looking up group '$GroupName'..." -PercentComplete -1
-        $searchUri = "$BaseUrl/PasswordVault/API/UserGroups?search=$([uri]::EscapeDataString($GroupName))&limit=50"
-        $response  = Invoke-CyberArkApi -Uri $searchUri
-        $groups    = if ($response.value) { $response.value } `
-                     elseif ($response.Groups) { $response.Groups } `
-                     else { @() }
-
-        $targetGroup = $groups | Where-Object { $_.groupName -ieq $GroupName } | Select-Object -First 1
-
-        if (-not $targetGroup) {
-            Write-Progress -Id 60 -Activity "CyberArk Group Members" -Completed
-            Write-Log -Message "Group '$GroupName' not found in CyberArk. Group membership check will be skipped." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
-            return $memberSet
-        }
-
-        $groupId = $targetGroup.id
-        Write-Log -Message "Found group '$GroupName' (ID: $groupId). Fetching members..." -ScriptName $ScriptName -LogPath $LogPath
-
-        # Step 2: Fetch group members
-        Write-Progress -Id 60 -Activity "CyberArk Group Members" -Status "Fetching members of '$GroupName' (ID: $groupId)..." -PercentComplete -1
-        $membUri = "$BaseUrl/PasswordVault/API/UserGroups/$groupId/Members"
-        $membResp = Invoke-CyberArkApi -Uri $membUri
-        $members  = if ($membResp.value) { $membResp.value } `
-                    elseif ($membResp.Members) { $membResp.Members } `
-                    else { @() }
-
+        Write-Progress -Id 60 -Activity "AD Group Members" -Status "Querying AD server '$($primaryDomain.Server)' for group '$GroupName'..." -PercentComplete -1
+        $members = Get-ADGroupMember @adParams
+        
         $memberRows = [System.Collections.Generic.List[object]]::new()
         foreach ($m in $members) {
-            $username = if ($m.username) { $m.username } elseif ($m.UserName) { $m.UserName } else { "" }
+            # Skip nested groups/computers, we only want actual users
+            if ($m.objectClass -ne "user") { continue }
+            
+            $username = $m.SamAccountName
             if ($username) {
                 [void]$memberSet.Add($username)
                 $memberRows.Add([PSCustomObject]@{ Username = $username })
             }
         }
 
-        Write-Progress -Id 60 -Activity "CyberArk Group Members" -Completed
-        Write-Log -Message "Group '$GroupName' has $($memberSet.Count) members." -ScriptName $ScriptName -LogPath $LogPath
+        Write-Progress -Id 60 -Activity "AD Group Members" -Completed
+        Write-Log -Message "AD Group '$GroupName' has $($memberSet.Count) user members." -ScriptName $ScriptName -LogPath $LogPath
 
         # --- Save to cache ---
         if ($CachePath) {
@@ -613,8 +653,8 @@ function Get-SAAGroupMemberSet {
         }
     }
     catch {
-        Write-Progress -Id 60 -Activity "CyberArk Group Members" -Completed
-        Write-Log -Message "Failed to retrieve group '$GroupName': $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+        Write-Progress -Id 60 -Activity "AD Group Members" -Completed
+        Write-Log -Message "Failed to retrieve AD group '$GroupName': $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
     }
 
     return $memberSet

@@ -110,6 +110,7 @@ Write-Log -Message "Safe naming pattern: $($cfgSafe.NamingPattern)" -ScriptName 
 $cacheUsers        = Join-Path $ExportDir "RawCache_CyberArkUsers_$TodayStr.csv"
 $cacheAllSafes     = Join-Path $ExportDir "RawCache_AllSafes_$TodayStr.csv"
 $cacheSafes        = Join-Path $ExportDir "RawCache_PersonalSafes_$TodayStr.csv"
+$cacheAllAccounts  = Join-Path $ExportDir "RawCache_AllAccounts_$TodayStr.csv"
 $cacheOnboarded    = Join-Path $ExportDir "RawCache_OnboardedAccounts_$TodayStr.csv"
 $cacheGroupMembers = Join-Path $ExportDir "RawCache_GroupMembers_$TodayStr.csv"
 
@@ -192,18 +193,21 @@ try {
         -BaseUrl            $BaseUrl `
         -NamingPatternRegex $cfgSafe.NamingPatternRegex `
         -CachePath          $cacheOnboarded `
+        -RawCachePath       $cacheAllAccounts `
         -ScriptName         $ScriptName `
         -LogPath            $LogPath
 
     Write-Log -Message "Onboarded accounts in personal safes: $($onboardedAccounts.Count)" -ScriptName $ScriptName -LogPath $LogPath
 
-    # 1f. CyberArk group members (required group for onboarding eligibility)
+    # 1f. Active Directory group members (required group for onboarding eligibility)
     $groupMemberSet = Get-SAAGroupMemberSet `
-        -BaseUrl    $BaseUrl `
-        -GroupName  $requiredGroup `
-        -CachePath  $cacheGroupMembers `
-        -ScriptName $ScriptName `
-        -LogPath    $LogPath
+        -Domains      $cfgDomains `
+        -GroupName    $requiredGroup `
+        -CachePath    $cacheGroupMembers `
+        -ScriptName   $ScriptName `
+        -LogPath      $LogPath `
+        -GlobalCCPUrl $config.CCP.Url `
+        -ManualLogin  $ManualLogin
 
     Write-Log -Message "Group '$requiredGroup' members collected: $($groupMemberSet.Count)" -ScriptName $ScriptName -LogPath $LogPath
 

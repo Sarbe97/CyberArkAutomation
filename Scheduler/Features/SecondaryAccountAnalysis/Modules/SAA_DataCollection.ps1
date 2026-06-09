@@ -105,9 +105,11 @@ function Get-SAAPrimaryADUsers {
 
     try {
         Write-Log -Message "Sending AD query to server '$($primaryDomain.Server)' using filter '$adFilter'..." -ScriptName $ScriptName -LogPath $LogPath
+        Write-Progress -Id 10 -Activity "Primary Domain AD Query" -Status "Querying '$($primaryDomain.Server)'... (this may take a moment)" -PercentComplete -1
         $adUsers = Get-ADUser @adParams
         $rawCount = if ($adUsers) { $adUsers.Count } else { 0 }
         Write-Log -Message "AD query completed. Received $rawCount raw user records from server '$($primaryDomain.Server)'. Processing primary account pattern..." -ScriptName $ScriptName -LogPath $LogPath
+        Write-Progress -Id 10 -Activity "Primary Domain AD Query" -Status "Processing $rawCount user records..." -PercentComplete -1
 
         foreach ($user in $adUsers) {
             if ($user.SamAccountName -notmatch $PrimaryPattern) { continue }
@@ -126,9 +128,11 @@ function Get-SAAPrimaryADUsers {
             })
         }
 
+        Write-Progress -Id 10 -Activity "Primary Domain AD Query" -Completed
         Write-Log -Message "Found $($result.Count) primary accounts in '$($primaryDomain.Name)'" -ScriptName $ScriptName -LogPath $LogPath
     }
     catch {
+        Write-Progress -Id 10 -Activity "Primary Domain AD Query" -Completed
         Write-Log -Message "Error querying primary domain '$($primaryDomain.Name)': $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
     }
 
@@ -196,6 +200,7 @@ function Get-SAASecondaryADAccounts {
             continue
         }
 
+        Write-Progress -Id 20 -Activity "Secondary AD Accounts" -Status "[$domainIndex/$totalDomains] Querying domain: $($domain.Name)" -PercentComplete ([int](($domainIndex / $totalDomains) * 100))
         Write-Log -Message "[$domainIndex/$totalDomains] Querying domain '$($domain.Name)' ($($domain.FQDN)) for secondary accounts (prefixes: $($Prefixes -join ', '))..." -ScriptName $ScriptName -LogPath $LogPath
 
         # Fetch domain-specific credentials
@@ -254,9 +259,11 @@ function Get-SAASecondaryADAccounts {
             }
 
             Write-Log -Message "[$domainIndex/$totalDomains] Sending AD query to server '$($domain.Server)' using filter '$adFilter'..." -ScriptName $ScriptName -LogPath $LogPath
+            Write-Progress -Id 21 -ParentId 20 -Activity "AD Query" -Status "Querying '$($domain.Server)'... (this may take a moment)" -PercentComplete -1
             $adUsers = Get-ADUser @adParams
             $rawCount = if ($adUsers) { $adUsers.Count } else { 0 }
             Write-Log -Message "[$domainIndex/$totalDomains] AD query completed. Received $rawCount raw user records from server '$($domain.Server)'. Processing secondary account prefixes..." -ScriptName $ScriptName -LogPath $LogPath
+            Write-Progress -Id 21 -Activity "AD Query" -Status "Processing $rawCount records from '$($domain.Server)'..." -PercentComplete -1
 
             foreach ($user in $adUsers) {
                 # Check exclusion by username pattern
@@ -294,15 +301,18 @@ function Get-SAASecondaryADAccounts {
                 $allAccounts.Add($row)
             }
 
+            Write-Progress -Id 21 -Activity "AD Query" -Completed
             Write-Log -Message "Found $($domainResult.Count) secondary accounts in '$($domain.Name)'" -ScriptName $ScriptName -LogPath $LogPath
             $domainResult | Export-Csv -Path $CachePath -NoTypeInformation -Encoding UTF8
             Write-Log -Message "AD accounts for '$($domain.Name)' cached: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
         }
         catch {
+            Write-Progress -Id 21 -Activity "AD Query" -Completed
             Write-Log -Message "Error querying domain '$($domain.Name)': $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
         }
     }
 
+    Write-Progress -Id 20 -Activity "Secondary AD Accounts" -Completed
     Write-Log -Message "Total secondary AD accounts collected across all domains: $($allAccounts.Count)" -ScriptName $ScriptName -LogPath $LogPath
     return $allAccounts.ToArray()
 }
@@ -333,6 +343,7 @@ function Get-SAACyberArkUsers {
     $limit    = 100
 
     do {
+        Write-Progress -Id 30 -Activity "CyberArk Users" -Status "Fetching page at offset $offset (LDAP users found: $($allUsers.Count))..." -PercentComplete -1
         $uri      = "$BaseUrl/PasswordVault/api/Users?limit=$limit&offset=$offset&userType=EPVUser"
         $response = Invoke-CyberArkApi -Uri $uri
         $users    = if ($response.Users) { $response.Users } else { @() }
@@ -352,6 +363,7 @@ function Get-SAACyberArkUsers {
         Write-Log -Message "CyberArk LDAP users fetched so far: $($allUsers.Count)..." -ScriptName $ScriptName -LogPath $LogPath
     } while ($users.Count -eq $limit -and $users.Count -gt 0)
 
+    Write-Progress -Id 30 -Activity "CyberArk Users" -Completed
     Write-Log -Message "Total CyberArk LDAP EPVUsers: $($allUsers.Count)" -ScriptName $ScriptName -LogPath $LogPath
     $allUsers | Export-Csv -Path $CachePath -NoTypeInformation -Encoding UTF8
     return $allUsers.ToArray()
@@ -385,6 +397,7 @@ function Get-SAAPersonalSafes {
     $hasMore   = $true
 
     while ($hasMore) {
+        Write-Progress -Id 40 -Activity "CyberArk Personal Safes" -Status "Scanning safes at offset $offset (matched so far: $($result.Count))..." -PercentComplete -1
         $uri   = "$BaseUrl/PasswordVault/api/Safes?limit=$limit&offset=$offset"
         $resp  = Invoke-CyberArkApi -Uri $uri -TimeoutSec 120
         $batch = if ($resp.value) { $resp.value } elseif ($resp.Safes) { $resp.Safes } else { @() }
@@ -409,6 +422,7 @@ function Get-SAAPersonalSafes {
         else { $hasMore = $false }
     }
 
+    Write-Progress -Id 40 -Activity "CyberArk Personal Safes" -Completed
     Write-Log -Message "Personal safes matching pattern: $($result.Count)" -ScriptName $ScriptName -LogPath $LogPath
     $result | Export-Csv -Path $CachePath -NoTypeInformation -Encoding UTF8
     return $result.ToArray()
@@ -441,6 +455,7 @@ function Get-SAAOnboardedAccounts {
     $hasMore = $true
 
     while ($hasMore) {
+        Write-Progress -Id 50 -Activity "CyberArk Onboarded Accounts" -Status "Scanning accounts at offset $offset (in personal safes: $($result.Count))..." -PercentComplete -1
         $uri   = "$BaseUrl/PasswordVault/api/Accounts?limit=$limit&offset=$offset"
         $resp  = Invoke-CyberArkApi -Uri $uri -TimeoutSec 120
         $batch = if ($resp.value) { $resp.value } else { @() }
@@ -463,6 +478,7 @@ function Get-SAAOnboardedAccounts {
         else { $hasMore = $false }
     }
 
+    Write-Progress -Id 50 -Activity "CyberArk Onboarded Accounts" -Completed
     Write-Log -Message "Total onboarded accounts in personal safes: $($result.Count)" -ScriptName $ScriptName -LogPath $LogPath
     $result | Export-Csv -Path $CachePath -NoTypeInformation -Encoding UTF8
     return $result.ToArray()
@@ -490,6 +506,7 @@ function Get-SAAGroupMemberSet {
 
     try {
         # Step 1: Find the group by name
+        Write-Progress -Id 60 -Activity "CyberArk Group Members" -Status "Looking up group '$GroupName'..." -PercentComplete -1
         $searchUri = "$BaseUrl/PasswordVault/API/UserGroups?search=$([uri]::EscapeDataString($GroupName))&limit=50"
         $response  = Invoke-CyberArkApi -Uri $searchUri
         $groups    = if ($response.value) { $response.value } `
@@ -499,6 +516,7 @@ function Get-SAAGroupMemberSet {
         $targetGroup = $groups | Where-Object { $_.groupName -ieq $GroupName } | Select-Object -First 1
 
         if (-not $targetGroup) {
+            Write-Progress -Id 60 -Activity "CyberArk Group Members" -Completed
             Write-Log -Message "Group '$GroupName' not found in CyberArk. Group membership check will be skipped." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
             return $memberSet
         }
@@ -507,6 +525,7 @@ function Get-SAAGroupMemberSet {
         Write-Log -Message "Found group '$GroupName' (ID: $groupId). Fetching members..." -ScriptName $ScriptName -LogPath $LogPath
 
         # Step 2: Fetch group members
+        Write-Progress -Id 60 -Activity "CyberArk Group Members" -Status "Fetching members of '$GroupName' (ID: $groupId)..." -PercentComplete -1
         $membUri = "$BaseUrl/PasswordVault/API/UserGroups/$groupId/Members"
         $membResp = Invoke-CyberArkApi -Uri $membUri
         $members  = if ($membResp.value) { $membResp.value } `
@@ -518,9 +537,11 @@ function Get-SAAGroupMemberSet {
             if ($username) { [void]$memberSet.Add($username) }
         }
 
+        Write-Progress -Id 60 -Activity "CyberArk Group Members" -Completed
         Write-Log -Message "Group '$GroupName' has $($memberSet.Count) members." -ScriptName $ScriptName -LogPath $LogPath
     }
     catch {
+        Write-Progress -Id 60 -Activity "CyberArk Group Members" -Completed
         Write-Log -Message "Failed to retrieve group '$GroupName': $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
     }
 

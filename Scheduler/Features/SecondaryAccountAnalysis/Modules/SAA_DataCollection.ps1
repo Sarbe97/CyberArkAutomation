@@ -72,6 +72,7 @@ function Get-SAAPrimaryADUsers {
         $credentialObj = New-Object System.Management.Automation.PSCredential($username, $secPass)
         Write-Log -Message "Using direct credentials for primary domain '$($primaryDomain.Name)' (Username: $username)" -ScriptName $ScriptName -LogPath $LogPath
     } elseif ($primaryDomain.CCP) {
+        Write-Log -Message "Retrieving credentials from CCP for primary domain '$($primaryDomain.Name)'..." -ScriptName $ScriptName -LogPath $LogPath
         try {
             $domainCCP = [PSCustomObject]@{
                 Url    = $GlobalCCPUrl
@@ -80,6 +81,7 @@ function Get-SAAPrimaryADUsers {
                 Object = $primaryDomain.CCP.Object
             }
             $creds = Get-SchedulerCredential -CCPConfig $domainCCP -ManualLogin:$ManualLogin -ScriptName $ScriptName -LogPath $LogPath
+            Write-Log -Message "Successfully retrieved credentials from CCP for primary domain '$($primaryDomain.Name)' (Username: $($creds.Username))." -ScriptName $ScriptName -LogPath $LogPath
             $secPass = ConvertTo-SecureString $creds.Password -AsPlainText -Force
             $credentialObj = New-Object System.Management.Automation.PSCredential($creds.Username, $secPass)
         }
@@ -87,6 +89,8 @@ function Get-SAAPrimaryADUsers {
             Write-Log -Message "Failed to fetch CCP credentials for primary domain '$($primaryDomain.Name)': $($_.Exception.Message)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
             return @()
         }
+    } else {
+        Write-Log -Message "No credentials configured for primary domain '$($primaryDomain.Name)'. Querying AD using current execution context." -ScriptName $ScriptName -LogPath $LogPath
     }
 
     $adParams = @{
@@ -100,7 +104,10 @@ function Get-SAAPrimaryADUsers {
     }
 
     try {
+        Write-Log -Message "Sending AD query to server '$($primaryDomain.Server)' using filter '$adFilter'..." -ScriptName $ScriptName -LogPath $LogPath
         $adUsers = Get-ADUser @adParams
+        $rawCount = if ($adUsers) { $adUsers.Count } else { 0 }
+        Write-Log -Message "AD query completed. Received $rawCount raw user records from server '$($primaryDomain.Server)'. Processing primary account pattern..." -ScriptName $ScriptName -LogPath $LogPath
 
         foreach ($user in $adUsers) {
             if ($user.SamAccountName -notmatch $PrimaryPattern) { continue }
@@ -151,24 +158,27 @@ function Get-SAASecondaryADAccounts {
     )
 
     $allAccounts = [System.Collections.Generic.List[object]]::new()
+    $totalDomains = $Domains.Count
+    $domainIndex = 0
 
     foreach ($domain in $Domains) {
+        $domainIndex++
         $CachePath = Join-Path $CacheDir "RawCache_ADAccounts_$($domain.Name)_$TodayStr.csv"
 
         # Check if domain is excluded
         if ($Exclusions.Domains -and ($domain.Name -in $Exclusions.Domains)) {
-            Write-Log -Message "Domain '$($domain.Name)' is in the exclusion list. Skipping." -ScriptName $ScriptName -LogPath $LogPath
+            Write-Log -Message "[$domainIndex/$totalDomains] Domain '$($domain.Name)' is in the exclusion list. Skipping." -ScriptName $ScriptName -LogPath $LogPath
             continue
         }
 
         if (Test-Path $CachePath) {
-            Write-Log -Message "Loading AD accounts for '$($domain.Name)' from cache: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
+            Write-Log -Message "[$domainIndex/$totalDomains] Loading AD accounts for '$($domain.Name)' from cache: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
             $cached = @(Import-Csv $CachePath)
             foreach ($row in $cached) { $allAccounts.Add($row) }
             continue
         }
 
-        Write-Log -Message "Querying domain '$($domain.Name)' ($($domain.FQDN)) for secondary accounts (prefixes: $($Prefixes -join ', '))..." -ScriptName $ScriptName -LogPath $LogPath
+        Write-Log -Message "[$domainIndex/$totalDomains] Querying domain '$($domain.Name)' ($($domain.FQDN)) for secondary accounts (prefixes: $($Prefixes -join ', '))..." -ScriptName $ScriptName -LogPath $LogPath
 
         # Fetch domain-specific credentials
         $credentialObj = $null
@@ -177,12 +187,13 @@ function Get-SAASecondaryADAccounts {
         if ($hasDirectPassword) {
             $username = $domain.Username
             if ([string]::IsNullOrWhiteSpace($username)) {
-                Write-Log -Message "Warning: Username is empty for domain '$($domain.Name)' but a direct password was provided." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+                Write-Log -Message "[$domainIndex/$totalDomains] Warning: Username is empty for domain '$($domain.Name)' but a direct password was provided." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
             }
             $secPass = ConvertTo-SecureString $domain.Password -AsPlainText -Force
             $credentialObj = New-Object System.Management.Automation.PSCredential($username, $secPass)
-            Write-Log -Message "Using direct credentials for domain '$($domain.Name)' (Username: $username)" -ScriptName $ScriptName -LogPath $LogPath
+            Write-Log -Message "[$domainIndex/$totalDomains] Using direct credentials for domain '$($domain.Name)' (Username: $username)" -ScriptName $ScriptName -LogPath $LogPath
         } elseif ($domain.CCP) {
+            Write-Log -Message "[$domainIndex/$totalDomains] Retrieving credentials from CCP for domain '$($domain.Name)'..." -ScriptName $ScriptName -LogPath $LogPath
             try {
                 $domainCCP = [PSCustomObject]@{
                     Url    = $GlobalCCPUrl
@@ -191,14 +202,17 @@ function Get-SAASecondaryADAccounts {
                     Object = $domain.CCP.Object
                 }
                 $creds = Get-SchedulerCredential -CCPConfig $domainCCP -ManualLogin:$ManualLogin -ScriptName $ScriptName -LogPath $LogPath
+                Write-Log -Message "[$domainIndex/$totalDomains] Successfully retrieved credentials from CCP for domain '$($domain.Name)' (Username: $($creds.Username))." -ScriptName $ScriptName -LogPath $LogPath
                 $secPass = ConvertTo-SecureString $creds.Password -AsPlainText -Force
                 $credentialObj = New-Object System.Management.Automation.PSCredential($creds.Username, $secPass)
             }
             catch {
-                Write-Log -Message "Failed to fetch CCP credentials for domain '$($domain.Name)': $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+                Write-Log -Message "[$domainIndex/$totalDomains] Failed to fetch CCP credentials for domain '$($domain.Name)': $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
                 # Skip domain if we can't retrieve credentials
                 continue
             }
+        } else {
+            Write-Log -Message "[$domainIndex/$totalDomains] No credentials configured for domain '$($domain.Name)'. Querying AD using current execution context." -ScriptName $ScriptName -LogPath $LogPath
         }
 
         $domainResult = [System.Collections.Generic.List[object]]::new()
@@ -221,7 +235,10 @@ function Get-SAASecondaryADAccounts {
                 $adParams["Credential"] = $credentialObj
             }
 
+            Write-Log -Message "[$domainIndex/$totalDomains] Sending AD query to server '$($domain.Server)' using filter '$adFilter'..." -ScriptName $ScriptName -LogPath $LogPath
             $adUsers = Get-ADUser @adParams
+            $rawCount = if ($adUsers) { $adUsers.Count } else { 0 }
+            Write-Log -Message "[$domainIndex/$totalDomains] AD query completed. Received $rawCount raw user records from server '$($domain.Server)'. Processing secondary account prefixes..." -ScriptName $ScriptName -LogPath $LogPath
 
             foreach ($user in $adUsers) {
                 # Check exclusion by username pattern
@@ -368,6 +385,7 @@ function Get-SAAPersonalSafes {
                     Creator      = if ($safe.creator.name) { $safe.creator.name } else { $safe.creator }
                 })
             }
+            Write-Log -Message "Safes scanned so far: $($offset + $batch.Count)..." -ScriptName $ScriptName -LogPath $LogPath
             if ($batch.Count -lt $limit) { $hasMore = $false } else { $offset += $limit }
         }
         else { $hasMore = $false }

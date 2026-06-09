@@ -96,7 +96,7 @@
         ]
       },
 
-      "_Comment_Domains": "IsPrimary=true identifies the primary domain (U-prefix accounts). All domains are queried for secondary accounts. PlatformId is per-domain for onboarding.",
+      "_Comment_Domains": "IsPrimary=true identifies the primary domain (U-prefix accounts). All domains are queried for secondary accounts. PlatformId is per-domain for onboarding. Username/Password are optional: if Password is provided and non-blank, it overrides CCP; if Password is blank, it falls back to CCP.",
       "Domains": [
         {
           "Name": "NA",
@@ -116,6 +116,8 @@
           "Server": "nadev-dc.company.com",
           "PlatformId": "WinDomain-NADEV",
           "IsPrimary": false,
+          "Username": "nadev_scan",
+          "Password": "DirectPasswordExample",
           "CCP": {
             "AppId": "CyberArkHealthCheck",
             "Safe": "PAM-AD-NADEV",
@@ -128,6 +130,8 @@
           "Server": "cap-dc.company.com",
           "PlatformId": "WinDomain-CAP",
           "IsPrimary": false,
+          "Username": "cap_scan",
+          "Password": "",
           "CCP": {
             "AppId": "CyberArkHealthCheck",
             "Safe": "PAM-AD-CAP",

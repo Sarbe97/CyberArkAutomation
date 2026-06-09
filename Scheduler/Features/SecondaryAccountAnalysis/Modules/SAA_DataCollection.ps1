@@ -59,9 +59,19 @@ function Get-SAAPrimaryADUsers {
         $adFilter = "SamAccountName -like '$prefix*'"
     }
 
-    # Fetch domain-specific credentials from CCP if configured
+    # Fetch domain-specific credentials
     $credentialObj = $null
-    if ($primaryDomain.CCP) {
+    $hasDirectPassword = $primaryDomain.PSObject.Properties['Password'] -and -not [string]::IsNullOrWhiteSpace($primaryDomain.Password)
+
+    if ($hasDirectPassword) {
+        $username = $primaryDomain.Username
+        if ([string]::IsNullOrWhiteSpace($username)) {
+            Write-Log -Message "Warning: Username is empty for primary domain '$($primaryDomain.Name)' but a direct password was provided." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+        }
+        $secPass = ConvertTo-SecureString $primaryDomain.Password -AsPlainText -Force
+        $credentialObj = New-Object System.Management.Automation.PSCredential($username, $secPass)
+        Write-Log -Message "Using direct credentials for primary domain '$($primaryDomain.Name)' (Username: $username)" -ScriptName $ScriptName -LogPath $LogPath
+    } elseif ($primaryDomain.CCP) {
         try {
             $domainCCP = [PSCustomObject]@{
                 Url    = $GlobalCCPUrl
@@ -160,9 +170,19 @@ function Get-SAASecondaryADAccounts {
 
         Write-Log -Message "Querying domain '$($domain.Name)' ($($domain.FQDN)) for secondary accounts (prefixes: $($Prefixes -join ', '))..." -ScriptName $ScriptName -LogPath $LogPath
 
-        # Fetch domain-specific credentials from CCP if configured
+        # Fetch domain-specific credentials
         $credentialObj = $null
-        if ($domain.CCP) {
+        $hasDirectPassword = $domain.PSObject.Properties['Password'] -and -not [string]::IsNullOrWhiteSpace($domain.Password)
+
+        if ($hasDirectPassword) {
+            $username = $domain.Username
+            if ([string]::IsNullOrWhiteSpace($username)) {
+                Write-Log -Message "Warning: Username is empty for domain '$($domain.Name)' but a direct password was provided." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+            }
+            $secPass = ConvertTo-SecureString $domain.Password -AsPlainText -Force
+            $credentialObj = New-Object System.Management.Automation.PSCredential($username, $secPass)
+            Write-Log -Message "Using direct credentials for domain '$($domain.Name)' (Username: $username)" -ScriptName $ScriptName -LogPath $LogPath
+        } elseif ($domain.CCP) {
             try {
                 $domainCCP = [PSCustomObject]@{
                     Url    = $GlobalCCPUrl

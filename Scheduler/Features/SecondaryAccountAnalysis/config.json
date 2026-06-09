@@ -104,6 +104,8 @@
           "Server": "na-dc.company.com",
           "PlatformId": "WinDomain-NA",
           "IsPrimary": true,
+          "Username": "",
+          "Password": "",
           "CCP": {
             "AppId": "CyberArkHealthCheck",
             "Safe": "PAM-AD-NA",
@@ -144,6 +146,8 @@
           "Server": "ni-dc.company.com",
           "PlatformId": "WinDomain-NI",
           "IsPrimary": false,
+          "Username": "",
+          "Password": "",
           "CCP": {
             "AppId": "CyberArkHealthCheck",
             "Safe": "PAM-AD-NI",

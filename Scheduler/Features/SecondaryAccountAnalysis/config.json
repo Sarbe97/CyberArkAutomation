@@ -14,6 +14,7 @@
 
       "SecondaryAccount": {
         "_Comment": "Prefix list is checked with -like 'PREFIX*' against SamAccountName",
+        "Pattern": "^[A-Za-z]\\d{6}$",
         "Prefixes": [ "A", "I", "M", "S", "W" ],
         "EmployeeNumberCapture": "(\\d{6})$"
       },

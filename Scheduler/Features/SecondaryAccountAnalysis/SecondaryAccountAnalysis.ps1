@@ -159,6 +159,7 @@ try {
     $secondaryADAccounts = Get-SAASecondaryADAccounts `
         -Domains        $cfgDomains `
         -Prefixes       $cfgSecondary.Prefixes `
+        -Pattern        $cfgSecondary.Pattern `
         -EmpNbrCapture  $cfgSecondary.EmployeeNumberCapture `
         -Exclusions     $cfgExclusions `
         -CacheDir       $ExportDir `

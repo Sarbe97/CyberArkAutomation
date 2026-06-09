@@ -166,13 +166,14 @@ function Get-SAAPrimaryADUsers {
 # ---------------------------------------------------------------------------
 # Get-SAASecondaryADAccounts
 # Queries ALL configured domains for secondary accounts matching any of the
-# configured prefixes (e.g. AIMSW). Captures the mail attribute.
+# configured prefixes. Captures the mail attribute.
 # Cache file per domain: RawCache_ADAccounts_<DomainName>_<TodayStr>.csv
 # ---------------------------------------------------------------------------
 function Get-SAASecondaryADAccounts {
     param (
         [Parameter(Mandatory=$true)] [array]  $Domains,
         [Parameter(Mandatory=$true)] [array]  $Prefixes,
+        [Parameter(Mandatory=$false)][string] $Pattern,
         [Parameter(Mandatory=$true)] [string] $EmpNbrCapture,
         [Parameter(Mandatory=$true)] [PSCustomObject] $Exclusions,
         [Parameter(Mandatory=$true)] [string] $CacheDir,
@@ -183,23 +184,6 @@ function Get-SAASecondaryADAccounts {
         [Parameter(Mandatory=$true)] [bool]   $ManualLogin
     )
 
-    # If "AIMSW" is passed as a prefix, expand it to individual characters A, I, M, S, W
-    $expandedPrefixes = [System.Collections.Generic.List[string]]::new()
-    $expandedCount = 0
-    foreach ($prefix in $Prefixes) {
-        if ($prefix -ieq "AIMSW") {
-            foreach ($char in "AIMSW".ToCharArray()) {
-                $expandedPrefixes.Add([string]$char)
-            }
-            $expandedCount++
-        } else {
-            $expandedPrefixes.Add($prefix)
-        }
-    }
-    if ($expandedCount -gt 0) {
-        $Prefixes = $expandedPrefixes.ToArray()
-        Write-Log -Message "Expanded 'AIMSW' prefix to individual character prefixes: $($Prefixes -join ', ')" -ScriptName $ScriptName -LogPath $LogPath
-    }
 
     $allAccounts = [System.Collections.Generic.List[object]]::new()
     $totalDomains = $Domains.Count
@@ -298,14 +282,17 @@ function Get-SAASecondaryADAccounts {
                 if ($shouldExclude) { continue }
 
                 # Check if username starts with any configured prefix
-                $matchedPrefix = $null
+                $matchedPrefix = $false
                 foreach ($prefix in $Prefixes) {
-                    if ($user.SamAccountName -like "$prefix*") {
-                        $matchedPrefix = $prefix
+                    if ($user.SamAccountName.StartsWith($prefix, [System.StringComparison]::InvariantCultureIgnoreCase)) {
+                        $matchedPrefix = $true
                         break
                     }
                 }
                 if (-not $matchedPrefix) { continue }
+                
+                # Check strict regex pattern if provided
+                if ($Pattern -and ($user.SamAccountName -notmatch $Pattern)) { continue }
 
                 $empNbr = if ($user.SamAccountName -match $EmpNbrCapture) { $Matches[1] } else { "" }
 

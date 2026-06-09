@@ -107,9 +107,11 @@ Write-Log -Message "Safe naming pattern: $($cfgSafe.NamingPattern)" -ScriptName 
 # ============================================================
 # Cache file paths (daily, in ExportDir)
 # ============================================================
-$cacheUsers      = Join-Path $ExportDir "RawCache_CyberArkUsers_$TodayStr.csv"
-$cacheSafes      = Join-Path $ExportDir "RawCache_PersonalSafes_$TodayStr.csv"
-$cacheOnboarded  = Join-Path $ExportDir "RawCache_OnboardedAccounts_$TodayStr.csv"
+$cacheUsers        = Join-Path $ExportDir "RawCache_CyberArkUsers_$TodayStr.csv"
+$cacheAllSafes     = Join-Path $ExportDir "RawCache_AllSafes_$TodayStr.csv"
+$cacheSafes        = Join-Path $ExportDir "RawCache_PersonalSafes_$TodayStr.csv"
+$cacheOnboarded    = Join-Path $ExportDir "RawCache_OnboardedAccounts_$TodayStr.csv"
+$cacheGroupMembers = Join-Path $ExportDir "RawCache_GroupMembers_$TodayStr.csv"
 
 # Output file paths (timestamped)
 $analysisFile    = Join-Path $ExportDir "SAA_AnalysisReport_$Timestamp.csv"
@@ -179,6 +181,7 @@ try {
         -BaseUrl            $BaseUrl `
         -NamingPatternRegex $cfgSafe.NamingPatternRegex `
         -CachePath          $cacheSafes `
+        -RawCachePath       $cacheAllSafes `
         -ScriptName         $ScriptName `
         -LogPath            $LogPath
 
@@ -193,6 +196,16 @@ try {
         -LogPath            $LogPath
 
     Write-Log -Message "Onboarded accounts in personal safes: $($onboardedAccounts.Count)" -ScriptName $ScriptName -LogPath $LogPath
+
+    # 1f. CyberArk group members (required group for onboarding eligibility)
+    $groupMemberSet = Get-SAAGroupMemberSet `
+        -BaseUrl    $BaseUrl `
+        -GroupName  $requiredGroup `
+        -CachePath  $cacheGroupMembers `
+        -ScriptName $ScriptName `
+        -LogPath    $LogPath
+
+    Write-Log -Message "Group '$requiredGroup' members collected: $($groupMemberSet.Count)" -ScriptName $ScriptName -LogPath $LogPath
 
     if ($effectiveMode -eq "Discovery") {
         Write-Log -Message "Mode=Discovery. Raw data collected and cached. Exiting after Phase 1." -ScriptName $ScriptName -LogPath $LogPath
@@ -225,12 +238,7 @@ try {
     foreach ($u in $cyberArkUsers) { [void]$cyberArkUserSet.Add($u.Username) }
     Write-Log -Message "CyberArk user set: $($cyberArkUserSet.Count) usernames" -ScriptName $ScriptName -LogPath $LogPath
 
-    # Build: kapamprodusers group member set (live — not cached)
-    $groupMemberSet = Get-SAAGroupMemberSet `
-        -BaseUrl    $BaseUrl `
-        -GroupName  $requiredGroup `
-        -ScriptName $ScriptName `
-        -LogPath    $LogPath
+    # Build: group member set (already fetched and cached in Phase 1)
 
     # Build: existing safe name set (case-insensitive)
     $safeSet = [System.Collections.Generic.HashSet[string]]::new(

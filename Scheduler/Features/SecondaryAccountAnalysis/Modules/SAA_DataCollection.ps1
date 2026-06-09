@@ -32,7 +32,8 @@ function Export-CsvNoBom {
     begin   { $rows = [System.Collections.Generic.List[object]]::new() }
     process { $rows.Add($InputObject) }
     end {
-        $csvLines = $rows | ConvertTo-Csv -NoTypeInformation
+        # ConvertTo-Csv returns $null on an empty collection; guard before WriteAllLines
+        $csvLines = if ($rows.Count -gt 0) { $rows | ConvertTo-Csv -NoTypeInformation } else { @() }
         [System.IO.File]::WriteAllLines($Path, $csvLines, [System.Text.UTF8Encoding]::new($false))
     }
 }
@@ -395,16 +396,20 @@ function Get-SAACyberArkUsers {
 
 # ---------------------------------------------------------------------------
 # Get-SAAPersonalSafes
-# Fetches all CyberArk safes and filters by the naming pattern regex.
-# Cache file: RawCache_PersonalSafes_<TodayStr>.csv
+# Fetches ALL CyberArk safes, saves the raw set to $RawCachePath (if provided),
+# then filters by the naming pattern regex and saves matches to $CachePath.
+# Cache files:
+#   RawCache_AllSafes_<TodayStr>.csv      — every safe returned by the API
+#   RawCache_PersonalSafes_<TodayStr>.csv — only safes matching the pattern
 # ---------------------------------------------------------------------------
 function Get-SAAPersonalSafes {
     param (
-        [Parameter(Mandatory=$true)] [string] $BaseUrl,
-        [Parameter(Mandatory=$true)] [string] $NamingPatternRegex,
-        [Parameter(Mandatory=$true)] [string] $CachePath,
-        [Parameter(Mandatory=$true)] [string] $ScriptName,
-        [Parameter(Mandatory=$true)] [string] $LogPath
+        [Parameter(Mandatory=$true)]  [string] $BaseUrl,
+        [Parameter(Mandatory=$true)]  [string] $NamingPatternRegex,
+        [Parameter(Mandatory=$true)]  [string] $CachePath,
+        [Parameter(Mandatory=$true)]  [string] $ScriptName,
+        [Parameter(Mandatory=$true)]  [string] $LogPath,
+        [Parameter(Mandatory=$false)] [string] $RawCachePath = ""
     )
 
     if (Test-Path $CachePath) {
@@ -412,16 +417,17 @@ function Get-SAAPersonalSafes {
         return @(Import-Csv $CachePath)
     }
 
-    Write-Log -Message "Fetching CyberArk safes (pattern: $NamingPatternRegex)..." -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "Fetching ALL CyberArk safes (will filter for pattern '$NamingPatternRegex' after)..." -ScriptName $ScriptName -LogPath $LogPath
 
-    $result    = [System.Collections.Generic.List[object]]::new()
-    $seenSafes = @{}
+    # --- Step 1: Collect ALL safes from the API ---
+    $allRaw    = [System.Collections.Generic.List[object]]::new()
+    $seenNames = @{}
     $offset    = 0
     $limit     = 500
     $hasMore   = $true
 
     while ($hasMore) {
-        Write-Progress -Id 40 -Activity "CyberArk Personal Safes" -Status "Scanning safes at offset $offset (matched so far: $($result.Count))..." -PercentComplete -1
+        Write-Progress -Id 40 -Activity "CyberArk Safes" -Status "Fetching safes at offset $offset (collected: $($allRaw.Count))..." -PercentComplete -1
         $uri   = "$BaseUrl/PasswordVault/api/Safes?limit=$limit&offset=$offset"
         $resp  = Invoke-CyberArkApi -Uri $uri -TimeoutSec 120
         $batch = if ($resp.value) { $resp.value } elseif ($resp.Safes) { $resp.Safes } else { @() }
@@ -429,27 +435,43 @@ function Get-SAAPersonalSafes {
         if ($batch.Count -gt 0) {
             foreach ($safe in $batch) {
                 $safeName = if ($safe.safeName) { $safe.safeName } else { $safe.SafeName }
-                if (-not $safeName -or $seenSafes.ContainsKey($safeName)) { continue }
-                if ($safeName -notmatch $NamingPatternRegex) { continue }
-
-                $seenSafes[$safeName] = $true
-                $result.Add([PSCustomObject]@{
+                if (-not $safeName -or $seenNames.ContainsKey($safeName)) { continue }
+                $seenNames[$safeName] = $true
+                $allRaw.Add([PSCustomObject]@{
                     SafeName     = $safeName
                     Description  = $safe.description
                     CreationTime = $safe.creationTime
-                    Creator      = if ($safe.creator.name) { $safe.creator.name } else { $safe.creator }
+                    Creator      = if ($safe.creator.name) { $safe.creator.name } else { [string]$safe.creator }
                 })
             }
-            Write-Log -Message "Safes scanned so far: $($offset + $batch.Count)..." -ScriptName $ScriptName -LogPath $LogPath
+            Write-Log -Message "Safes fetched so far: $($offset + $batch.Count)..." -ScriptName $ScriptName -LogPath $LogPath
             if ($batch.Count -lt $limit) { $hasMore = $false } else { $offset += $limit }
         }
         else { $hasMore = $false }
     }
 
-    Write-Progress -Id 40 -Activity "CyberArk Personal Safes" -Completed
-    Write-Log -Message "Personal safes matching pattern: $($result.Count)" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Progress -Id 40 -Activity "CyberArk Safes" -Completed
+    Write-Log -Message "Total safes fetched from API: $($allRaw.Count)" -ScriptName $ScriptName -LogPath $LogPath
+
+    # --- Step 2: Save raw (unfiltered) safe list ---
+    if ($RawCachePath) {
+        $allRaw | Export-CsvNoBom -Path $RawCachePath
+        Write-Log -Message "All safes (raw) cached: $RawCachePath" -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    # --- Step 3: Filter for personal safes matching the naming pattern ---
+    $result = [System.Collections.Generic.List[object]]::new()
+    foreach ($row in $allRaw) {
+        if ($row.SafeName -match $NamingPatternRegex) {
+            $result.Add($row)
+        }
+    }
+    Write-Log -Message "Personal safes matching pattern '$NamingPatternRegex': $($result.Count) of $($allRaw.Count)" -ScriptName $ScriptName -LogPath $LogPath
+
+    # --- Step 4: Save filtered personal-safe list ---
     $result | Export-CsvNoBom -Path $CachePath
     Write-Log -Message "Personal safes cached: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
+
     return $result.ToArray()
 }
 
@@ -514,21 +536,35 @@ function Get-SAAOnboardedAccounts {
 # Get-SAAGroupMemberSet
 # Returns a case-insensitive HashSet of usernames who are members of the
 # specified CyberArk group.
-# NOT cached — group membership can change between runs.
+# Cache file (optional): RawCache_GroupMembers_<TodayStr>.csv
+#   If the cache file exists for today, the HashSet is rebuilt from it.
+#   Otherwise the API is queried and the result is saved to the cache.
 # ---------------------------------------------------------------------------
 function Get-SAAGroupMemberSet {
     param (
-        [Parameter(Mandatory=$true)] [string] $BaseUrl,
-        [Parameter(Mandatory=$true)] [string] $GroupName,
-        [Parameter(Mandatory=$true)] [string] $ScriptName,
-        [Parameter(Mandatory=$true)] [string] $LogPath
+        [Parameter(Mandatory=$true)]  [string] $BaseUrl,
+        [Parameter(Mandatory=$true)]  [string] $GroupName,
+        [Parameter(Mandatory=$true)]  [string] $ScriptName,
+        [Parameter(Mandatory=$true)]  [string] $LogPath,
+        [Parameter(Mandatory=$false)] [string] $CachePath = ""
     )
-
-    Write-Log -Message "Fetching members of CyberArk group: '$GroupName'..." -ScriptName $ScriptName -LogPath $LogPath
 
     $memberSet = [System.Collections.Generic.HashSet[string]]::new(
         [System.StringComparer]::OrdinalIgnoreCase
     )
+
+    # --- Load from cache if available ---
+    if ($CachePath -and (Test-Path $CachePath)) {
+        Write-Log -Message "Loading group members for '$GroupName' from cache: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
+        $cached = @(Import-Csv $CachePath)
+        foreach ($row in $cached) {
+            if ($row.Username) { [void]$memberSet.Add($row.Username) }
+        }
+        Write-Log -Message "Group '$GroupName' loaded from cache: $($memberSet.Count) members." -ScriptName $ScriptName -LogPath $LogPath
+        return $memberSet
+    }
+
+    Write-Log -Message "Fetching members of CyberArk group: '$GroupName'..." -ScriptName $ScriptName -LogPath $LogPath
 
     try {
         # Step 1: Find the group by name
@@ -558,13 +594,23 @@ function Get-SAAGroupMemberSet {
                     elseif ($membResp.Members) { $membResp.Members } `
                     else { @() }
 
+        $memberRows = [System.Collections.Generic.List[object]]::new()
         foreach ($m in $members) {
             $username = if ($m.username) { $m.username } elseif ($m.UserName) { $m.UserName } else { "" }
-            if ($username) { [void]$memberSet.Add($username) }
+            if ($username) {
+                [void]$memberSet.Add($username)
+                $memberRows.Add([PSCustomObject]@{ Username = $username })
+            }
         }
 
         Write-Progress -Id 60 -Activity "CyberArk Group Members" -Completed
         Write-Log -Message "Group '$GroupName' has $($memberSet.Count) members." -ScriptName $ScriptName -LogPath $LogPath
+
+        # --- Save to cache ---
+        if ($CachePath) {
+            $memberRows | Export-CsvNoBom -Path $CachePath
+            Write-Log -Message "Group members cached: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
+        }
     }
     catch {
         Write-Progress -Id 60 -Activity "CyberArk Group Members" -Completed

@@ -546,17 +546,7 @@ try {
             }
         }
 
-        # Step C: Send user success notification if everything succeeded
-        if ($overallSuccess -and $cfgNotif.UseADMailAttribute) {
-            Send-SAAUserSuccessNotification `
-                -Tokens           $tokens `
-                -UserEmail        $plan.PrimaryEmail `
-                -GlobalEmailConfig $config.Email `
-                -TemplatesPath    $templatesPath `
-                -ScriptName       $ScriptName `
-                -LogPath          $LogPath `
-                -SimulationMode   $SimulationMode
-        }
+
 
         # Record result
         $onboardingResults.Add([PSCustomObject]@{
@@ -576,6 +566,57 @@ try {
         $succeeded = ($onboardingResults | Where-Object { $_.Success }).Count
         $failed    = ($onboardingResults | Where-Object { -not $_.Success }).Count
         Write-Log -Message "Onboarding results saved: $onboardingFile (Success: $succeeded, Failed: $failed)" -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    # ==========================================================
+    # PHASE 3B — USER SUCCESS NOTIFICATIONS
+    # Group successful onboardings by primary user and send one email per user
+    # ==========================================================
+    if ($cfgNotif.UseADMailAttribute) {
+        Write-Log -Message "========== PHASE 3B: USER SUCCESS NOTIFICATIONS ==========" -ScriptName $ScriptName -LogPath $LogPath
+        
+        $successfulOnboards = $onboardingResults | Where-Object { $_.Success }
+        $groupedByUser = $successfulOnboards | Group-Object -Property PrimaryAccount
+        
+        Write-Log -Message "Found $($groupedByUser.Count) users who had accounts successfully provisioned." -ScriptName $ScriptName -LogPath $LogPath
+        
+        foreach ($group in $groupedByUser) {
+            $primaryAccount = $group.Name
+            $accounts = $group.Group
+            
+            # The safe is the same for all accounts of a primary user
+            $safeName = $accounts[0].SafeName
+            $domain = $accounts[0].Domain
+            
+            # Find the primary email from the original plan
+            $planMatch = $onboardingPlan | Where-Object { $_.PrimaryAccount -eq $primaryAccount } | Select-Object -First 1
+            $primaryEmail = if ($planMatch) { $planMatch.PrimaryEmail } else { "" }
+            
+            # Generate the HTML list of onboarded accounts
+            $accountListHtml = "<ul style='margin: 0; padding-left: 20px;'>"
+            foreach ($acc in $accounts) {
+                $accountListHtml += "<li>$($acc.SecondaryAccount)</li>"
+            }
+            $accountListHtml += "</ul>"
+            
+            $tokens = @{
+                PrimaryAccount        = $primaryAccount
+                Domain                = $domain
+                SafeName              = $safeName
+                OnboardedAccountsList = $accountListHtml
+                GeneratedDate         = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                SecondaryAccount      = "Multiple" # Fallback log message token
+            }
+            
+            Send-SAAUserSuccessNotification `
+                -Tokens           $tokens `
+                -UserEmail        $primaryEmail `
+                -GlobalEmailConfig $config.Email `
+                -TemplatesPath    $templatesPath `
+                -ScriptName       $ScriptName `
+                -LogPath          $LogPath `
+                -SimulationMode   $SimulationMode
+        }
     }
 
     # ==========================================================
@@ -632,6 +673,7 @@ try {
             -Tokens              $summaryTokens `
             -PlannedActionsFile  $plannedFile `
             -AnalysisReportFile  $analysisFile `
+            -OnboardingResultsFile $onboardingFile `
             -SkippedAccountsFile $skippedAccountsFile `
             -MissingGroupFile    $missingGroupFile `
             -GlobalEmailConfig   $config.Email `

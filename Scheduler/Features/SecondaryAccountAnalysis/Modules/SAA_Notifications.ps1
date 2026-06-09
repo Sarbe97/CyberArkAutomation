@@ -87,6 +87,7 @@ function Send-SAARunSummary {
         [Parameter(Mandatory=$true)] [hashtable]      $Tokens,
         [Parameter(Mandatory=$true)] [string]          $PlannedActionsFile,
         [Parameter(Mandatory=$true)] [string]          $AnalysisReportFile,
+        [Parameter(Mandatory=$false)][string]          $OnboardingResultsFile,
         [Parameter(Mandatory=$false)][string]          $SkippedAccountsFile,
         [Parameter(Mandatory=$false)][string]          $MissingGroupFile,
         [Parameter(Mandatory=$true)] [PSCustomObject]  $GlobalEmailConfig,
@@ -103,7 +104,7 @@ function Send-SAARunSummary {
         $subject  = "CyberArk SAA: $modeStr Run Complete - $(Get-Date -Format 'yyyy-MM-dd')"
         $emailCfg = Get-SAAEmailConfig -GlobalEmailConfig $GlobalEmailConfig -To $AdminTo -CC $AdminCC
 
-        $attachments = @($PlannedActionsFile, $AnalysisReportFile, $SkippedAccountsFile, $MissingGroupFile) | Where-Object { $_ -and (Test-Path $_) }
+        $attachments = @($PlannedActionsFile, $AnalysisReportFile, $OnboardingResultsFile, $SkippedAccountsFile, $MissingGroupFile) | Where-Object { $_ -and (Test-Path $_) }
 
         Send-SchedulerEmailWithAttachment -Subject $subject -Body $body -EmailConfig $emailCfg `
             -Attachments $attachments -IsHtml `

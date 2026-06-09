@@ -338,8 +338,8 @@ try {
             { -not $hasPrimary        } { "MissingPrimary";       break }
             { -not $primaryEnabled    } { "PrimaryDisabled";      break }
             { -not $secondaryEnabled  } { "SecondaryDisabled";    break }
-            { -not $primaryInGroup    } { "MissingGroupAccess";   break }
             { $isOnboarded            } { "Managed";              break }
+            { -not $primaryInGroup    } { "MissingGroupAccess";   break }
             { $safeExists             } { "NeedsOnboarding";      break }
             default                     { "NeedsAll" }
         }

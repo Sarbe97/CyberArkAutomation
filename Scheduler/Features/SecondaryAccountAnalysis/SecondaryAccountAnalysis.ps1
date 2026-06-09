@@ -355,20 +355,20 @@ try {
             "MissingPrimary"       { $countMissingPrimary++ }
         }
 
-        # Analysis report row
+        # Analysis report row - Ordered by evaluation logic
         $reportRow = [PSCustomObject]@{
-            PrimaryAccount      = $primaryUsername
-            SecondaryAccount    = $secondary.Username
-            ShortDomain         = $secondary.Domain
-            Domain              = $secondary.DomainFQDN
             EmployeeNumber      = $empNbr
-            ADEnabled           = $secondary.Enabled
+            PrimaryAccount      = $primaryUsername
             PrimaryEnabled      = $primaryEnabled
-            PrimaryInGroup      = $primaryInGroup
-            PersonalSafeExists  = $safeExists
+            SecondaryAccount    = $secondary.Username
+            ADEnabled           = $secondary.Enabled
             AccountOnboarded    = $isOnboarded
             OnboardedInSafe     = $onboardedIn
+            PrimaryInGroup      = $primaryInGroup
+            PersonalSafeExists  = $safeExists
             ExpectedSafe        = $expectedSafe
+            ShortDomain         = $secondary.Domain
+            Domain              = $secondary.DomainFQDN
             PlatformId          = $secondary.PlatformId
             PrimaryEmail        = $primaryEmail
             Status              = $status

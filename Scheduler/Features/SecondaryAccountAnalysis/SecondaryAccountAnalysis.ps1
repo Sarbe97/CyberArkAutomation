@@ -245,7 +245,7 @@ try {
         $primaryInfoMap = @{}
         foreach ($p in $primaryADUsers) {
             if ($p.EmployeeNbr) {
-                $primaryUserMap[$p.EmployeeNbr] = $p.SamAccountName
+                $primaryUserMap[$p.EmployeeNbr] = $p.Username
                 $primaryInfoMap[$p.EmployeeNbr] = $p
             }
         }
@@ -387,7 +387,6 @@ try {
 
         $phase2Duration = (Get-Date) - $phase2Start
         Write-Log -Message "Phase 2 (Analysis) completed in $([math]::Round($phase2Duration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
-    }
 
         # Export reports
         $analysisReport | Export-CsvNoBom -Path $analysisFile
@@ -411,6 +410,7 @@ try {
             Write-Log -Message "Execution completed (Analysis mode)" -ScriptName $ScriptName -LogPath $LogPath
             exit 0
         }
+    } # End of Phase 1 and 2 conditional block
 
     # ==========================================================
     # PHASE 3 — ONBOARDING & API CALLS

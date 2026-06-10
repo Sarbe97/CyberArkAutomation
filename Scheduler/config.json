@@ -8,9 +8,6 @@
     },
     "Email": {
         "SmtpServer": "smtp.company.com",
-        "From": "cyberark-alerts@company.com",
-        "To": [
-            "pam-ops@company.com"
-        ]
+        "From": "cyberark-alerts@company.com"
     }
 }

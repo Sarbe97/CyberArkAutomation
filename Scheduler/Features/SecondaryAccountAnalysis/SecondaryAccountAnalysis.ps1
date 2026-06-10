@@ -422,7 +422,7 @@ try {
                     $plannedActions.Add([PSCustomObject]@{
                         Sequence        = $seq
                         Action          = "AddMember"
-                        Detail          = "$resolvedMember ($($member.Type)) → $($member.PermissionSet)"
+                        Detail          = "$resolvedMember ($($member.Type)) -> $($member.PermissionSet)"
                         PrimaryAccount  = $primaryUsername
                         SecondaryAccount= $secondary.Username
                         Domain          = $secondary.DomainFQDN
@@ -449,7 +449,7 @@ try {
                 $plannedActions.Add([PSCustomObject]@{
                     Sequence        = $seq
                     Action          = "OnboardAccount"
-                    Detail          = "$($secondary.Username) @ $($secondary.DomainFQDN) → $expectedSafe"
+                    Detail          = "$($secondary.Username) @ $($secondary.DomainFQDN) -> $expectedSafe"
                     PrimaryAccount  = $primaryUsername
                     SecondaryAccount= $secondary.Username
                     Domain          = $secondary.DomainFQDN

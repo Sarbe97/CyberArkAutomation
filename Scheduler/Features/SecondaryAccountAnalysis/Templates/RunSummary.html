@@ -2,113 +2,37 @@
 <html>
 <head>
     <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            background-color: #ffffff;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            overflow: hidden;
-        }
-        .header {
-            background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
-            color: white;
-            padding: 20px 30px;
-        }
-        .header h1 { margin: 0; font-size: 22px; }
-        .header .subtitle { margin-top: 5px; opacity: 0.85; font-size: 13px; }
-        .sim-banner {
-            padding: 10px 30px;
-            font-size: 13px;
-            font-weight: bold;
-        }
-        .sim-banner.Simulation {
-            background-color: #fff3cd;
-            border-bottom: 2px solid #f39c12;
-            color: #7d5a00;
-        }
-        .sim-banner.Onboarding {
-            background-color: #d4edda;
-            border-bottom: 2px solid #28a745;
-            color: #155724;
-        }
-        .content { padding: 30px; }
-        .summary-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 15px;
-            margin-bottom: 25px;
-        }
-        .stat-box {
-            background-color: #f8f9fa;
-            border-radius: 8px;
-            padding: 18px;
-            text-align: center;
-        }
-        .stat-box .number {
-            font-size: 28px;
-            font-weight: bold;
-            color: #1e3a5f;
-        }
-        .stat-box .label {
-            font-size: 12px;
-            color: #666;
-            margin-top: 4px;
-        }
-        .stat-box.planned .number { color: #2e86c1; }
-        .stat-box.safes .number  { color: #27ae60; }
-        .stat-box.alerts .number { color: #e67e22; }
-        .section { margin-top: 25px; }
-        .section h2 {
-            font-size: 16px;
-            color: #333;
-            border-bottom: 2px solid #e0e0e0;
-            padding-bottom: 8px;
-            margin-bottom: 12px;
-        }
-        table { width: 100%; border-collapse: collapse; }
-        th {
-            background-color: #f0f0f0;
-            text-align: left;
-            padding: 9px 12px;
-            font-size: 12px;
-            color: #555;
-            border-bottom: 2px solid #ddd;
-        }
-        td {
-            padding: 9px 12px;
-            font-size: 13px;
-            border-bottom: 1px solid #eee;
-            color: #333;
-        }
-        td.val { font-weight: bold; }
-        .attachment-note {
-            background-color: #eaf4fb;
-            border-left: 4px solid #2e86c1;
-            padding: 15px 20px;
-            border-radius: 0 8px 8px 0;
-            margin-top: 20px;
-        }
-        .attachment-note p { margin: 0; font-size: 13px; color: #1a3f5c; }
-        .footer {
-            background-color: #f8f9fa;
-            padding: 15px 30px;
-            text-align: center;
-            font-size: 12px;
-            color: #888;
-        }
+        body { font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #ddd; }
+        .header { background: #2c3e50; color: #ffffff; padding: 15px 20px; }
+        .header h1 { margin: 0; font-size: 18px; }
+        .header .subtitle { font-size: 12px; color: #bdc3c7; margin-top: 4px; }
+        .sim-banner { padding: 10px 20px; font-weight: bold; font-size: 13px; }
+        .sim-banner.Simulation { background: #fff3cd; color: #856404; border-bottom: 1px solid #ffeeba; }
+        .sim-banner.Onboarding { background: #d4edda; color: #155724; border-bottom: 1px solid #c3e6cb; }
+        .content { padding: 20px; }
+        
+        .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+        .stat-box { background: #f8f9fa; padding: 15px; border: 1px solid #eee; text-align: left; }
+        .stat-box .number { font-size: 24px; font-weight: bold; color: #2c3e50; }
+        .stat-box .label { font-size: 12px; color: #555; margin-top: 5px; }
+
+        h2 { font-size: 15px; border-bottom: 1px solid #ddd; padding-bottom: 5px; color: #333; margin-top: 20px; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+        th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #eee; color: #444; }
+        th { background: #f9f9f9; color: #333; }
+        td.val { font-weight: bold; width: 60px; text-align: right; }
+        
+        .footer { background: #f8f9fa; padding: 15px 20px; font-size: 11px; color: #777; text-align: center; border-top: 1px solid #eee; }
+        .attached { background: #eaf2f8; padding: 10px 15px; font-size: 12px; color: #2980b9; border-left: 3px solid #2980b9; margin-top: 20px; }
+        ul { margin: 5px 0 0 0; padding-left: 20px; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🔬 SecondaryAccountAnalysis — {{ModeTitle}}</h1>
+            <h1>SecondaryAccountAnalysis - {{ModeTitle}}</h1>
             <div class="subtitle">Generated: {{GeneratedDate}}</div>
         </div>
         <div class="sim-banner {{EffectiveMode}}">
@@ -116,68 +40,56 @@
         </div>
         <div class="content">
             <div class="summary-grid">
-                <div class="stat-box planned">
+                <div class="stat-box">
                     <div class="number">{{TotalScanned}}</div>
-                    <div class="label">Secondary Accounts Scanned</div>
+                    <div class="label">Accounts Scanned</div>
                 </div>
-                <div class="stat-box safes">
+                <div class="stat-box">
                     <div class="number">{{PlannedSafes}}</div>
                     <div class="label">{{SafesLabel}}</div>
                 </div>
-                <div class="stat-box planned">
+                <div class="stat-box">
                     <div class="number">{{PlannedOnboards}}</div>
                     <div class="label">{{OnboardsLabel}}</div>
                 </div>
-                <div class="stat-box alerts">
-                    <div class="number">{{PlannedAdminAlerts}}</div>
-                    <div class="label">{{AdminAlertsLabel}}</div>
-                </div>
-                <div class="stat-box alerts">
-                    <div class="number">{{PlannedUserAlerts}}</div>
-                    <div class="label">{{UserAlertsLabel}}</div>
-                </div>
                 <div class="stat-box">
                     <div class="number">{{MissingPrimary}}</div>
-                    <div class="label">No Primary Account Found</div>
+                    <div class="label">No Primary Account</div>
                 </div>
             </div>
 
-            <div class="section">
-                <h2>EPV License Utilization</h2>
-                <table>
-                    <tr><th>Metric</th><th>Count</th><th>Description</th></tr>
-                    <tr><td>Current LDAP EPVUsers</td><td class="val">{{TotalEPVUsers}}</td><td>Total existing EPV users in CyberArk before this run</td></tr>
-                    <tr><td>New Licenses to Consume</td><td class="val" style="color:#e74c3c;">{{NewEPVUsersConsumed}}</td><td>New primary users that will be provisioned as EPVUsers during safe creation</td></tr>
-                </table>
-            </div>
+            <h2>EPV License Utilization</h2>
+            <table>
+                <tr><th>Metric</th><th style="text-align: right;">Count</th></tr>
+                <tr><td>Current LDAP EPVUsers</td><td class="val">{{TotalEPVUsers}}</td></tr>
+                <tr><td>New Licenses to Consume</td><td class="val" style="color:#e74c3c;">{{NewEPVUsersConsumed}}</td></tr>
+            </table>
 
-            <div class="section">
-                <h2>Status Breakdown</h2>
-                <table>
-                    <tr><th>Status</th><th>Count</th><th>Description</th></tr>
-                    <tr><td>Managed</td><td class="val">{{CountManaged}}</td><td>Already fully onboarded</td></tr>
-                    <tr><td>Needs All</td><td class="val">{{CountNeedsAll}}</td><td>Requires safe creation + onboarding</td></tr>
-                    <tr><td>Needs Onboarding</td><td class="val">{{CountNeedsOnboarding}}</td><td>Safe exists, account not yet onboarded</td></tr>
-                    <tr><td>Missing Group Access</td><td class="val">{{CountMissingGroup}}</td><td>Primary not in required AD group</td></tr>
-                    <tr><td>Primary Disabled</td><td class="val">{{CountPrimaryDisabled}}</td><td>Primary account is disabled in AD</td></tr>
-                    <tr><td>Secondary Disabled</td><td class="val">{{CountSecondaryDisabled}}</td><td>Secondary account is disabled in AD</td></tr>
-                    <tr><td>Missing Primary</td><td class="val">{{MissingPrimary}}</td><td>No matching primary U-account in NA domain</td></tr>
-                </table>
-            </div>
+            <h2>Status Breakdown</h2>
+            <table>
+                <tr><th>Status</th><th style="text-align: right;">Count</th></tr>
+                <tr><td>Managed</td><td class="val">{{CountManaged}}</td></tr>
+                <tr><td>Needs All</td><td class="val">{{CountNeedsAll}}</td></tr>
+                <tr><td>Needs Onboarding</td><td class="val">{{CountNeedsOnboarding}}</td></tr>
+                <tr><td>Missing Group Access</td><td class="val">{{CountMissingGroup}}</td></tr>
+                <tr><td>Primary Disabled</td><td class="val">{{CountPrimaryDisabled}}</td></tr>
+                <tr><td>Secondary Disabled</td><td class="val">{{CountSecondaryDisabled}}</td></tr>
+                <tr><td>Missing Primary</td><td class="val">{{MissingPrimary}}</td></tr>
+            </table>
 
-            <div class="attachment-note">
-                <p><strong>📎 Attached Reports:</strong></p>
-                <ul style="margin: 8px 0 0 0; padding-left: 20px; font-size: 13px; color: #1a3f5c;">
-                    <li><strong>PlannedActions.csv</strong> — Full list of actions that would execute in Onboarding mode</li>
-                    <li><strong>OnboardingResults.csv</strong> — Status of executed actions (Execution mode only)</li>
-                    <li><strong>AnalysisReport.csv</strong> — Per-account status across all scanned domains</li>
-                    <li><strong>SkippedAccounts.csv</strong> — Accounts skipped due to missing or disabled primary users</li>
-                    <li><strong>MissingGroupAccess.csv</strong> — Accounts skipped due to missing AD group access</li>
+            <div class="attached">
+                <strong>Attached Reports:</strong>
+                <ul>
+                    <li>PlannedActions.csv</li>
+                    <li>OnboardingResults.csv</li>
+                    <li>AnalysisReport.csv</li>
+                    <li>SkippedAccounts.csv</li>
+                    <li>MissingGroupAccess.csv</li>
                 </ul>
             </div>
         </div>
         <div class="footer">
-            This is an automated report from the CyberArk Scheduler — SecondaryAccountAnalysis. Do not reply to this email.
+            Automated report from CyberArk Scheduler. Do not reply.
         </div>
     </div>
 </body>

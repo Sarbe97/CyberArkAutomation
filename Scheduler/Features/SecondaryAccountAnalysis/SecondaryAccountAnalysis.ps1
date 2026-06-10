@@ -17,11 +17,11 @@ $ConfigPath    = Join-Path $FeatureRoot "config.json"
 # ============================================================
 $TodayStr   = Get-Date -Format "yyyyMMdd"
 $Timestamp  = Get-Date -Format "yyyyMMdd_HHmmss"
-$LogDir     = Join-Path $SchedulerRoot "Logs\SecondaryAccountAnalysis"
+$LogDir     = Join-Path $FeatureRoot "Logs"
 if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null }
 $LogPath    = Join-Path $LogDir "$ScriptName-$TodayStr.log"
 
-$BaseOutputDir = Join-Path $SchedulerRoot "Output\$ScriptName"
+$BaseOutputDir = Join-Path $FeatureRoot "Output"
 $ExportDir     = Join-Path $BaseOutputDir $TodayStr
 if (-not (Test-Path $ExportDir)) { New-Item -ItemType Directory -Path $ExportDir -Force | Out-Null }
 
@@ -135,9 +135,17 @@ $null = Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential `
 try {
 
     $skipPhases1and2 = $false
-    if ($effectiveMode -eq "Onboarding" -and (Test-Path $analysisFile)) {
-        Write-Log -Message "Onboarding mode active and AnalysisReport ($analysisFile) exists. Skipping Phase 1 and Phase 2 to use the manually editable report." -ScriptName $ScriptName -LogPath $LogPath
-        $skipPhases1and2 = $true
+    if ($effectiveMode -eq "Onboarding") {
+        # Find the most recently modified Analysis Report in today's Export folder
+        $latestAnalysis = Get-ChildItem -Path $ExportDir -Filter "SAA_AnalysisReport_*.csv" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        
+        if ($latestAnalysis) {
+            $analysisFile = $latestAnalysis.FullName
+            Write-Log -Message "Onboarding mode active. Found latest AnalysisReport in today's folder: $analysisFile. Skipping Phase 1 and Phase 2." -ScriptName $ScriptName -LogPath $LogPath
+            $skipPhases1and2 = $true
+        } else {
+            Write-Log -Message "Onboarding mode active but no previous AnalysisReport found in today's folder ($ExportDir). Proceeding with full discovery and analysis." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+        }
     }
 
     if (-not $skipPhases1and2) {

@@ -118,15 +118,13 @@
                     </td>
                 </tr>
 
-                <!-- ── DETAIL SECTION ── plain, clean -->
+                <!-- ── SECTION 1: EPV License Utilization ── -->
                 <tr>
-                    <td style="padding:22px 24px 6px 24px;">
-
-                        <!-- EPV License Utilization -->
-                        <p style="margin:0 0 8px 0; font-size:12px; font-weight:bold; color:#444444; text-transform:uppercase; letter-spacing:0.5px;">EPV License Utilization</p>
-                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom:22px;">
+                    <td style="padding:22px 24px 20px 24px; border-bottom:1px solid #e8e8e8;">
+                        <p style="margin:0 0 10px 0; font-size:12px; font-weight:bold; color:#444444; text-transform:uppercase; letter-spacing:0.5px;">EPV License Utilization</p>
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                             <tr>
-                                <td style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; color:#444444;">Current LDAP EPVUsers</td>
+                                <td style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; color:#444444; width:60%;">Current LDAP EPVUsers</td>
                                 <td align="right" style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; font-weight:bold; color:#222222; white-space:nowrap;">{{TotalEPVUsers}}</td>
                             </tr>
                             <tr>
@@ -134,12 +132,16 @@
                                 <td align="right" style="padding:9px 0; font-size:13px; font-weight:bold; color:#e74c3c; white-space:nowrap;">{{NewEPVUsersConsumed}}</td>
                             </tr>
                         </table>
+                    </td>
+                </tr>
 
-                        <!-- Status Breakdown -->
-                        <p style="margin:0 0 8px 0; font-size:12px; font-weight:bold; color:#444444; text-transform:uppercase; letter-spacing:0.5px;">Status Breakdown</p>
-                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom:22px;">
+                <!-- ── SECTION 2: Status Breakdown ── -->
+                <tr>
+                    <td style="padding:22px 24px 20px 24px; border-bottom:1px solid #e8e8e8;">
+                        <p style="margin:0 0 10px 0; font-size:12px; font-weight:bold; color:#444444; text-transform:uppercase; letter-spacing:0.5px;">Status Breakdown</p>
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                             <tr>
-                                <td style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; color:#444444; width:55%;">Managed</td>
+                                <td style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; color:#444444; width:60%;">Managed</td>
                                 <td align="right" style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; font-weight:bold; color:#27ae60; white-space:nowrap;">{{CountManaged}}</td>
                             </tr>
                             <tr>
@@ -167,19 +169,21 @@
                                 <td align="right" style="padding:9px 0; font-size:13px; font-weight:bold; color:#e74c3c; white-space:nowrap;">{{MissingPrimary}}</td>
                             </tr>
                         </table>
+                    </td>
+                </tr>
 
-                        <!-- Attached Reports -->
-                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom:24px;">
+                <!-- ── Attached Reports ── -->
+                <tr>
+                    <td style="padding:20px 24px 24px 24px;">
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                             <tr>
                                 <td style="background-color:#f7f9fb; border:1px solid #dce8f0; border-left:3px solid #3498db; padding:12px 16px;">
                                     <p style="margin:0 0 8px 0; font-size:12px; font-weight:bold; color:#333333;">Attached Reports</p>
-                                    <p style="margin:2px 0; font-size:12px; color:#555555;">&#8250; PlannedActions.csv &nbsp;&nbsp; &#8250; OnboardingResults.csv</p>
-                                    <p style="margin:2px 0; font-size:12px; color:#555555;">&#8250; AnalysisReport.csv &nbsp;&nbsp;&nbsp;&nbsp; &#8250; SkippedAccounts.csv</p>
-                                    <p style="margin:2px 0; font-size:12px; color:#555555;">&#8250; MissingGroupAccess.csv</p>
+                                    <p style="margin:2px 0; font-size:12px; color:#555555;">&#8250; OnboardingResults.csv &nbsp;&nbsp; &#8250; AnalysisReport.csv</p>
+                                    <p style="margin:2px 0; font-size:12px; color:#555555;">&#8250; SkippedAccounts.csv &nbsp;&nbsp;&nbsp;&nbsp; &#8250; MissingGroupAccess.csv</p>
                                 </td>
                             </tr>
                         </table>
-
                     </td>
                 </tr>
 

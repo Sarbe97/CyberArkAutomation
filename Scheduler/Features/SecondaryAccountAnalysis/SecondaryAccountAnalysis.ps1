@@ -328,6 +328,57 @@ try {
             }
             $analysisReport.Add($reportRow)
 
+            if ($status -eq "NeedsAll") {
+                $seq++
+                $plannedActions.Add([PSCustomObject]@{
+                    Sequence        = $seq
+                    Action          = "CreateSafe"
+                    Detail          = "Create $expectedSafe and attach members"
+                    PrimaryAccount  = $primaryUsername
+                    SecondaryAccount= $secondary.Username
+                    Domain          = $secondary.DomainFQDN
+                    Status          = "Planned"
+                    Notes           = ""
+                })
+                $seq++
+                $plannedActions.Add([PSCustomObject]@{
+                    Sequence        = $seq
+                    Action          = "SendAdminAlert_SafeCreated"
+                    Detail          = "Notify admins of safe creation: $expectedSafe"
+                    PrimaryAccount  = $primaryUsername
+                    SecondaryAccount= $secondary.Username
+                    Domain          = $secondary.DomainFQDN
+                    Status          = "Planned"
+                    Notes           = ""
+                })
+            }
+
+            if ($status -in @("NeedsAll", "NeedsOnboarding")) {
+                $seq++
+                $plannedActions.Add([PSCustomObject]@{
+                    Sequence        = $seq
+                    Action          = "OnboardAccount"
+                    Detail          = "$($secondary.Username) @ $($secondary.DomainFQDN) -> $expectedSafe"
+                    PrimaryAccount  = $primaryUsername
+                    SecondaryAccount= $secondary.Username
+                    Domain          = $secondary.DomainFQDN
+                    Status          = "Planned"
+                    Notes           = "Platform: $($secondary.PlatformId)"
+                })
+
+                $seq++
+                $plannedActions.Add([PSCustomObject]@{
+                    Sequence        = $seq
+                    Action          = "SendUserNotification_Success"
+                    Detail          = "Notify $primaryEmail"
+                    PrimaryAccount  = $primaryUsername
+                    SecondaryAccount= $secondary.Username
+                    Domain          = $secondary.DomainFQDN
+                    Status          = "Planned"
+                    Notes           = "User email: $primaryEmail"
+                })
+            }
+
             if ($status -in @("MissingPrimary", "PrimaryDisabled", "SecondaryDisabled")) { $skippedAccountsList.Add($reportRow) }
             if ($status -eq "MissingGroupAccess") { $missingGroupList.Add($reportRow) }
         }
@@ -508,6 +559,23 @@ try {
     # ==========================================================
     if ($effectiveMode -in @("Simulation", "Onboarding") -and $cfgNotif.SendSimulationSummary) {
         Write-Log -Message "========== PHASE 4: RUN SUMMARY EMAIL ==========" -ScriptName $ScriptName -LogPath $LogPath
+
+        # If Phases 1 & 2 were skipped, we don't have the analysis counters in memory.
+        # Recalculate them directly from the CSV that we just ran the onboarding against!
+        if ($skipPhases1and2) {
+            Write-Log -Message "Re-calculating analysis counters from $analysisFile for email summary..." -ScriptName $ScriptName -LogPath $LogPath
+            $csvData = Import-Csv -Path $analysisFile
+            $totalSecondary         = $csvData.Count
+            $countManaged           = ($csvData | Where-Object Status -eq "Managed").Count
+            $countNeedsAll          = ($csvData | Where-Object Status -eq "NeedsAll").Count
+            $countNeedsOnboarding   = ($csvData | Where-Object Status -eq "NeedsOnboarding").Count
+            $countMissingGroup      = ($csvData | Where-Object Status -eq "MissingGroupAccess").Count
+            $countPrimaryDisabled   = ($csvData | Where-Object Status -eq "PrimaryDisabled").Count
+            $countSecondaryDisabled = ($csvData | Where-Object Status -eq "SecondaryDisabled").Count
+            $countMissingPrimary    = ($csvData | Where-Object Status -eq "MissingPrimary").Count
+            $cyberArkUsers          = [System.Collections.Generic.List[object]]::new() # Placeholder
+            $newEpvUsersConsumed    = [System.Collections.Generic.List[object]]::new() # Placeholder
+        }
 
         $plannedSafes    = ($plannedActions | Where-Object { $_.Action -eq "CreateSafe"           }).Count
         $plannedOnboards = ($plannedActions | Where-Object { $_.Action -eq "OnboardAccount"        }).Count

@@ -360,7 +360,6 @@ try {
             Write-Log -Message "Execution completed (Analysis mode)" -ScriptName $ScriptName -LogPath $LogPath
             exit 0
         }
-    } # End of Phase 1 and 2 conditional block
 
     # ==========================================================
     # PHASE 3 — ONBOARDING & API CALLS

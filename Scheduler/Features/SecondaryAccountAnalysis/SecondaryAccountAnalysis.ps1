@@ -575,6 +575,8 @@ try {
             $countMissingPrimary    = ($csvData | Where-Object Status -eq "MissingPrimary").Count
             $cyberArkUsers          = [System.Collections.Generic.List[object]]::new() # Placeholder
             $newEpvUsersConsumed    = [System.Collections.Generic.List[object]]::new() # Placeholder
+        } else {
+            $totalSecondary = $secondaryADAccounts.Count
         }
 
         $plannedSafes    = ($plannedActions | Where-Object { $_.Action -eq "CreateSafe"           }).Count

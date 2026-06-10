@@ -263,10 +263,8 @@ try {
         }
 
         $analysisReport        = [System.Collections.Generic.List[object]]::new()
-        $plannedActions        = [System.Collections.Generic.List[object]]::new()
         $skippedAccountsList   = [System.Collections.Generic.List[object]]::new()
         $missingGroupList      = [System.Collections.Generic.List[object]]::new()
-        $seq = 0
 
         $countManaged         = 0
         $countNeedsAll        = 0
@@ -314,70 +312,23 @@ try {
                 "MissingPrimary"       { $countMissingPrimary++ }
             }
 
+            $inCyberArk = if ($hasPrimary -and $epvUserSet.Contains($primaryUsername)) { "Yes" } else { "No" }
+
             $reportRow = [PSCustomObject]@{
                 EmployeeNumber      = $emp
                 PrimaryAccount      = $primaryUsername
                 PrimaryEmail        = $primaryEmail
                 SecondaryAccount    = $secondary.Username
                 Domain              = $secondary.DomainFQDN
+                ShortDomain         = $secondary.Domain
                 PlatformId          = $secondary.PlatformId
-                Status              = $status
                 ExpectedSafe        = $expectedSafe
                 SafeExists          = $safeExists
                 Onboarded           = $isOnboarded
+                InCyberArk          = $inCyberArk
+                Status              = $status
             }
             $analysisReport.Add($reportRow)
-
-            if ($status -eq "NeedsAll") {
-                $seq++
-                $plannedActions.Add([PSCustomObject]@{
-                    Sequence        = $seq
-                    Action          = "CreateSafe"
-                    Detail          = "Create $expectedSafe and attach members"
-                    PrimaryAccount  = $primaryUsername
-                    SecondaryAccount= $secondary.Username
-                    Domain          = $secondary.DomainFQDN
-                    Status          = "Planned"
-                    Notes           = ""
-                })
-                $seq++
-                $plannedActions.Add([PSCustomObject]@{
-                    Sequence        = $seq
-                    Action          = "SendAdminAlert_SafeCreated"
-                    Detail          = "Notify admins of safe creation: $expectedSafe"
-                    PrimaryAccount  = $primaryUsername
-                    SecondaryAccount= $secondary.Username
-                    Domain          = $secondary.DomainFQDN
-                    Status          = "Planned"
-                    Notes           = ""
-                })
-            }
-
-            if ($status -in @("NeedsAll", "NeedsOnboarding")) {
-                $seq++
-                $plannedActions.Add([PSCustomObject]@{
-                    Sequence        = $seq
-                    Action          = "OnboardAccount"
-                    Detail          = "$($secondary.Username) @ $($secondary.DomainFQDN) -> $expectedSafe"
-                    PrimaryAccount  = $primaryUsername
-                    SecondaryAccount= $secondary.Username
-                    Domain          = $secondary.DomainFQDN
-                    Status          = "Planned"
-                    Notes           = "Platform: $($secondary.PlatformId)"
-                })
-
-                $seq++
-                $plannedActions.Add([PSCustomObject]@{
-                    Sequence        = $seq
-                    Action          = "SendUserNotification_Success"
-                    Detail          = "Notify $primaryEmail"
-                    PrimaryAccount  = $primaryUsername
-                    SecondaryAccount= $secondary.Username
-                    Domain          = $secondary.DomainFQDN
-                    Status          = "Planned"
-                    Notes           = "User email: $primaryEmail"
-                })
-            }
 
             if ($status -in @("MissingPrimary", "PrimaryDisabled", "SecondaryDisabled")) { $skippedAccountsList.Add($reportRow) }
             if ($status -eq "MissingGroupAccess") { $missingGroupList.Add($reportRow) }
@@ -398,11 +349,7 @@ try {
         $missingGroupList | Export-CsvNoBom -Path $missingGroupFile
         Write-Log -Message "Missing group access report saved: $missingGroupFile" -ScriptName $ScriptName -LogPath $LogPath
 
-        # Export planned actions (Simulation and Onboarding modes)
-        if ($plannedActions.Count -gt 0 -and $effectiveMode -in @("Simulation", "Onboarding")) {
-            $plannedActions | Export-Csv -Path $plannedFile -NoTypeInformation -Encoding UTF8
-            Write-Log -Message "Planned actions saved: $plannedFile ($($plannedActions.Count) actions)" -ScriptName $ScriptName -LogPath $LogPath
-        }
+        # No longer exporting PlannedActions.csv
 
         if ($effectiveMode -eq "Analysis") {
             Write-Log -Message "Mode=Analysis. Reports exported. No onboarding or notifications." -ScriptName $ScriptName -LogPath $LogPath
@@ -514,6 +461,8 @@ try {
         
         Write-Log -Message "Found $($groupedByUser.Count) users who had accounts successfully provisioned." -ScriptName $ScriptName -LogPath $LogPath
         
+        $sampleSentToAdmin = $false
+
         foreach ($group in $groupedByUser) {
             $primaryAccount = $group.Name
             $accounts = $group.Group
@@ -526,22 +475,38 @@ try {
             $planMatch = $csvPlan | Where-Object { $_.PrimaryAccount -eq $primaryAccount } | Select-Object -First 1
             $primaryEmail = if ($planMatch) { $planMatch.PrimaryEmail } else { "" }
             
-            # Generate the HTML list of onboarded accounts
-            $accountListHtml = "<ul style='margin: 0; padding-left: 20px;'>"
+            # Generate the HTML table of onboarded accounts
+            $generatedDate = (Get-Date).ToString("yyyy-MM-dd")
+            $accountListHtml = "<table style='border-collapse: collapse; width: 100%; max-width: 600px; margin-top: 10px; margin-bottom: 10px; font-size: 13px;'>"
+            $accountListHtml += "<tr><th style='border: 1px solid #ccc; padding: 6px; background-color: #f2f2f2; text-align: left;'>Secondary Account</th><th style='border: 1px solid #ccc; padding: 6px; background-color: #f2f2f2; text-align: left;'>Domain</th><th style='border: 1px solid #ccc; padding: 6px; background-color: #f2f2f2; text-align: left;'>Safe</th><th style='border: 1px solid #ccc; padding: 6px; background-color: #f2f2f2; text-align: left;'>Onboarding Date</th></tr>"
             foreach ($acc in $accounts) {
-                $accountListHtml += "<li>$($acc.SecondaryAccount)</li>"
+                $accountListHtml += "<tr><td style='border: 1px solid #ccc; padding: 6px;'>$($acc.SecondaryAccount)</td><td style='border: 1px solid #ccc; padding: 6px;'>$($acc.Domain)</td><td style='border: 1px solid #ccc; padding: 6px;'>$($acc.SafeName)</td><td style='border: 1px solid #ccc; padding: 6px;'>$generatedDate</td></tr>"
             }
-            $accountListHtml += "</ul>"
+            $accountListHtml += "</table>"
             
             $tokens = @{
-                PrimaryAccount        = $primaryAccount
-                Domain                = $domain
-                SafeName              = $safeName
-                OnboardedAccountsList = $accountListHtml
-                GeneratedDate         = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-                SecondaryAccount      = "Multiple" # Fallback log message token
+                PrimaryAccount         = $primaryAccount
+                Domain                 = $domain
+                SafeName               = $safeName
+                OnboardedAccountsTable = $accountListHtml
+                GeneratedDate          = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+                SecondaryAccount       = "Multiple" # Fallback log message token
             }
             
+            # Optional: Send one sample email to the Admin during Simulation
+            if ($SimulationMode -and -not $sampleSentToAdmin -and $cfgNotif.AdminTo) {
+                Write-Log -Message "[SIMULATION] Sending one sample user success notification to Admin ($($cfgNotif.AdminTo[0]))" -ScriptName $ScriptName -LogPath $LogPath
+                Send-SAAUserSuccessNotification `
+                    -Tokens           $tokens `
+                    -UserEmail        $cfgNotif.AdminTo[0] `
+                    -GlobalEmailConfig $config.Email `
+                    -TemplatesPath    $templatesPath `
+                    -ScriptName       $ScriptName `
+                    -LogPath          $LogPath `
+                    -SimulationMode   $false # Force it to actually send
+                $sampleSentToAdmin = $true
+            }
+
             Send-SAAUserSuccessNotification `
                 -Tokens           $tokens `
                 -UserEmail        $primaryEmail `
@@ -574,14 +539,17 @@ try {
             $countSecondaryDisabled = ($csvData | Where-Object Status -eq "SecondaryDisabled").Count
             $countMissingPrimary    = ($csvData | Where-Object Status -eq "MissingPrimary").Count
             $cyberArkUsers          = [System.Collections.Generic.List[object]]::new() # Placeholder
-            $newEpvUsersConsumed    = [System.Collections.Generic.List[object]]::new() # Placeholder
         } else {
             $totalSecondary = $secondaryADAccounts.Count
+            $csvData = $analysisReport
         }
 
-        $plannedSafes    = ($plannedActions | Where-Object { $_.Action -eq "CreateSafe"           }).Count
-        $plannedOnboards = ($plannedActions | Where-Object { $_.Action -eq "OnboardAccount"        }).Count
-        $plannedUser     = ($plannedActions | Where-Object { $_.Action -eq "SendUserNotification_Success" }).Count
+        # Calculate EPV users (licenses) consumed
+        $newEpvUsersConsumedCnt = ($csvData | Where-Object { $_.Status -in @("NeedsAll", "NeedsOnboarding") -and $_.InCyberArk -eq "No" } | Select-Object -Property PrimaryAccount -Unique).Count
+
+        $plannedSafes    = $countNeedsAll
+        $plannedOnboards = $countNeedsAll + $countNeedsOnboarding
+        $plannedUser     = $countNeedsAll + $countNeedsOnboarding
 
         $actualSafes     = ($onboardingResults | Where-Object { $_.Success }).Count # Rough estimate if we tracked safes specifically, but usually 1:1 or less
         $actualOnboards  = ($onboardingResults | Where-Object { $_.Success }).Count
@@ -621,7 +589,7 @@ try {
             CountPrimaryDisabled  = $countPrimaryDisabled
             CountSecondaryDisabled = $countSecondaryDisabled
             TotalEPVUsers         = $cyberArkUsers.Count
-            NewEPVUsersConsumed   = $newEpvUsersConsumed.Count
+            NewEPVUsersConsumed   = $newEpvUsersConsumedCnt
             GeneratedDate         = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
         }
 
@@ -629,7 +597,6 @@ try {
 
         Send-SAARunSummary `
             -Tokens              $summaryTokens `
-            -PlannedActionsFile  $plannedFile `
             -AnalysisReportFile  $analysisFile `
             -OnboardingResultsFile $onboardingFile `
             -SkippedAccountsFile $skippedAccountsFile `

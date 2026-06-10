@@ -85,7 +85,6 @@ function Send-SAAUserSuccessNotification {
 function Send-SAARunSummary {
     param (
         [Parameter(Mandatory=$true)] [hashtable]      $Tokens,
-        [Parameter(Mandatory=$true)] [string]          $PlannedActionsFile,
         [Parameter(Mandatory=$true)] [string]          $AnalysisReportFile,
         [Parameter(Mandatory=$false)][string]          $OnboardingResultsFile,
         [Parameter(Mandatory=$false)][string]          $SkippedAccountsFile,

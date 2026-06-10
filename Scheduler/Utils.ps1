@@ -344,6 +344,10 @@ function Send-SchedulerEmail {
             $mailParams.BodyAsHtml = $true
         }
 
+        if ($LogPath) {
+            Write-Log -Message "Attempting to send mail. Server: $($mailParams.SmtpServer), From: $($mailParams.From), To: $($mailParams.To -join ','), Subject: $($mailParams.Subject)" -ScriptName $ScriptName -LogPath $LogPath
+        }
+
         Send-MailMessage @mailParams
 
         if ($LogPath) {
@@ -404,6 +408,11 @@ function Send-SchedulerEmailWithAttachment {
             if ($LogPath) {
                 Write-Log -Message "Attaching $($validAttachments.Count) file(s)" -ScriptName $ScriptName -LogPath $LogPath
             }
+        }
+
+        if ($LogPath) {
+            $attCount = if ($validAttachments) { $validAttachments.Count } else { 0 }
+            Write-Log -Message "Attempting to send mail. Server: $($mailParams.SmtpServer), From: $($mailParams.From), To: $($mailParams.To -join ','), Subject: $($mailParams.Subject), Attachments: $attCount" -ScriptName $ScriptName -LogPath $LogPath
         }
 
         Send-MailMessage @mailParams

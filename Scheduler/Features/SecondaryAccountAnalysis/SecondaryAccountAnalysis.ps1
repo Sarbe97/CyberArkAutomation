@@ -693,6 +693,8 @@ try {
             GeneratedDate         = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
         }
 
+        Write-Log -Message "Summary Email Context prepared. Mode: $effectiveMode. Preparing to send to Admins: $($cfgNotif.AdminTo -join ', ')" -ScriptName $ScriptName -LogPath $LogPath
+
         Send-SAARunSummary `
             -Tokens              $summaryTokens `
             -PlannedActionsFile  $plannedFile `

@@ -134,406 +134,258 @@ $null = Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential `
 
 try {
 
-    # ==========================================================
-    # PHASE 1 — DISCOVERY (all modes)
-    # Collect raw data from AD (all 13 domains) and CyberArk API.
-    # Each dataset is cached per date — re-running on the same day
-    # loads from disk and skips live queries.
-    # ==========================================================
-    Write-Log -Message "========== PHASE 1: DATA COLLECTION & DOMAIN SCAN ==========" -ScriptName $ScriptName -LogPath $LogPath
-    $phase1Start = Get-Date
-
-    # 1a. Primary AD users (NA domain, U-prefix, + mail attribute)
-    $primaryADUsers = Get-SAAPrimaryADUsers `
-        -Domains          $cfgDomains `
-        -PrimaryPattern   $cfgPrimary.Pattern `
-        -EmpNbrCapture    $cfgPrimary.EmployeeNumberCapture `
-        -CacheDir         $ExportDir `
-        -TodayStr         $TodayStr `
-        -ScriptName       $ScriptName `
-        -LogPath          $LogPath `
-        -GlobalCCPUrl     $config.CCP.Url `
-        -ManualLogin      $ManualLogin
-
-    Write-Log -Message "Primary AD users collected: $($primaryADUsers.Count)" -ScriptName $ScriptName -LogPath $LogPath
-
-    # 1b. Secondary AD accounts (all configured domains, secondary prefixes)
-    $secondaryADAccounts = Get-SAASecondaryADAccounts `
-        -Domains        $cfgDomains `
-        -Prefixes       $cfgSecondary.Prefixes `
-        -Pattern        $cfgSecondary.Pattern `
-        -EmpNbrCapture  $cfgSecondary.EmployeeNumberCapture `
-        -Exclusions     $cfgExclusions `
-        -CacheDir       $ExportDir `
-        -TodayStr       $TodayStr `
-        -ScriptName       $ScriptName `
-        -LogPath          $LogPath `
-        -GlobalCCPUrl     $config.CCP.Url `
-        -ManualLogin      $ManualLogin
-
-    Write-Log -Message "Secondary AD accounts collected: $($secondaryADAccounts.Count)" -ScriptName $ScriptName -LogPath $LogPath
-
-    # 1c. CyberArk LDAP users (for access verification)
-    $cyberArkUsers = Get-SAACyberArkUsers `
-        -BaseUrl    $BaseUrl `
-        -CachePath  $cacheUsers `
-        -ScriptName $ScriptName `
-        -LogPath    $LogPath
-
-    Write-Log -Message "CyberArk LDAP users collected: $($cyberArkUsers.Count)" -ScriptName $ScriptName -LogPath $LogPath
-
-    $epvUserSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    foreach ($u in $cyberArkUsers) {
-        if ($u.Username) { [void]$epvUserSet.Add($u.Username) }
+    $skipPhases1and2 = $false
+    if ($effectiveMode -eq "Onboarding" -and (Test-Path $analysisFile)) {
+        Write-Log -Message "Onboarding mode active and AnalysisReport ($analysisFile) exists. Skipping Phase 1 and Phase 2 to use the manually editable report." -ScriptName $ScriptName -LogPath $LogPath
+        $skipPhases1and2 = $true
     }
 
-    # 1d. Existing personal safes (matching naming pattern)
-    $personalSafes = Get-SAAPersonalSafes `
-        -BaseUrl            $BaseUrl `
-        -NamingPatternRegex $cfgSafe.NamingPatternRegex `
-        -CachePath          $cacheSafes `
-        -RawCachePath       $cacheAllSafes `
-        -ScriptName         $ScriptName `
-        -LogPath            $LogPath
+    if (-not $skipPhases1and2) {
+        # ==========================================================
+        # PHASE 1 — DISCOVERY (all modes)
+        # ==========================================================
+        Write-Log -Message "========== PHASE 1: DATA COLLECTION & DOMAIN SCAN ==========" -ScriptName $ScriptName -LogPath $LogPath
+        $phase1Start = Get-Date
 
-    Write-Log -Message "Personal safes in CyberArk: $($personalSafes.Count)" -ScriptName $ScriptName -LogPath $LogPath
+        # 1a. Primary AD users (NA domain, U-prefix, + mail attribute)
+        $primaryADUsers = Get-SAAPrimaryADUsers `
+            -Domains          $cfgDomains `
+            -PrimaryPattern   $cfgPrimary.Pattern `
+            -EmpNbrCapture    $cfgPrimary.EmployeeNumberCapture `
+            -CacheDir         $ExportDir `
+            -TodayStr         $TodayStr `
+            -ScriptName       $ScriptName `
+            -LogPath          $LogPath `
+            -GlobalCCPUrl     $config.CCP.Url `
+            -ManualLogin      $ManualLogin
 
-    # 1e. Accounts already onboarded in personal safes
-    $onboardedAccounts = Get-SAAOnboardedAccounts `
-        -BaseUrl            $BaseUrl `
-        -NamingPatternRegex $cfgSafe.NamingPatternRegex `
-        -CachePath          $cacheOnboarded `
-        -RawCachePath       $cacheAllAccounts `
-        -ScriptName         $ScriptName `
-        -LogPath            $LogPath
+        Write-Log -Message "Primary AD users collected: $($primaryADUsers.Count)" -ScriptName $ScriptName -LogPath $LogPath
 
-    Write-Log -Message "Onboarded accounts in personal safes: $($onboardedAccounts.Count)" -ScriptName $ScriptName -LogPath $LogPath
+        # 1b. Secondary AD accounts (all configured domains, secondary prefixes)
+        $secondaryADAccounts = Get-SAASecondaryADAccounts `
+            -Domains        $cfgDomains `
+            -Prefixes       $cfgSecondary.Prefixes `
+            -Pattern        $cfgSecondary.Pattern `
+            -EmpNbrCapture  $cfgSecondary.EmployeeNumberCapture `
+            -Exclusions     $cfgExclusions `
+            -CacheDir       $ExportDir `
+            -TodayStr       $TodayStr `
+            -ScriptName       $ScriptName `
+            -LogPath          $LogPath `
+            -GlobalCCPUrl     $config.CCP.Url `
+            -ManualLogin      $ManualLogin
 
-    # 1f. Active Directory group members (required group for onboarding eligibility)
-    $groupMemberSet = Get-SAAGroupMemberSet `
-        -Domains      $cfgDomains `
-        -GroupName    $requiredGroup `
-        -CachePath    $cacheGroupMembers `
-        -ScriptName   $ScriptName `
-        -LogPath      $LogPath `
-        -GlobalCCPUrl $config.CCP.Url `
-        -ManualLogin  $ManualLogin
+        Write-Log -Message "Secondary AD accounts collected: $($secondaryADAccounts.Count)" -ScriptName $ScriptName -LogPath $LogPath
 
-    Write-Log -Message "Group '$requiredGroup' members collected: $($groupMemberSet.Count)" -ScriptName $ScriptName -LogPath $LogPath
+        # 1c. CyberArk LDAP users (for access verification)
+        $cyberArkUsers = Get-SAACyberArkUsers `
+            -BaseUrl    $BaseUrl `
+            -CachePath  $cacheUsers `
+            -ScriptName $ScriptName `
+            -LogPath    $LogPath
 
-    $phase1Duration = (Get-Date) - $phase1Start
-    Write-Log -Message "Phase 1 (Discovery) completed in $([math]::Round($phase1Duration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
+        Write-Log -Message "CyberArk LDAP users collected: $($cyberArkUsers.Count)" -ScriptName $ScriptName -LogPath $LogPath
 
-    if ($effectiveMode -eq "Discovery") {
-        Write-Log -Message "Mode=Discovery. Raw data collected and cached. Exiting after Phase 1." -ScriptName $ScriptName -LogPath $LogPath
-        Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
-        Write-Log -Message "Execution completed (Discovery mode)" -ScriptName $ScriptName -LogPath $LogPath
-        exit 0
-    }
-
-    # ==========================================================
-    # PHASE 2 — ANALYSIS
-    # Build lookup structures and correlate secondary accounts
-    # with their primary accounts, CyberArk access, safe status,
-    # and onboarding status.
-    # ==========================================================
-    Write-Log -Message "========== PHASE 2: ANALYSIS & REPORTING ==========" -ScriptName $ScriptName -LogPath $LogPath
-    $phase2Start = Get-Date
-
-    # Build: EmpNbr → Primary AD user {Username, Mail, Enabled}
-    $primaryUserMap = @{}
-    foreach ($u in $primaryADUsers) {
-        if ($u.EmployeeNbr -and -not $primaryUserMap.ContainsKey($u.EmployeeNbr)) {
-            $primaryUserMap[$u.EmployeeNbr] = $u
-        }
-    }
-    Write-Log -Message "Primary user map built: $($primaryUserMap.Count) unique employee numbers" -ScriptName $ScriptName -LogPath $LogPath
-
-    # (CyberArk LDAP user fetch has been removed because AD members are eligible even before first login)
-
-    # Build: group member set (already fetched and cached in Phase 1)
-
-    # Build: existing safe name set (case-insensitive)
-    $safeSet = [System.Collections.Generic.HashSet[string]]::new(
-        [System.StringComparer]::OrdinalIgnoreCase
-    )
-    foreach ($s in $personalSafes) { [void]$safeSet.Add($s.SafeName) }
-
-    # Build: onboarded account lookup "USERNAME|DOMAIN" → SafeName
-    $onboardedMap = @{}
-    foreach ($acc in $onboardedAccounts) {
-        if ($acc.Username -and $acc.Address) {
-            $key = "$($acc.Username.ToUpper())|$($acc.Address.ToUpper())"
-            $onboardedMap[$key] = $acc.SafeName
-        }
-    }
-    Write-Log -Message "Onboarded account lookup map: $($onboardedMap.Count) entries" -ScriptName $ScriptName -LogPath $LogPath
-
-    # ── Analysis loop ──
-    $analysisReport        = [System.Collections.Generic.List[object]]::new()
-    $plannedActions        = [System.Collections.Generic.List[object]]::new()
-    $onboardingPlan        = [System.Collections.Generic.List[object]]::new()  # for Phase 3
-    $skippedAccountsList   = [System.Collections.Generic.List[object]]::new()
-    $missingGroupList      = [System.Collections.Generic.List[object]]::new()
-
-    $seq = 0
-
-    # Status counters for simulation summary email
-    $countManaged         = 0
-    $countNeedsAll        = 0
-    $countNeedsOnboarding = 0
-    $countMissingGroup    = 0
-    $countPrimaryDisabled = 0
-    $countSecondaryDisabled = 0
-    $countMissingPrimary  = 0
-
-    $newEpvUsersConsumed = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-
-    $totalSecondary = $secondaryADAccounts.Count
-    $processed      = 0
-
-    foreach ($secondary in $secondaryADAccounts) {
-        $processed++
-        if ($processed % 100 -eq 0) {
-            Write-Log -Message "Analysing accounts: $processed / $totalSecondary..." -ScriptName $ScriptName -LogPath $LogPath
+        $epvUserSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($u in $cyberArkUsers) {
+            if ($u.Username) { [void]$epvUserSet.Add($u.Username) }
         }
 
-        $empNbr = $secondary.EmployeeNbr
+        # 1d. Existing personal safes (matching naming pattern)
+        $personalSafes = Get-SAAPersonalSafes `
+            -BaseUrl            $BaseUrl `
+            -NamingPatternRegex $cfgSafe.NamingPatternRegex `
+            -CachePath          $cacheSafes `
+            -RawCachePath       $cacheAllSafes `
+            -ScriptName         $ScriptName `
+            -LogPath            $LogPath
 
-        # Resolve primary account (U-prefix, NA domain only)
-        $primaryADUser   = if ($empNbr) { $primaryUserMap[$empNbr] } else { $null }
-        $primaryUsername = if ($primaryADUser) { $primaryADUser.Username } else { "" }
-        $primaryEmail    = if ($primaryADUser) { $primaryADUser.Mail     } else { "" }
+        Write-Log -Message "Personal safes in CyberArk: $($personalSafes.Count)" -ScriptName $ScriptName -LogPath $LogPath
 
-        # Fallback email construction if AD mail attribute is empty
-        if ([string]::IsNullOrWhiteSpace($primaryEmail) -and $primaryUsername -and $cfgNotif.UserEmailFallbackDomain) {
-            $primaryEmail = "$primaryUsername@$($cfgNotif.UserEmailFallbackDomain)"
+        # 1e. Accounts already onboarded in personal safes
+        $onboardedAccounts = Get-SAAOnboardedAccounts `
+            -BaseUrl            $BaseUrl `
+            -NamingPatternRegex $cfgSafe.NamingPatternRegex `
+            -CachePath          $cacheOnboarded `
+            -RawCachePath       $cacheAllAccounts `
+            -ScriptName         $ScriptName `
+            -LogPath            $LogPath
+
+        Write-Log -Message "Onboarded accounts in personal safes: $($onboardedAccounts.Count)" -ScriptName $ScriptName -LogPath $LogPath
+
+        # 1f. Active Directory group members (required group for onboarding eligibility)
+        $groupMemberSet = Get-SAAGroupMemberSet `
+            -Domains      $cfgDomains `
+            -GroupName    $requiredGroup `
+            -CachePath    $cacheGroupMembers `
+            -ScriptName   $ScriptName `
+            -LogPath      $LogPath `
+            -GlobalCCPUrl $config.CCP.Url `
+            -ManualLogin  $ManualLogin
+
+        Write-Log -Message "Group '$requiredGroup' members collected: $($groupMemberSet.Count)" -ScriptName $ScriptName -LogPath $LogPath
+
+        $phase1Duration = (Get-Date) - $phase1Start
+        Write-Log -Message "Phase 1 (Discovery) completed in $([math]::Round($phase1Duration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
+
+        if ($effectiveMode -eq "Discovery") {
+            Write-Log -Message "Mode=Discovery. Raw data collected and cached. Exiting after Phase 1." -ScriptName $ScriptName -LogPath $LogPath
+            Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
+            Write-Log -Message "Execution completed (Discovery mode)" -ScriptName $ScriptName -LogPath $LogPath
+            exit 0
         }
 
-        $hasPrimary         = $null -ne $primaryADUser
-        $primaryEnabled     = if ($hasPrimary) { [string]$primaryADUser.Enabled -eq 'True' } else { $false }
-        $secondaryEnabled   = [string]$secondary.Enabled -eq 'True'
-        $primaryInGroup     = $hasPrimary -and $groupMemberSet.Contains($primaryUsername)
+        # ==========================================================
+        # PHASE 2 — ANALYSIS
+        # ==========================================================
+        Write-Log -Message "========== PHASE 2: ANALYSIS & REPORTING ==========" -ScriptName $ScriptName -LogPath $LogPath
+        $phase2Start = Get-Date
 
-        # Resolve expected safe name for this user
-        $tokenMap = @{
-            PrimaryAccount   = $primaryUsername
-            SecondaryAccount = $secondary.Username
-            EmployeeNumber   = $empNbr
-            Domain           = $secondary.DomainFQDN
-            GeneratedDate    = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-            RequiredGroup    = $requiredGroup
-            SafeName         = ""
-        }
-        $expectedSafe = if ($hasPrimary -and $empNbr) {
-            Resolve-SAAToken -Template $cfgSafe.NamingPattern -Tokens $tokenMap
-        } else { "" }
-        $tokenMap["SafeName"] = $expectedSafe
-
-        $safeExists  = $expectedSafe -and $safeSet.Contains($expectedSafe)
-        $onboardKeyShort = "$($secondary.Username.ToUpper())|$($secondary.Domain.ToUpper())"
-        $onboardKeyFQDN  = "$($secondary.Username.ToUpper())|$($secondary.DomainFQDN.ToUpper())"
-        
-        $isOnboarded = $onboardedMap.ContainsKey($onboardKeyShort) -or $onboardedMap.ContainsKey($onboardKeyFQDN)
-        $onboardedIn = if ($onboardedMap.ContainsKey($onboardKeyShort)) { $onboardedMap[$onboardKeyShort] } 
-                       elseif ($onboardedMap.ContainsKey($onboardKeyFQDN)) { $onboardedMap[$onboardKeyFQDN] } 
-                       else { "" }
-
-        # ── Determine status ──
-        $status = switch ($true) {
-            { -not $hasPrimary        } { "MissingPrimary";       break }
-            { -not $primaryEnabled    } { "PrimaryDisabled";      break }
-            { -not $secondaryEnabled  } { "SecondaryDisabled";    break }
-            { $isOnboarded            } { "Managed";              break }
-            { -not $primaryInGroup    } { "MissingGroupAccess";   break }
-            { $safeExists             } { "NeedsOnboarding";      break }
-            default                     { "NeedsAll" }
-        }
-
-        # Update counters
-        switch ($status) {
-            "Managed"              { $countManaged++ }
-            "NeedsAll"             { $countNeedsAll++ }
-            "NeedsOnboarding"      { $countNeedsOnboarding++ }
-            "MissingGroupAccess"   { $countMissingGroup++ }
-            "PrimaryDisabled"      { $countPrimaryDisabled++ }
-            "SecondaryDisabled"    { $countSecondaryDisabled++ }
-            "MissingPrimary"       { $countMissingPrimary++ }
-        }
-
-        # Analysis report row - Ordered by evaluation logic
-        $reportRow = [PSCustomObject]@{
-            EmployeeNumber      = $empNbr
-            PrimaryAccount      = $primaryUsername
-            PrimaryEnabled      = $primaryEnabled
-            SecondaryAccount    = $secondary.Username
-            ADEnabled           = $secondary.Enabled
-            AccountOnboarded    = $isOnboarded
-            OnboardedInSafe     = $onboardedIn
-            PrimaryInGroup      = $primaryInGroup
-            PersonalSafeExists  = $safeExists
-            ExpectedSafe        = $expectedSafe
-            ShortDomain         = $secondary.Domain
-            Domain              = $secondary.DomainFQDN
-            PlatformId          = $secondary.PlatformId
-            PrimaryEmail        = $primaryEmail
-            Status              = $status
-        }
-        $analysisReport.Add($reportRow)
-
-        if ($status -in @("MissingPrimary", "PrimaryDisabled", "SecondaryDisabled")) {
-            $skippedAccountsList.Add($reportRow)
-        }
-        if ($status -eq "MissingGroupAccess") {
-            $missingGroupList.Add($reportRow)
-        }
-
-        # ── Build planned actions for Simulation / Onboarding modes ──
-        if ($status -in @("NeedsAll", "NeedsOnboarding", "MissingGroupAccess")) {
-
-            if ($status -eq "MissingGroupAccess") {
-                $seq++
-                $plannedActions.Add([PSCustomObject]@{
-                    Sequence        = $seq
-                    Action          = "SendAdminAlert_MissingAccess"
-                    Detail          = "Primary '$primaryUsername' not in group '$requiredGroup'"
-                    PrimaryAccount  = $primaryUsername
-                    SecondaryAccount= $secondary.Username
-                    Domain          = $secondary.DomainFQDN
-                    Status          = "Planned"
-                    Notes           = "No onboarding possible until access is granted"
-                })
-            }
-
-            if ($status -eq "NeedsAll") {
-                if (-not $epvUserSet.Contains($primaryUsername)) {
-                    [void]$newEpvUsersConsumed.Add($primaryUsername)
-                }
-
-                $seq++
-                $plannedActions.Add([PSCustomObject]@{
-                    Sequence        = $seq
-                    Action          = "CreateSafe"
-                    Detail          = $expectedSafe
-                    PrimaryAccount  = $primaryUsername
-                    SecondaryAccount= $secondary.Username
-                    Domain          = $secondary.DomainFQDN
-                    Status          = "Planned"
-                    Notes           = "Safe does not exist"
-                })
-
-                foreach ($member in $cfgSafe.Members) {
-                    $resolvedMember = Resolve-SAAToken -Template $member.Name -Tokens $tokenMap
-                    $seq++
-                    $plannedActions.Add([PSCustomObject]@{
-                        Sequence        = $seq
-                        Action          = "AddMember"
-                        Detail          = "$resolvedMember ($($member.Type)) -> $($member.PermissionSet)"
-                        PrimaryAccount  = $primaryUsername
-                        SecondaryAccount= $secondary.Username
-                        Domain          = $secondary.DomainFQDN
-                        Status          = "Planned"
-                        Notes           = "Safe: $expectedSafe"
-                    })
-                }
-
-                $seq++
-                $plannedActions.Add([PSCustomObject]@{
-                    Sequence        = $seq
-                    Action          = "SendAdminAlert_SafeCreated"
-                    Detail          = "Notify admins of safe creation: $expectedSafe"
-                    PrimaryAccount  = $primaryUsername
-                    SecondaryAccount= $secondary.Username
-                    Domain          = $secondary.DomainFQDN
-                    Status          = "Planned"
-                    Notes           = ""
-                })
-            }
-
-            if ($status -in @("NeedsAll", "NeedsOnboarding")) {
-                $seq++
-                $plannedActions.Add([PSCustomObject]@{
-                    Sequence        = $seq
-                    Action          = "OnboardAccount"
-                    Detail          = "$($secondary.Username) @ $($secondary.DomainFQDN) -> $expectedSafe"
-                    PrimaryAccount  = $primaryUsername
-                    SecondaryAccount= $secondary.Username
-                    Domain          = $secondary.DomainFQDN
-                    Status          = "Planned"
-                    Notes           = "Platform: $($secondary.PlatformId)"
-                })
-
-                $seq++
-                $plannedActions.Add([PSCustomObject]@{
-                    Sequence        = $seq
-                    Action          = "SendUserNotification_Success"
-                    Detail          = "Notify $primaryEmail"
-                    PrimaryAccount  = $primaryUsername
-                    SecondaryAccount= $secondary.Username
-                    Domain          = $secondary.DomainFQDN
-                    Status          = "Planned"
-                    Notes           = "User email: $primaryEmail"
-                })
-
-                # Add to onboarding plan for Phase 3 execution
-                $onboardingPlan.Add([PSCustomObject]@{
-                    PrimaryAccount   = $primaryUsername
-                    SecondaryAccount = $secondary.Username
-                    EmployeeNumber   = $empNbr
-                    Domain           = $secondary.DomainFQDN
-                    PlatformId       = $secondary.PlatformId
-                    ExpectedSafe     = $expectedSafe
-                    SafeExists       = $safeExists
-                    PrimaryEmail     = $primaryEmail
-                    Tokens           = $tokenMap
-                })
+        $primaryUserMap = @{}
+        $primaryInfoMap = @{}
+        foreach ($p in $primaryADUsers) {
+            if ($p.EmployeeNumber) {
+                $primaryUserMap[$p.EmployeeNumber] = $p.SamAccountName
+                $primaryInfoMap[$p.EmployeeNumber] = $p
             }
         }
+        Write-Log -Message "Primary user map built: $($primaryUserMap.Count) unique employee numbers" -ScriptName $ScriptName -LogPath $LogPath
+
+        $safeSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($s in $personalSafes) { [void]$safeSet.Add($s.SafeName) }
+
+        $onboardedMap = @{}
+        foreach ($acc in $onboardedAccounts) {
+            if ($acc.Username -and $acc.Address) {
+                $key = "$($acc.Username.ToUpper())|$($acc.Address.ToUpper())"
+                $onboardedMap[$key] = $acc.SafeName
+            }
+        }
+
+        $analysisReport        = [System.Collections.Generic.List[object]]::new()
+        $plannedActions        = [System.Collections.Generic.List[object]]::new()
+        $skippedAccountsList   = [System.Collections.Generic.List[object]]::new()
+        $missingGroupList      = [System.Collections.Generic.List[object]]::new()
+        $seq = 0
+
+        $countManaged         = 0
+        $countNeedsAll        = 0
+        $countNeedsOnboarding = 0
+        $countMissingGroup    = 0
+        $countPrimaryDisabled = 0
+        $countSecondaryDisabled = 0
+        $countMissingPrimary  = 0
+
+        foreach ($secondary in $secondaryADAccounts) {
+            $emp = $secondary.EmployeeNbr
+            $primaryUsername = $primaryUserMap[$emp]
+            $primaryInfo = $primaryInfoMap[$emp]
+            $primaryEmail = if ($primaryInfo) { $primaryInfo.Mail } else { "" }
+            
+            $hasPrimary = $null -ne $primaryInfo
+            $primaryEnabled = $hasPrimary -and ([string]$primaryInfo.Enabled -eq 'True')
+            $secondaryEnabled = [string]$secondary.Enabled -eq 'True'
+            $primaryInGroup = $hasPrimary -and $groupMemberSet.Contains($primaryUsername)
+
+            $expectedSafe = if ($hasPrimary) { Resolve-SAAToken -Template $cfgSafe.NamingPattern -Tokens @{ "PrimaryAccount" = $primaryUsername; "EmployeeNumber" = $emp } } else { "" }
+            $safeExists = $expectedSafe -and $safeSet.Contains($expectedSafe)
+            
+            $onboardKeyShort = "$($secondary.Username.ToUpper())|$($secondary.Domain.ToUpper())"
+            $onboardKeyFQDN  = "$($secondary.Username.ToUpper())|$($secondary.DomainFQDN.ToUpper())"
+            $isOnboarded = $onboardedMap.ContainsKey($onboardKeyShort) -or $onboardedMap.ContainsKey($onboardKeyFQDN)
+            
+            $status = switch ($true) {
+                { -not $hasPrimary        } { "MissingPrimary";       break }
+                { -not $primaryEnabled    } { "PrimaryDisabled";      break }
+                { -not $secondaryEnabled  } { "SecondaryDisabled";    break }
+                { $isOnboarded            } { "Managed";              break }
+                { -not $primaryInGroup    } { "MissingGroupAccess";   break }
+                { $safeExists             } { "NeedsOnboarding";      break }
+                default                     { "NeedsAll" }
+            }
+
+            switch ($status) {
+                "Managed"              { $countManaged++ }
+                "NeedsAll"             { $countNeedsAll++ }
+                "NeedsOnboarding"      { $countNeedsOnboarding++ }
+                "MissingGroupAccess"   { $countMissingGroup++ }
+                "PrimaryDisabled"      { $countPrimaryDisabled++ }
+                "SecondaryDisabled"    { $countSecondaryDisabled++ }
+                "MissingPrimary"       { $countMissingPrimary++ }
+            }
+
+            $reportRow = [PSCustomObject]@{
+                EmployeeNumber      = $emp
+                PrimaryAccount      = $primaryUsername
+                PrimaryEmail        = $primaryEmail
+                SecondaryAccount    = $secondary.Username
+                Domain              = $secondary.DomainFQDN
+                PlatformId          = $secondary.PlatformId
+                Status              = $status
+                ExpectedSafe        = $expectedSafe
+                SafeExists          = $safeExists
+                Onboarded           = $isOnboarded
+            }
+            $analysisReport.Add($reportRow)
+
+            if ($status -in @("MissingPrimary", "PrimaryDisabled", "SecondaryDisabled")) { $skippedAccountsList.Add($reportRow) }
+            if ($status -eq "MissingGroupAccess") { $missingGroupList.Add($reportRow) }
+        }
+
+        Write-Log -Message "Analysis complete. Managed=$countManaged, NeedsAll=$countNeedsAll, NeedsOnboarding=$countNeedsOnboarding, MissingGroup=$countMissingGroup, PrimaryDisabled=$countPrimaryDisabled, MissingPrimary=$countMissingPrimary" -ScriptName $ScriptName -LogPath $LogPath
+
+        $phase2Duration = (Get-Date) - $phase2Start
+        Write-Log -Message "Phase 2 (Analysis) completed in $([math]::Round($phase2Duration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
     }
 
-    Write-Log -Message "Analysis complete. Managed=$countManaged, NeedsAll=$countNeedsAll, NeedsOnboarding=$countNeedsOnboarding, MissingGroup=$countMissingGroup, PrimaryDisabled=$countPrimaryDisabled, MissingPrimary=$countMissingPrimary" `
-        -ScriptName $ScriptName -LogPath $LogPath
+        # Export reports
+        $analysisReport | Export-CsvNoBom -Path $analysisFile
+        Write-Log -Message "Analysis report saved: $analysisFile" -ScriptName $ScriptName -LogPath $LogPath
 
-    $phase2Duration = (Get-Date) - $phase2Start
-    Write-Log -Message "Phase 2 (Analysis) completed in $([math]::Round($phase2Duration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
+        $skippedAccountsList | Export-CsvNoBom -Path $skippedAccountsFile
+        Write-Log -Message "Skipped accounts report saved: $skippedAccountsFile" -ScriptName $ScriptName -LogPath $LogPath
 
-    # Export analysis report (all modes)
-    $analysisReport | Export-CsvNoBom -Path $analysisFile
-    Write-Log -Message "Analysis report saved: $analysisFile" -ScriptName $ScriptName -LogPath $LogPath
+        $missingGroupList | Export-CsvNoBom -Path $missingGroupFile
+        Write-Log -Message "Missing group access report saved: $missingGroupFile" -ScriptName $ScriptName -LogPath $LogPath
 
-    # Export targeted reports
-    $skippedAccountsList | Export-CsvNoBom -Path $skippedAccountsFile
-    Write-Log -Message "Skipped accounts report saved: $skippedAccountsFile" -ScriptName $ScriptName -LogPath $LogPath
+        # Export planned actions (Simulation and Onboarding modes)
+        if ($plannedActions.Count -gt 0 -and $effectiveMode -in @("Simulation", "Onboarding")) {
+            $plannedActions | Export-Csv -Path $plannedFile -NoTypeInformation -Encoding UTF8
+            Write-Log -Message "Planned actions saved: $plannedFile ($($plannedActions.Count) actions)" -ScriptName $ScriptName -LogPath $LogPath
+        }
 
-    $missingGroupList | Export-CsvNoBom -Path $missingGroupFile
-    Write-Log -Message "Missing group access report saved: $missingGroupFile" -ScriptName $ScriptName -LogPath $LogPath
-
-    # Export planned actions (Simulation and Onboarding modes)
-    if ($plannedActions.Count -gt 0 -and $effectiveMode -in @("Simulation", "Onboarding")) {
-        $plannedActions | Export-Csv -Path $plannedFile -NoTypeInformation -Encoding UTF8
-        Write-Log -Message "Planned actions saved: $plannedFile ($($plannedActions.Count) actions)" -ScriptName $ScriptName -LogPath $LogPath
-    }
-
-    if ($effectiveMode -eq "Analysis") {
-        Write-Log -Message "Mode=Analysis. Reports exported. No onboarding or notifications." -ScriptName $ScriptName -LogPath $LogPath
-        Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
-        Write-Log -Message "Execution completed (Analysis mode)" -ScriptName $ScriptName -LogPath $LogPath
-        exit 0
-    }
+        if ($effectiveMode -eq "Analysis") {
+            Write-Log -Message "Mode=Analysis. Reports exported. No onboarding or notifications." -ScriptName $ScriptName -LogPath $LogPath
+            Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
+            Write-Log -Message "Execution completed (Analysis mode)" -ScriptName $ScriptName -LogPath $LogPath
+            exit 0
+        }
+    } # End of Phase 1 and 2 conditional block
 
     # ==========================================================
-    # PHASE 3 — ONBOARDING (Onboarding mode only)
-    # Execute the onboarding plan. Simulation mode passes
-    # SimulationMode=$true to all write functions — they log
-    # without touching CyberArk.
+    # PHASE 3 — ONBOARDING & API CALLS
+    # Execute the onboarding plan based on AnalysisReport.csv.
+    # Simulation mode passes SimulationMode=$true to all write 
+    # functions — they log without touching CyberArk.
     # ==========================================================
     Write-Log -Message "========== PHASE 3: ONBOARDING & API CALLS ==========" -ScriptName $ScriptName -LogPath $LogPath
     $phase3Start = Get-Date
 
+    if (-not (Test-Path $analysisFile)) {
+        throw "Cannot proceed to Phase 3: $analysisFile does not exist."
+    }
+
+    $csvPlan = Import-Csv -Path $analysisFile | Where-Object { $_.Status -in @("NeedsAll", "NeedsOnboarding") }
     $onboardingResults = [System.Collections.Generic.List[object]]::new()
 
-    foreach ($plan in $onboardingPlan) {
-        $tokens = $plan.Tokens
+    foreach ($plan in $csvPlan) {
+        $tokens = @{
+            PrimaryAccount   = $plan.PrimaryAccount
+            SecondaryAccount = $plan.SecondaryAccount
+            EmployeeNumber   = $plan.EmployeeNumber
+            Domain           = $plan.Domain
+            SafeName         = $plan.ExpectedSafe
+        }
 
         $provResult     = $null
         $onboardResult  = $null
@@ -541,7 +393,8 @@ try {
         $errorMsg       = ""
 
         # Step A: Provision safe (create + add members) if needed
-        if (-not $plan.SafeExists) {
+        $safeExistsBool = [System.Convert]::ToBoolean($plan.SafeExists)
+        if (-not $safeExistsBool) {
             $provResult = Invoke-SAASafeProvisioning `
                 -Tokens            $tokens `
                 -PersonalSafeConfig $cfgSafe `
@@ -620,7 +473,7 @@ try {
             $domain = $accounts[0].Domain
             
             # Find the primary email from the original plan
-            $planMatch = $onboardingPlan | Where-Object { $_.PrimaryAccount -eq $primaryAccount } | Select-Object -First 1
+            $planMatch = $csvPlan | Where-Object { $_.PrimaryAccount -eq $primaryAccount } | Select-Object -First 1
             $primaryEmail = if ($planMatch) { $planMatch.PrimaryEmail } else { "" }
             
             # Generate the HTML list of onboarded accounts

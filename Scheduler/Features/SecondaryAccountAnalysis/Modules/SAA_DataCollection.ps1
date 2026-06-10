@@ -32,9 +32,12 @@ function Export-CsvNoBom {
     begin   { $rows = [System.Collections.Generic.List[object]]::new() }
     process { $rows.Add($InputObject) }
     end {
-        # ConvertTo-Csv returns $null on an empty collection; guard before WriteAllLines
-        [string[]]$csvLines = if ($rows.Count -gt 0) { $rows | ConvertTo-Csv -NoTypeInformation } else { @() }
-        [System.IO.File]::WriteAllLines($Path, $csvLines, [System.Text.UTF8Encoding]::new($false))
+        [string[]]$csvLines = if ($rows.Count -gt 0) { $rows | ConvertTo-Csv -NoTypeInformation } else { [string[]]::new(0) }
+        if ($null -ne $csvLines) {
+            [System.IO.File]::WriteAllLines($Path, $csvLines, [System.Text.UTF8Encoding]::new($false))
+        } else {
+            [System.IO.File]::WriteAllLines($Path, [string[]]::new(0), [System.Text.UTF8Encoding]::new($false))
+        }
     }
 }
 

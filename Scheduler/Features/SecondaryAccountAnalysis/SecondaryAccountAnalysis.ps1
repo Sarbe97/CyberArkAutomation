@@ -244,9 +244,9 @@ try {
         $primaryUserMap = @{}
         $primaryInfoMap = @{}
         foreach ($p in $primaryADUsers) {
-            if ($p.EmployeeNumber) {
-                $primaryUserMap[$p.EmployeeNumber] = $p.SamAccountName
-                $primaryInfoMap[$p.EmployeeNumber] = $p
+            if ($p.EmployeeNbr) {
+                $primaryUserMap[$p.EmployeeNbr] = $p.SamAccountName
+                $primaryInfoMap[$p.EmployeeNbr] = $p
             }
         }
         Write-Log -Message "Primary user map built: $($primaryUserMap.Count) unique employee numbers" -ScriptName $ScriptName -LogPath $LogPath

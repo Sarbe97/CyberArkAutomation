@@ -279,6 +279,7 @@ try {
             $primaryUsername = $primaryUserMap[$emp]
             $primaryInfo = $primaryInfoMap[$emp]
             $primaryEmail = if ($primaryInfo) { $primaryInfo.Mail } else { "" }
+            $primaryFirstName = if ($primaryInfo -and $primaryInfo.GivenName) { $primaryInfo.GivenName } else { "Colleague" }
             
             $hasPrimary = $null -ne $primaryInfo
             $primaryEnabled = $hasPrimary -and ([string]$primaryInfo.Enabled -eq 'True')
@@ -317,6 +318,7 @@ try {
             $reportRow = [PSCustomObject]@{
                 EmployeeNumber      = $emp
                 PrimaryAccount      = $primaryUsername
+                PrimaryFirstName    = $primaryFirstName
                 PrimaryEmail        = $primaryEmail
                 SecondaryAccount    = $secondary.Username
                 Domain              = $secondary.DomainFQDN
@@ -471,9 +473,10 @@ try {
             $safeName = $accounts[0].SafeName
             $domain = $accounts[0].Domain
             
-            # Find the primary email from the original plan
+            # Find the primary email and name from the original plan
             $planMatch = $csvPlan | Where-Object { $_.PrimaryAccount -eq $primaryAccount } | Select-Object -First 1
             $primaryEmail = if ($planMatch) { $planMatch.PrimaryEmail } else { "" }
+            $primaryFirstName = if ($planMatch -and $planMatch.PrimaryFirstName) { $planMatch.PrimaryFirstName } else { "Colleague" }
             
             # Generate the HTML table of onboarded accounts
             $generatedDate = (Get-Date).ToString("yyyy-MM-dd")
@@ -486,6 +489,7 @@ try {
             
             $tokens = @{
                 PrimaryAccount         = $primaryAccount
+                PrimaryFirstName       = $primaryFirstName
                 Domain                 = $domain
                 SafeName               = $safeName
                 OnboardedAccountsTable = $accountListHtml

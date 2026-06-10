@@ -141,32 +141,46 @@
                         <p style="margin:0 0 10px 0; font-size:12px; font-weight:bold; color:#444444; text-transform:uppercase; letter-spacing:0.5px;">Status Breakdown</p>
                         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                             <tr>
-                                <td style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; color:#444444; width:60%;">Managed</td>
-                                <td align="right" style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; font-weight:bold; color:#27ae60; white-space:nowrap;">{{CountManaged}}</td>
+                                <td style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; color:#444444; width:70%;">
+                                    Managed<br><span style="font-size:11px; color:#888888;">Already onboarded in CyberArk</span>
+                                </td>
+                                <td align="right" style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; font-weight:bold; color:#27ae60; white-space:nowrap; vertical-align:top;">{{CountManaged}}</td>
                             </tr>
                             <tr>
-                                <td style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; color:#444444;">Needs All</td>
-                                <td align="right" style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; font-weight:bold; color:#e67e22; white-space:nowrap;">{{CountNeedsAll}}</td>
+                                <td style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; color:#444444;">
+                                    Needs All<br><span style="font-size:11px; color:#888888;">Requires safe creation & onboarding</span>
+                                </td>
+                                <td align="right" style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; font-weight:bold; color:#e67e22; white-space:nowrap; vertical-align:top;">{{CountNeedsAll}}</td>
                             </tr>
                             <tr>
-                                <td style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; color:#444444;">Needs Onboarding</td>
-                                <td align="right" style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; font-weight:bold; color:#e67e22; white-space:nowrap;">{{CountNeedsOnboarding}}</td>
+                                <td style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; color:#444444;">
+                                    Needs Onboarding<br><span style="font-size:11px; color:#888888;">Safe exists, requires onboarding</span>
+                                </td>
+                                <td align="right" style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; font-weight:bold; color:#e67e22; white-space:nowrap; vertical-align:top;">{{CountNeedsOnboarding}}</td>
                             </tr>
                             <tr>
-                                <td style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; color:#444444;">Missing Group Access</td>
-                                <td align="right" style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; font-weight:bold; color:#e74c3c; white-space:nowrap;">{{CountMissingGroup}}</td>
+                                <td style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; color:#444444;">
+                                    Missing Group Access<br><span style="font-size:11px; color:#888888;">Primary U account not in kapamprodusers AD group</span>
+                                </td>
+                                <td align="right" style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; font-weight:bold; color:#e74c3c; white-space:nowrap; vertical-align:top;">{{CountMissingGroup}}</td>
                             </tr>
                             <tr>
-                                <td style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; color:#444444;">Primary Disabled</td>
-                                <td align="right" style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; font-weight:bold; color:#e74c3c; white-space:nowrap;">{{CountPrimaryDisabled}}</td>
+                                <td style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; color:#444444;">
+                                    Primary Disabled<br><span style="font-size:11px; color:#888888;">Primary U account disabled in AD</span>
+                                </td>
+                                <td align="right" style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; font-weight:bold; color:#e74c3c; white-space:nowrap; vertical-align:top;">{{CountPrimaryDisabled}}</td>
                             </tr>
                             <tr>
-                                <td style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; color:#444444;">Secondary Disabled</td>
-                                <td align="right" style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; font-weight:bold; color:#e74c3c; white-space:nowrap;">{{CountSecondaryDisabled}}</td>
+                                <td style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; color:#444444;">
+                                    Secondary Disabled<br><span style="font-size:11px; color:#888888;">Secondary account disabled in AD</span>
+                                </td>
+                                <td align="right" style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; font-weight:bold; color:#e74c3c; white-space:nowrap; vertical-align:top;">{{CountSecondaryDisabled}}</td>
                             </tr>
                             <tr>
-                                <td style="padding:9px 0; font-size:13px; color:#444444;">Missing Primary</td>
-                                <td align="right" style="padding:9px 0; font-size:13px; font-weight:bold; color:#e74c3c; white-space:nowrap;">{{MissingPrimary}}</td>
+                                <td style="padding:9px 0; font-size:13px; color:#444444;">
+                                    Missing Primary<br><span style="font-size:11px; color:#888888;">No primary U account found in AD</span>
+                                </td>
+                                <td align="right" style="padding:9px 0; font-size:13px; font-weight:bold; color:#e74c3c; white-space:nowrap; vertical-align:top;">{{MissingPrimary}}</td>
                             </tr>
                         </table>
                     </td>

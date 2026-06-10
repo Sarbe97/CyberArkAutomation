@@ -59,9 +59,14 @@ function New-SAASafe {
         $body = @{
             safeName                  = $SafeName
             description               = "Personal safe - managed by SecondaryAccountAnalysis"
-            numberOfDaysRetention     = [int]$SafeConfig.NumberOfDaysRetention
-            numberOfVersionsRetention = [int]$SafeConfig.NumberOfVersionsRetention
             managingCPM               = $SafeConfig.ManagingCPM
+        }
+
+        if ([int]$SafeConfig.NumberOfDaysRetention -gt 0) {
+            $body.numberOfDaysRetention = [int]$SafeConfig.NumberOfDaysRetention
+        }
+        if ([int]$SafeConfig.NumberOfVersionsRetention -gt 0) {
+            $body.numberOfVersionsRetention = [int]$SafeConfig.NumberOfVersionsRetention
         }
 
         $uri  = "$BaseUrl/PasswordVault/api/Safes"
@@ -193,6 +198,7 @@ function Invoke-SAAAccountOnboard {
             platformId = $PlatformId
             safeName   = $SafeName
             secretType = "password"
+            secret     = ""
         }
 
         $uri  = "$BaseUrl/PasswordVault/api/Accounts"

@@ -34,6 +34,7 @@ if (-not (Test-Path $ExportDir)) { New-Item -ItemType Directory -Path $ExportDir
 . (Join-Path $FeatureRoot   "Modules\SAA_Notifications.ps1")
 
 Write-Log -Message "Execution started" -ScriptName $ScriptName -LogPath $LogPath
+$overallStartTime = Get-Date
 
 # ============================================================
 # Load Config — global settings (BaseUrl, CCP, Email) from root;
@@ -139,7 +140,8 @@ try {
     # Each dataset is cached per date — re-running on the same day
     # loads from disk and skips live queries.
     # ==========================================================
-    Write-Log -Message "========== PHASE 1: DISCOVERY ==========" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "========== PHASE 1: DATA COLLECTION & DOMAIN SCAN ==========" -ScriptName $ScriptName -LogPath $LogPath
+    $phase1Start = Get-Date
 
     # 1a. Primary AD users (NA domain, U-prefix, + mail attribute)
     $primaryADUsers = Get-SAAPrimaryADUsers `
@@ -164,10 +166,10 @@ try {
         -Exclusions     $cfgExclusions `
         -CacheDir       $ExportDir `
         -TodayStr       $TodayStr `
-        -ScriptName     $ScriptName `
-        -LogPath        $LogPath `
-        -GlobalCCPUrl   $config.CCP.Url `
-        -ManualLogin    $ManualLogin
+        -ScriptName       $ScriptName `
+        -LogPath          $LogPath `
+        -GlobalCCPUrl     $config.CCP.Url `
+        -ManualLogin      $ManualLogin
 
     Write-Log -Message "Secondary AD accounts collected: $($secondaryADAccounts.Count)" -ScriptName $ScriptName -LogPath $LogPath
 
@@ -219,6 +221,9 @@ try {
 
     Write-Log -Message "Group '$requiredGroup' members collected: $($groupMemberSet.Count)" -ScriptName $ScriptName -LogPath $LogPath
 
+    $phase1Duration = (Get-Date) - $phase1Start
+    Write-Log -Message "Phase 1 (Discovery) completed in $([math]::Round($phase1Duration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
+
     if ($effectiveMode -eq "Discovery") {
         Write-Log -Message "Mode=Discovery. Raw data collected and cached. Exiting after Phase 1." -ScriptName $ScriptName -LogPath $LogPath
         Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
@@ -232,7 +237,8 @@ try {
     # with their primary accounts, CyberArk access, safe status,
     # and onboarding status.
     # ==========================================================
-    Write-Log -Message "========== PHASE 2: ANALYSIS ==========" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "========== PHASE 2: ANALYSIS & REPORTING ==========" -ScriptName $ScriptName -LogPath $LogPath
+    $phase2Start = Get-Date
 
     # Build: EmpNbr → Primary AD user {Username, Mail, Enabled}
     $primaryUserMap = @{}
@@ -488,6 +494,9 @@ try {
     Write-Log -Message "Analysis complete. Managed=$countManaged, NeedsAll=$countNeedsAll, NeedsOnboarding=$countNeedsOnboarding, MissingGroup=$countMissingGroup, PrimaryDisabled=$countPrimaryDisabled, MissingPrimary=$countMissingPrimary" `
         -ScriptName $ScriptName -LogPath $LogPath
 
+    $phase2Duration = (Get-Date) - $phase2Start
+    Write-Log -Message "Phase 2 (Analysis) completed in $([math]::Round($phase2Duration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
+
     # Export analysis report (all modes)
     $analysisReport | Export-CsvNoBom -Path $analysisFile
     Write-Log -Message "Analysis report saved: $analysisFile" -ScriptName $ScriptName -LogPath $LogPath
@@ -518,7 +527,8 @@ try {
     # SimulationMode=$true to all write functions — they log
     # without touching CyberArk.
     # ==========================================================
-    Write-Log -Message "========== PHASE 3: ONBOARDING ==========" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "========== PHASE 3: ONBOARDING & API CALLS ==========" -ScriptName $ScriptName -LogPath $LogPath
+    $phase3Start = Get-Date
 
     $onboardingResults = [System.Collections.Generic.List[object]]::new()
 
@@ -710,6 +720,8 @@ try {
             -LogPath             $LogPath
     }
 
+    $phase3Duration = (Get-Date) - $phase3Start
+    Write-Log -Message "Phase 3 (Onboarding & Notifications) completed in $([math]::Round($phase3Duration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
 }
 catch {
     Write-Log -Message "SecondaryAccountAnalysis failed: $($_.Exception.Message)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
@@ -717,5 +729,7 @@ catch {
 }
 finally {
     Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
+    $overallDuration = (Get-Date) - $overallStartTime
+    Write-Log -Message "Execution completed in $([math]::Round($overallDuration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
     Write-Log -Message "Execution completed (mode: $effectiveMode)" -ScriptName $ScriptName -LogPath $LogPath
 }

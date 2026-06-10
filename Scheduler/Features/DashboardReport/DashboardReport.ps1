@@ -14,11 +14,11 @@ $ConfigPath    = Join-Path $FeatureRoot "config.json"
 # Setup Paths (Logs & Output)
 # ------------------------
 $TodayStr      = Get-Date -Format "yyyyMMdd"
-$LogDir        = Join-Path $SchedulerRoot "Logs\DashboardReport"
+$LogDir        = Join-Path $FeatureRoot "Logs"
 if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null }
 $LogPath       = Join-Path $LogDir "$ScriptName-$TodayStr.log"
 
-$BaseOutputDir = Join-Path $SchedulerRoot "Output"
+$BaseOutputDir = Join-Path $FeatureRoot "Output"
 $ExportDir     = Join-Path $BaseOutputDir $TodayStr
 if (-not (Test-Path $ExportDir)) { New-Item -ItemType Directory -Path $ExportDir -Force | Out-Null }
 

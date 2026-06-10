@@ -1,6 +1,0 @@
-2026-06-04 17:34:21 [DashboardReport] [INFO] Execution started
-2026-06-04 17:34:22 [DashboardReport] [INFO] Config loaded. BaseUrl: https://vault.company.com
-2026-06-04 17:34:22 [DashboardReport] [INFO] DashboardReport feature enabled. Starting data collection.
-2026-06-04 17:34:22 [DashboardReport] [INFO] Retrieving credential from CCP: https://ccp.company.com/AIMWebService/api/Accounts?AppID=CyberArkHealthCheck&Query=Safe=PAM-Health;Object=SchedulerServiceAccount
-2026-06-04 17:34:22 [DashboardReport] [WARN] CCP retrieval attempt 1 failed: DNS Resolution Failed for 'https://ccp.company.com/AIMWebService/api/Accounts'. Please check network connectivity and DNS settings. (Original error: The remote name could not be resolved: 'ccp.company.com')
-2026-06-04 17:34:23 [DashboardReport] [WARN] CCP retrieval attempt 2 failed: DNS Resolution Failed for 'https://ccp.company.com/AIMWebService/api/Accounts'. Please check network connectivity and DNS settings. (Original error: The remote name could not be resolved: 'ccp.company.com')

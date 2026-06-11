@@ -288,6 +288,7 @@ try {
             $primaryInfo = $primaryInfoMap[$emp]
             $primaryEmail = if ($primaryInfo) { $primaryInfo.Mail } else { "" }
             $primaryFirstName = if ($primaryInfo -and $primaryInfo.GivenName) { $primaryInfo.GivenName } else { "Colleague" }
+            $primaryFullName  = if ($primaryInfo) { "$($primaryInfo.GivenName) $($primaryInfo.Surname)".Trim() } else { "" }
             
             $hasPrimary = $null -ne $primaryInfo
             $primaryEnabled = $hasPrimary -and ([string]$primaryInfo.Enabled -eq 'True')
@@ -327,6 +328,7 @@ try {
                 EmployeeNumber      = $emp
                 PrimaryAccount      = $primaryUsername
                 PrimaryFirstName    = $primaryFirstName
+                PrimaryFullName     = $primaryFullName
                 PrimaryEmail        = $primaryEmail
                 SecondaryAccount    = $secondary.Username
                 Domain              = $secondary.DomainFQDN

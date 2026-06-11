@@ -520,6 +520,7 @@ try {
                     -TemplatesPath    $templatesPath `
                     -ScriptName       $ScriptName `
                     -LogPath          $LogPath `
+                    -FromOverride     $cfgNotif.UserFrom `
                     -SimulationMode   $false # Force it to actually send
                 $sampleSentToAdmin = $true
             }
@@ -531,6 +532,7 @@ try {
                 -TemplatesPath    $templatesPath `
                 -ScriptName       $ScriptName `
                 -LogPath          $LogPath `
+                -FromOverride     $cfgNotif.UserFrom `
                 -SimulationMode   $SimulationMode
         }
     }
@@ -623,7 +625,8 @@ try {
             -AdminCC             $cfgNotif.AdminCC `
             -TemplatesPath       $templatesPath `
             -ScriptName          $ScriptName `
-            -LogPath             $LogPath
+            -LogPath             $LogPath `
+            -FromOverride        $cfgNotif.AdminFrom
     }
 
     $phase3Duration = (Get-Date) - $phase3Start

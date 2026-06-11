@@ -164,6 +164,8 @@
       },
 
       "Notifications": {
+        "AdminFrom": "",
+        "UserFrom": "",
         "_Comment_AdminTo": "Admin alert recipients for missing access, safe creation, and failures",
         "AdminTo": [ "pam-admins@company.com" ],
         "AdminCC": [],

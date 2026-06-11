@@ -20,12 +20,13 @@ function Get-SAAEmailConfig {
     param (
         [PSCustomObject] $GlobalEmailConfig,
         [string[]]       $To,
-        [string[]]       $CC = @()
+        [string[]]       $CC = @(),
+        [string]         $FromOverride = ""
     )
 
     $obj = [PSCustomObject]@{
         SmtpServer = $GlobalEmailConfig.SmtpServer
-        From       = $GlobalEmailConfig.From
+        From       = if (-not [string]::IsNullOrWhiteSpace($FromOverride)) { $FromOverride } else { $GlobalEmailConfig.From }
         To         = $To
     }
     return $obj
@@ -49,6 +50,7 @@ function Send-SAAUserSuccessNotification {
         [Parameter(Mandatory=$true)] [string]          $TemplatesPath,
         [Parameter(Mandatory=$true)] [string]          $ScriptName,
         [Parameter(Mandatory=$true)] [string]          $LogPath,
+        [string] $FromOverride = "",
         [bool] $SimulationMode = $false
     )
 
@@ -67,7 +69,7 @@ function Send-SAAUserSuccessNotification {
     try {
         $body     = Get-TemplateContent -TemplateName "UserNotification_Success" -Data $Tokens -TemplatesPath $TemplatesPath
         $subject  = "CyberArk Secondary Account Onboarding Notification - $($Tokens['PrimaryAccount'])"
-        $emailCfg = Get-SAAEmailConfig -GlobalEmailConfig $GlobalEmailConfig -To @($UserEmail)
+        $emailCfg = Get-SAAEmailConfig -GlobalEmailConfig $GlobalEmailConfig -To @($UserEmail) -FromOverride $FromOverride
         Send-SchedulerEmail -Subject $subject -Body $body -EmailConfig $emailCfg -IsHtml `
             -ScriptName $ScriptName -LogPath $LogPath
     }
@@ -94,14 +96,15 @@ function Send-SAARunSummary {
         [string[]]                                     $AdminCC = @(),
         [Parameter(Mandatory=$true)] [string]          $TemplatesPath,
         [Parameter(Mandatory=$true)] [string]          $ScriptName,
-        [Parameter(Mandatory=$true)] [string]          $LogPath
+        [Parameter(Mandatory=$true)] [string]          $LogPath,
+        [string]                                       $FromOverride = ""
     )
 
     try {
         $body     = Get-TemplateContent -TemplateName "RunSummary" -Data $Tokens -TemplatesPath $TemplatesPath
         $modeStr  = if ($Tokens["EffectiveMode"] -eq "Simulation") { "Simulation" } else { "Execution" }
         $subject  = "CyberArk SAA: $modeStr Run Complete - $(Get-Date -Format 'yyyy-MM-dd')"
-        $emailCfg = Get-SAAEmailConfig -GlobalEmailConfig $GlobalEmailConfig -To $AdminTo -CC $AdminCC
+        $emailCfg = Get-SAAEmailConfig -GlobalEmailConfig $GlobalEmailConfig -To $AdminTo -CC $AdminCC -FromOverride $FromOverride
 
         $attachments = @($AnalysisReportFile, $OnboardingResultsFile, $SkippedAccountsFile, $MissingGroupFile) | Where-Object { $_ -and (Test-Path $_) }
 

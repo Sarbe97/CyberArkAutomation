@@ -109,6 +109,9 @@ function Get-SchedulerCredential {
 
         [switch]$ManualLogin,
 
+        [string]$Username = "",
+        [string]$Password = "",
+
         [string]$ScriptName = "Unknown",
         [string]$LogPath
     )
@@ -126,18 +129,18 @@ function Get-SchedulerCredential {
         }
     }
 
-    # Direct credentials are used ONLY when both Username AND Password are non-blank in CCPConfig.
+    # Direct credentials are used ONLY when both Username AND Password are non-blank.
     # If either is empty, fall through to CCP.
-    $hasDirectCredentials = (-not [string]::IsNullOrWhiteSpace($CCPConfig.Username)) -and
-                            (-not [string]::IsNullOrWhiteSpace($CCPConfig.Password))
+    $hasDirectCredentials = (-not [string]::IsNullOrWhiteSpace($Username)) -and
+                            (-not [string]::IsNullOrWhiteSpace($Password))
 
     if ($hasDirectCredentials) {
         if ($LogPath) {
-            Write-Log -Message "Using direct credentials (Username: $($CCPConfig.Username))." -ScriptName $ScriptName -LogPath $LogPath
+            Write-Log -Message "Using direct credentials (Username: $Username)." -ScriptName $ScriptName -LogPath $LogPath
         }
         return @{
-            Username = $CCPConfig.Username
-            Password = $CCPConfig.Password
+            Username = $Username
+            Password = $Password
         }
     }
     else {

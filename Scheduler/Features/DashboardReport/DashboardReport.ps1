@@ -80,7 +80,9 @@ $TrackedFailedAccounts  = if ($FeatureConfig.TrackedFailedAccounts)      { $Feat
 # ------------------------
 # Login
 # ------------------------
-$Credential = Get-SchedulerCredential -CCPConfig $config.CCP -ManualLogin:$ManualLogin -ScriptName $ScriptName -LogPath $LogPath
+$Credential = Get-SchedulerCredential -CCPConfig $config.CCP -Username $config.Username -Password $config.Password `
+    -ManualLogin:$ManualLogin -ScriptName $ScriptName -LogPath $LogPath
+
 Write-Log -Message "Connecting to CyberArk API..." -ScriptName $ScriptName -LogPath $LogPath
 $null = Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential -ScriptName $ScriptName -LogPath $LogPath
 

@@ -48,7 +48,7 @@ function New-SAASafe {
     )
 
     if ($SimulationMode) {
-        Write-Log -Message "[SIMULATION] Would create safe: '$SafeName' (CPM: $($SafeConfig.ManagingCPM), Retention: $($SafeConfig.NumberOfDaysRetention) days, Versions: $($SafeConfig.NumberOfVersionsRetention))" `
+        Write-Log -Message "[SIMULATION] Would create safe: '$SafeName' (CPM: $($SafeConfig.ManagingCPM), Retention: $($SafeConfig.NumberOfDaysRetention) days)" `
             -ScriptName $ScriptName -LogPath $LogPath
         return @{ Success = $true; Simulated = $true; AlreadyExisted = $false; SafeName = $SafeName }
     }
@@ -64,9 +64,6 @@ function New-SAASafe {
 
         if ([int]$SafeConfig.NumberOfDaysRetention -gt 0) {
             $body.numberOfDaysRetention = [int]$SafeConfig.NumberOfDaysRetention
-        }
-        if ([int]$SafeConfig.NumberOfVersionsRetention -gt 0) {
-            $body.numberOfVersionsRetention = [int]$SafeConfig.NumberOfVersionsRetention
         }
 
         $uri  = "$BaseUrl/PasswordVault/api/Safes"

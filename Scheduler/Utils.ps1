@@ -340,6 +340,10 @@ function Send-SchedulerEmail {
             Body       = $Body
         }
 
+        if ($EmailConfig.Bcc) {
+            $mailParams.Bcc = $EmailConfig.Bcc
+        }
+
         if ($IsHtml) {
             $mailParams.BodyAsHtml = $true
         }
@@ -393,6 +397,10 @@ function Send-SchedulerEmailWithAttachment {
             To         = $EmailConfig.To
             Subject    = $Subject
             Body       = $Body
+        }
+
+        if ($EmailConfig.Bcc) {
+            $mailParams.Bcc = $EmailConfig.Bcc
         }
 
         if ($IsHtml) {

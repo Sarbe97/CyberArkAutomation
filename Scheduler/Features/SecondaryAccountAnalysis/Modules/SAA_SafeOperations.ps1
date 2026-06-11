@@ -103,12 +103,16 @@ function Add-SAASafeMember {
         [Parameter(Mandatory=$true)] [string]   $BaseUrl,
         [Parameter(Mandatory=$true)] [string]   $ScriptName,
         [Parameter(Mandatory=$true)] [string]   $LogPath,
+        [string] $SearchIn = "",
         [bool] $SimulationMode = $false
     )
 
     if ($SimulationMode) {
-        Write-Log -Message "[SIMULATION] Would add member '$MemberName' ($MemberType) to safe '$SafeName' - permissions: $($Permissions -join ', ')" `
-            -ScriptName $ScriptName -LogPath $LogPath
+        $simMsg = "[SIMULATION] Would add member '$MemberName' ($MemberType) to safe '$SafeName' - permissions: $($Permissions -join ', ')"
+        if (-not [string]::IsNullOrWhiteSpace($SearchIn) -and $SearchIn -ne "Vault") {
+            $simMsg += " (searchIn: $SearchIn)"
+        }
+        Write-Log -Message $simMsg -ScriptName $ScriptName -LogPath $LogPath
         return @{ Success = $true; Simulated = $true; AlreadyExisted = $false }
     }
 
@@ -143,6 +147,10 @@ function Add-SAASafeMember {
             memberName  = $MemberName
             memberType  = $MemberType
             permissions = $permsBody
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($SearchIn) -and $SearchIn -ne "Vault") {
+            $body["searchIn"] = $SearchIn
         }
 
         $encodedSafe = [uri]::EscapeDataString($SafeName)
@@ -230,6 +238,7 @@ function Invoke-SAASafeProvisioning {
         [Parameter(Mandatory=$true)] [string]          $BaseUrl,
         [Parameter(Mandatory=$true)] [string]          $ScriptName,
         [Parameter(Mandatory=$true)] [string]          $LogPath,
+        [string] $LDAPDomain = "",
         [bool] $SimulationMode = $false
     )
 
@@ -264,8 +273,17 @@ function Invoke-SAASafeProvisioning {
             continue
         }
 
+        $searchIn = ""
+        if ($member.PSObject.Properties['MemberSource']) {
+            if ($member.MemberSource -eq "Domain") {
+                $searchIn = $LDAPDomain
+            } elseif ($member.MemberSource -ne "Vault") {
+                $searchIn = $member.MemberSource
+            }
+        }
+
         $memberResult = Add-SAASafeMember -SafeName $safeName -MemberName $resolvedName `
-            -MemberType $member.Type -Permissions $permSet `
+            -MemberType $member.Type -Permissions $permSet -SearchIn $searchIn `
             -BaseUrl $BaseUrl -ScriptName $ScriptName -LogPath $LogPath -SimulationMode $SimulationMode
 
         if ($memberResult.Success) {

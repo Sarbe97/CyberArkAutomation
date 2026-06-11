@@ -21,6 +21,7 @@ function Get-SAAEmailConfig {
         [PSCustomObject] $GlobalEmailConfig,
         [string[]]       $To,
         [string[]]       $CC = @(),
+        [string[]]       $Bcc = @(),
         [string]         $FromOverride = ""
     )
 
@@ -28,6 +29,8 @@ function Get-SAAEmailConfig {
         SmtpServer = $GlobalEmailConfig.SmtpServer
         From       = if (-not [string]::IsNullOrWhiteSpace($FromOverride)) { $FromOverride } else { $GlobalEmailConfig.From }
         To         = $To
+        CC         = $CC
+        Bcc        = $Bcc
     }
     return $obj
 }
@@ -51,6 +54,7 @@ function Send-SAAUserSuccessNotification {
         [Parameter(Mandatory=$true)] [string]          $ScriptName,
         [Parameter(Mandatory=$true)] [string]          $LogPath,
         [string] $FromOverride = "",
+        [string[]] $Bcc = @(),
         [bool] $SimulationMode = $false
     )
 
@@ -69,7 +73,7 @@ function Send-SAAUserSuccessNotification {
     try {
         $body     = Get-TemplateContent -TemplateName "UserNotification_Success" -Data $Tokens -TemplatesPath $TemplatesPath
         $subject  = "CyberArk Secondary Account Onboarding Notification - $($Tokens['PrimaryAccount'])"
-        $emailCfg = Get-SAAEmailConfig -GlobalEmailConfig $GlobalEmailConfig -To @($UserEmail) -FromOverride $FromOverride
+        $emailCfg = Get-SAAEmailConfig -GlobalEmailConfig $GlobalEmailConfig -To @($UserEmail) -FromOverride $FromOverride -Bcc $Bcc
         Send-SchedulerEmail -Subject $subject -Body $body -EmailConfig $emailCfg -IsHtml `
             -ScriptName $ScriptName -LogPath $LogPath
     }

@@ -21,6 +21,7 @@
 
       "_Comment_RequiredGroup": "Primary account must be a member of this Active Directory group",
       "RequiredADGroup": "kapamprodusers",
+      "LDAPDomain": "na.company.com",
 
       "PersonalSafe": {
         "_Comment_NamingPattern": "Tokens: {EmployeeNumber}, {PrimaryAccount}",
@@ -34,12 +35,14 @@
             "_Comment": "Static group member — no token substitution needed",
             "Name": "CyberArk Admins",
             "Type": "Group",
+            "MemberSource": "Vault",
             "PermissionSet": "VAULT_ADMIN"
           },
           {
             "_Comment": "{PrimaryAccount} is resolved at runtime, e.g. U123456",
             "Name": "{PrimaryAccount}",
             "Type": "User",
+            "MemberSource": "Domain",
             "PermissionSet": "USER_ACCESS"
           }
         ]
@@ -166,6 +169,7 @@
       "Notifications": {
         "AdminFrom": "",
         "UserFrom": "",
+        "UserBcc": [],
         "_Comment_AdminTo": "Admin alert recipients for missing access, safe creation, and failures",
         "AdminTo": [ "pam-admins@company.com" ],
         "AdminCC": [],

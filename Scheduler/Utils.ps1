@@ -151,6 +151,7 @@ function Connect-CyberArkApi {
         $body = @{
             username = $Credential.Username
             password = $Credential.Password
+            concurrentSession = $true
         } | ConvertTo-Json
 
         if ($LogPath) {

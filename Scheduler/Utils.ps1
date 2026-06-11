@@ -125,6 +125,21 @@ function Get-SchedulerCredential {
             Password = $creds.GetNetworkCredential().Password
         }
     }
+
+    # Direct credentials are used ONLY when both Username AND Password are non-blank in CCPConfig.
+    # If either is empty, fall through to CCP.
+    $hasDirectCredentials = (-not [string]::IsNullOrWhiteSpace($CCPConfig.Username)) -and
+                            (-not [string]::IsNullOrWhiteSpace($CCPConfig.Password))
+
+    if ($hasDirectCredentials) {
+        if ($LogPath) {
+            Write-Log -Message "Using direct credentials (Username: $($CCPConfig.Username))." -ScriptName $ScriptName -LogPath $LogPath
+        }
+        return @{
+            Username = $CCPConfig.Username
+            Password = $CCPConfig.Password
+        }
+    }
     else {
         return Get-CCPCredential -CCPConfig $CCPConfig -ScriptName $ScriptName -LogPath $LogPath
     }

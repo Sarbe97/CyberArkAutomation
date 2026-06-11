@@ -85,17 +85,16 @@ function Get-SAAPrimaryADUsers {
     }
 
     # Fetch domain-specific credentials
+    # Direct credentials are used ONLY when both Username AND Password are non-blank.
+    # If either is empty, fall through to CCP.
     $credentialObj = $null
-    $hasDirectPassword = $primaryDomain.PSObject.Properties['Password'] -and -not [string]::IsNullOrWhiteSpace($primaryDomain.Password)
+    $hasDirectCredentials = (-not [string]::IsNullOrWhiteSpace($primaryDomain.Username)) -and
+                            (-not [string]::IsNullOrWhiteSpace($primaryDomain.Password))
 
-    if ($hasDirectPassword) {
-        $username = $primaryDomain.Username
-        if ([string]::IsNullOrWhiteSpace($username)) {
-            Write-Log -Message "Warning: Username is empty for primary domain '$($primaryDomain.Name)' but a direct password was provided." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
-        }
+    if ($hasDirectCredentials) {
         $secPass = ConvertTo-SecureString $primaryDomain.Password -AsPlainText -Force
-        $credentialObj = New-Object System.Management.Automation.PSCredential($username, $secPass)
-        Write-Log -Message "Using direct credentials for primary domain '$($primaryDomain.Name)' (Username: $username)" -ScriptName $ScriptName -LogPath $LogPath
+        $credentialObj = New-Object System.Management.Automation.PSCredential($primaryDomain.Username, $secPass)
+        Write-Log -Message "Using direct credentials for primary domain '$($primaryDomain.Name)' (Username: $($primaryDomain.Username))" -ScriptName $ScriptName -LogPath $LogPath
     } elseif ($primaryDomain.CCP) {
         Write-Log -Message "Retrieving credentials from CCP for primary domain '$($primaryDomain.Name)'..." -ScriptName $ScriptName -LogPath $LogPath
         try {
@@ -212,18 +211,16 @@ function Get-SAASecondaryADAccounts {
         Write-Progress -Id 20 -Activity "Secondary AD Accounts" -Status "[$domainIndex/$totalDomains] Querying domain: $($domain.Name)" -PercentComplete ([int](($domainIndex / $totalDomains) * 100))
         Write-Log -Message "[$domainIndex/$totalDomains] Querying domain '$($domain.Name)' ($($domain.FQDN)) for secondary accounts (prefixes: $($Prefixes -join ', '))..." -ScriptName $ScriptName -LogPath $LogPath
 
-        # Fetch domain-specific credentials
+        # Direct credentials are used ONLY when both Username AND Password are non-blank.
+        # If either is empty, fall through to CCP.
         $credentialObj = $null
-        $hasDirectPassword = $domain.PSObject.Properties['Password'] -and -not [string]::IsNullOrWhiteSpace($domain.Password)
+        $hasDirectCredentials = (-not [string]::IsNullOrWhiteSpace($domain.Username)) -and
+                                (-not [string]::IsNullOrWhiteSpace($domain.Password))
 
-        if ($hasDirectPassword) {
-            $username = $domain.Username
-            if ([string]::IsNullOrWhiteSpace($username)) {
-                Write-Log -Message "[$domainIndex/$totalDomains] Warning: Username is empty for domain '$($domain.Name)' but a direct password was provided." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
-            }
+        if ($hasDirectCredentials) {
             $secPass = ConvertTo-SecureString $domain.Password -AsPlainText -Force
-            $credentialObj = New-Object System.Management.Automation.PSCredential($username, $secPass)
-            Write-Log -Message "[$domainIndex/$totalDomains] Using direct credentials for domain '$($domain.Name)' (Username: $username)" -ScriptName $ScriptName -LogPath $LogPath
+            $credentialObj = New-Object System.Management.Automation.PSCredential($domain.Username, $secPass)
+            Write-Log -Message "[$domainIndex/$totalDomains] Using direct credentials for domain '$($domain.Name)' (Username: $($domain.Username))" -ScriptName $ScriptName -LogPath $LogPath
         } elseif ($domain.CCP) {
             Write-Log -Message "[$domainIndex/$totalDomains] Retrieving credentials from CCP for domain '$($domain.Name)'..." -ScriptName $ScriptName -LogPath $LogPath
             try {
@@ -595,13 +592,15 @@ function Get-SAAGroupMemberSet {
     Write-Log -Message "Fetching members of AD group '$GroupName' from primary domain '$($primaryDomain.Name)'..." -ScriptName $ScriptName -LogPath $LogPath
 
     # Fetch domain-specific credentials
+    # Direct credentials are used ONLY when both Username AND Password are non-blank.
+    # If either is empty, fall through to CCP.
     $credentialObj = $null
-    $hasDirectPassword = $primaryDomain.PSObject.Properties['Password'] -and -not [string]::IsNullOrWhiteSpace($primaryDomain.Password)
+    $hasDirectCredentials = (-not [string]::IsNullOrWhiteSpace($primaryDomain.Username)) -and
+                            (-not [string]::IsNullOrWhiteSpace($primaryDomain.Password))
 
-    if ($hasDirectPassword) {
-        $username = $primaryDomain.Username
+    if ($hasDirectCredentials) {
         $secPass = ConvertTo-SecureString $primaryDomain.Password -AsPlainText -Force
-        $credentialObj = New-Object System.Management.Automation.PSCredential($username, $secPass)
+        $credentialObj = New-Object System.Management.Automation.PSCredential($primaryDomain.Username, $secPass)
     } elseif ($primaryDomain.CCP) {
         try {
             $domainCCP = [PSCustomObject]@{

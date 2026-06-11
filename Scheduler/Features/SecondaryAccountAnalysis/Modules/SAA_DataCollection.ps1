@@ -131,7 +131,7 @@ function Get-SAAPrimaryADUsers {
     try {
         Write-Log -Message "Sending AD query to server '$($primaryDomain.Server)' using filter '$adFilter'..." -ScriptName $ScriptName -LogPath $LogPath
         Write-Progress -Id 10 -Activity "Primary Domain AD Query" -Status "Querying '$($primaryDomain.Server)'... (this may take a moment)" -PercentComplete -1
-        $adUsers = Get-ADUser @adParams
+        $adUsers = @(Get-ADUser @adParams | Select-Object SamAccountName, Enabled, Mail, GivenName, Surname)
         $rawCount = if ($adUsers) { $adUsers.Count } else { 0 }
         Write-Log -Message "AD query completed. Received $rawCount raw user records from server '$($primaryDomain.Server)'. Processing primary account pattern..." -ScriptName $ScriptName -LogPath $LogPath
         Write-Progress -Id 10 -Activity "Primary Domain AD Query" -Status "Processing $rawCount user records..." -PercentComplete -1
@@ -269,7 +269,7 @@ function Get-SAASecondaryADAccounts {
 
             Write-Log -Message "[$domainIndex/$totalDomains] Sending AD query to server '$($domain.Server)' using filter '$adFilter'..." -ScriptName $ScriptName -LogPath $LogPath
             Write-Progress -Id 21 -ParentId 20 -Activity "AD Query" -Status "Querying '$($domain.Server)'... (this may take a moment)" -PercentComplete -1
-            $adUsers = Get-ADUser @adParams
+            $adUsers = @(Get-ADUser @adParams | Select-Object SamAccountName, Enabled, Mail)
             $rawCount = if ($adUsers) { $adUsers.Count } else { 0 }
             Write-Log -Message "[$domainIndex/$totalDomains] AD query completed. Received $rawCount raw user records from server '$($domain.Server)'. Processing secondary account prefixes..." -ScriptName $ScriptName -LogPath $LogPath
             Write-Progress -Id 21 -Activity "AD Query" -Status "Processing $rawCount records from '$($domain.Server)'..." -PercentComplete -1

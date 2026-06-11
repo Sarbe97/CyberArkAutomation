@@ -117,7 +117,6 @@ $cacheGroupMembers = Join-Path $ExportDir "RawCache_GroupMembers_$TodayStr.csv"
 
 # Output file paths (timestamped)
 $analysisFile        = Join-Path $ExportDir "SAA_AnalysisReport_$Timestamp.csv"
-$plannedFile         = Join-Path $ExportDir "SAA_PlannedActions_$Timestamp.csv"
 $onboardingFile      = Join-Path $ExportDir "SAA_OnboardingResults_$Timestamp.csv"
 $skippedAccountsFile = Join-Path $ExportDir "SAA_SkippedAccounts_$Timestamp.csv"
 $missingGroupFile    = Join-Path $ExportDir "SAA_MissingGroupAccess_$Timestamp.csv"
@@ -270,6 +269,11 @@ try {
             }
         }
 
+        $domainPlatformMap = @{}
+        foreach ($d in $cfgDomains) {
+            $domainPlatformMap[$d.Name] = if (-not [string]::IsNullOrWhiteSpace($d.PersonalPlatformId)) { $d.PersonalPlatformId } else { $d.PlatformId }
+        }
+
         $analysisReport        = [System.Collections.Generic.List[object]]::new()
         $skippedAccountsList   = [System.Collections.Generic.List[object]]::new()
         $missingGroupList      = [System.Collections.Generic.List[object]]::new()
@@ -324,11 +328,6 @@ try {
 
             $inCyberArk = if ($hasPrimary -and $epvUserSet.Contains($primaryUsername)) { "Yes" } else { "No" }
 
-            $domainConfig = $cfgDomains | Where-Object { $_.Name -eq $secondary.Domain } | Select-Object -First 1
-            $platformId = if ($domainConfig) {
-                if (-not [string]::IsNullOrWhiteSpace($domainConfig.PersonalPlatformId)) { $domainConfig.PersonalPlatformId } else { $domainConfig.PlatformId }
-            } else { "Unknown" }
-
             $reportRow = [PSCustomObject]@{
                 EmployeeNumber      = $emp
                 PrimaryAccount      = $primaryUsername
@@ -338,7 +337,7 @@ try {
                 SecondaryAccount    = $secondary.Username
                 Domain              = $secondary.DomainFQDN
                 ShortDomain         = $secondary.Domain
-                PlatformId          = $platformId
+                PlatformId          = $domainPlatformMap[$secondary.Domain]
                 ExpectedSafe        = $expectedSafe
                 SafeExists          = $safeExists
                 Onboarded           = $isOnboarded
@@ -365,8 +364,6 @@ try {
 
         $missingGroupList | Export-CsvNoBom -Path $missingGroupFile
         Write-Log -Message "Missing group access report saved: $missingGroupFile" -ScriptName $ScriptName -LogPath $LogPath
-
-        # No longer exporting PlannedActions.csv
 
         if ($effectiveMode -eq "Analysis") {
             Write-Log -Message "Mode=Analysis. Reports exported. No onboarding or notifications." -ScriptName $ScriptName -LogPath $LogPath
@@ -444,8 +441,6 @@ try {
                 Write-Log -Message "Account onboarding failed for '$($plan.SecondaryAccount)': $errorMsg" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
             }
         }
-
-
 
         # Record result
         $onboardingResults.Add([PSCustomObject]@{
@@ -578,7 +573,6 @@ try {
 
         $plannedSafes    = $countNeedsAll
         $plannedOnboards = $countNeedsAll + $countNeedsOnboarding
-        $plannedUser     = $countNeedsAll + $countNeedsOnboarding
 
         $actualSafes     = @($onboardingResults | Where-Object { $_.Success }).Count # Rough estimate if we tracked safes specifically, but usually 1:1 or less
         $actualOnboards  = @($onboardingResults | Where-Object { $_.Success }).Count
@@ -594,7 +588,7 @@ try {
         
         $plannedSafesCnt   = if ($isSim) { $plannedSafes } else { $actualSafes }
         $plannedOnbrdsCnt  = if ($isSim) { $plannedOnboards } else { $actualOnboards }
-        $plannedUsrAlrtCnt = if ($isSim) { $plannedUser } else { $actualOnboards }
+        $plannedUsrAlrtCnt = if ($isSim) { $plannedOnboards } else { $actualOnboards }
 
         $summaryTokens = @{
             EffectiveMode         = $effectiveMode

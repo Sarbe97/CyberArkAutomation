@@ -285,15 +285,15 @@ function Get-SAASecondaryADAccounts {
                 if ($shouldExclude) { continue }
 
                 # Check if username starts with any configured prefix
-                $matchedPrefix = $false
+                $matchedPrefix = $null
                 foreach ($prefix in $Prefixes) {
                     if ($user.SamAccountName.StartsWith($prefix, [System.StringComparison]::InvariantCultureIgnoreCase)) {
-                        $matchedPrefix = $true
+                        $matchedPrefix = $prefix
                         break
                     }
                 }
-                if (-not $matchedPrefix) { continue }
-                
+                if ($null -eq $matchedPrefix) { continue }
+
                 # Check strict regex pattern if provided
                 if ($Pattern -and ($user.SamAccountName -notmatch $Pattern)) { continue }
 

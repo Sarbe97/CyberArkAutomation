@@ -5,11 +5,8 @@
 # Uses Send-SchedulerEmail / Send-SchedulerEmailWithAttachment (Utils.ps1) for delivery.
 #
 # Exposes:
-#   Send-SAAAdminMissingAccessAlert   - Primary not in required CyberArk group
-#   Send-SAASafeCreatedAlert          - Personal safe successfully created
-#   Send-SAAFailureAlert              - Onboarding or safe creation failure
 #   Send-SAAUserSuccessNotification   - Successful onboarding → primary account's email
-#   Send-SAASimulationSummary         - End-of-simulation summary with attachments
+#   Send-SAARunSummary                - End-of-run summary email with CSV attachments
 # =============================================================================
 
 # ---------------------------------------------------------------------------
@@ -34,7 +31,6 @@ function Get-SAAEmailConfig {
     }
     return $obj
 }
-
 
 
 # ---------------------------------------------------------------------------

@@ -324,6 +324,11 @@ try {
 
             $inCyberArk = if ($hasPrimary -and $epvUserSet.Contains($primaryUsername)) { "Yes" } else { "No" }
 
+            $domainConfig = $cfgDomains | Where-Object { $_.Name -eq $secondary.Domain } | Select-Object -First 1
+            $platformId = if ($domainConfig) {
+                if (-not [string]::IsNullOrWhiteSpace($domainConfig.PersonalPlatformId)) { $domainConfig.PersonalPlatformId } else { $domainConfig.PlatformId }
+            } else { "Unknown" }
+
             $reportRow = [PSCustomObject]@{
                 EmployeeNumber      = $emp
                 PrimaryAccount      = $primaryUsername
@@ -333,7 +338,7 @@ try {
                 SecondaryAccount    = $secondary.Username
                 Domain              = $secondary.DomainFQDN
                 ShortDomain         = $secondary.Domain
-                PlatformId          = $secondary.PlatformId
+                PlatformId          = $platformId
                 ExpectedSafe        = $expectedSafe
                 SafeExists          = $safeExists
                 Onboarded           = $isOnboarded

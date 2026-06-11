@@ -310,7 +310,6 @@ function Get-SAASecondaryADAccounts {
                     DomainFQDN  = $domain.FQDN
                     Enabled     = $user.Enabled
                     Mail        = if ($user.Mail) { $user.Mail } else { "" }
-                    PlatformId  = if ($domain.PSObject.Properties['PersonalPlatformId']) { $domain.PersonalPlatformId } else { $domain.PlatformId }
                 }
                 $domainResult.Add($row)
                 $allAccounts.Add($row)

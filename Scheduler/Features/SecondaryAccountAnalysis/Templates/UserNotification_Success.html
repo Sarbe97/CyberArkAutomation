@@ -1,21 +1,29 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <meta charset="UTF-8">
     <title>Your CyberArk Personal Safe is Ready</title>
 </head>
-<body style="font-family: Arial, sans-serif; font-size: 13px; color: #333; margin: 0; padding: 20px; background-color: #ffffff;">
-    <p>Hello {{PrimaryFirstName}},</p>
-    <p>Your secondary account(s) have been successfully onboarded into CyberArk. You can now access them through your personal safe using the CyberArk Portal or the Credential Provider.</p>
-    
-    <p><strong>Primary Account:</strong> {{PrimaryAccount}}</p>
-    
+
+<body
+    style="font-family: Arial, sans-serif; font-size: 13px; color: #333; margin: 0; padding: 20px; background-color: #ffffff;">
+    <p>Hi {{PrimaryFullName}},</p>
+    <p>The below secondary account(s) was discovered by CyberArk and onboarded to your personal safe.</p>
+
     {{OnboardedAccountsTable}}
-    
-    <p><strong>Access Instructions:</strong></p>
-    <p>Log in to the CyberArk Portal and navigate to your safe to view and retrieve your credentials. If you encounter any issues, contact the PAM Operations team.</p>
-    
+
+    <div
+        style="background-color: #f9f9f9; border: 1px solid #e0e0e0; padding: 15px; margin: 20px 0; border-radius: 4px;">
+        <p style="margin-top: 0;"><strong>PSM Access Option:</strong> You also have the option to use CyberArk PSM (RDP)
+            for accessing Windows machines, which eliminates the need to copy or manually type the password depending on
+            the account type.</p>
+        <p style="margin-bottom: 0;"><strong>User Guide:</strong> For step-by-step instructions on how to use PSM RDP,
+            please refer to our <a href="#" style="color: #0066cc; text-decoration: none; font-weight: bold;">CyberArk
+                PSM User Guide (KB0012345)</a>.</p>
+    </div>
     <br>
     <p>Regards,<br>CyberArk Team</p>
 </body>
+
 </html>

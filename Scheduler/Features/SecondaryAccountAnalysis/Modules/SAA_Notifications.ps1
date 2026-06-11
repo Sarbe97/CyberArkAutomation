@@ -66,7 +66,7 @@ function Send-SAAUserSuccessNotification {
 
     try {
         $body     = Get-TemplateContent -TemplateName "UserNotification_Success" -Data $Tokens -TemplatesPath $TemplatesPath
-        $subject  = "Your CyberArk Personal Safe is Ready - $($Tokens['SafeName'])"
+        $subject  = "CyberArk Secondary Account Onboarding Notification - $($Tokens['PrimaryAccount'])"
         $emailCfg = Get-SAAEmailConfig -GlobalEmailConfig $GlobalEmailConfig -To @($UserEmail)
         Send-SchedulerEmail -Subject $subject -Body $body -EmailConfig $emailCfg -IsHtml `
             -ScriptName $ScriptName -LogPath $LogPath

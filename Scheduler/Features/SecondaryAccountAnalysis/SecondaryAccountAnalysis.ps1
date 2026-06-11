@@ -487,6 +487,7 @@ try {
             $planMatch = $csvPlan | Where-Object { $_.PrimaryAccount -eq $primaryAccount } | Select-Object -First 1
             $primaryEmail = if ($planMatch) { $planMatch.PrimaryEmail } else { "" }
             $primaryFirstName = if ($planMatch -and $planMatch.PrimaryFirstName) { $planMatch.PrimaryFirstName } else { "Colleague" }
+            $primaryFullName  = if ($planMatch -and $planMatch.PrimaryFullName) { $planMatch.PrimaryFullName } else { $primaryFirstName }
             
             # Generate the HTML table of onboarded accounts
             $generatedDate = (Get-Date).ToString("yyyy-MM-dd")
@@ -500,6 +501,8 @@ try {
             $tokens = @{
                 PrimaryAccount         = $primaryAccount
                 PrimaryFirstName       = $primaryFirstName
+                PrimaryFullName        = $primaryFullName
+                PrimaryEmail           = $primaryEmail
                 Domain                 = $domain
                 SafeName               = $safeName
                 OnboardedAccountsTable = $accountListHtml

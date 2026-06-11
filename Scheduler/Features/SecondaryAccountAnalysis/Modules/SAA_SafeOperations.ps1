@@ -209,15 +209,26 @@ function Invoke-SAAAccountOnboard {
             secret     = ""
         }
 
-        $uri  = "$BaseUrl/PasswordVault/api/Accounts"
+        $uri = "$BaseUrl/PasswordVault/api/Accounts"
+
+        # Log full request details to aid in diagnosing onboarding failures
+        $bodyJson = $body | ConvertTo-Json -Compress
+        Write-Log -Message "POST $uri" -ScriptName $ScriptName -LogPath $LogPath
+        Write-Log -Message "Request body: $bodyJson" -ScriptName $ScriptName -LogPath $LogPath
+
         $resp = Invoke-CyberArkApi -Uri $uri -Method Post -Body $body
 
-        Write-Log -Message "Account '$Username' onboarded successfully into '$SafeName' (ID: $($resp.id))." -ScriptName $ScriptName -LogPath $LogPath
+        Write-Log -Message "Account '$Username' onboarded successfully into '$SafeName' (AccountId: $($resp.id), Platform: $PlatformId)." -ScriptName $ScriptName -LogPath $LogPath
         return @{ Success = $true; Simulated = $false; AccountId = $resp.id }
     }
     catch {
-        $errMsg = $_.Exception.Message
-        Write-Log -Message "Failed to onboard '$Username' into '$SafeName': $errMsg" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
+        $errMsg       = $_.Exception.Message
+        $errCategory  = $_.CategoryInfo.Category
+        $innerMsg     = if ($_.Exception.InnerException) { $_.Exception.InnerException.Message } else { "none" }
+        Write-Log -Message "Failed to onboard '$Username' into '$SafeName'." -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
+        Write-Log -Message "  Error    : $errMsg" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
+        Write-Log -Message "  Category : $errCategory" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
+        Write-Log -Message "  Inner    : $innerMsg" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
         return @{ Success = $false; Simulated = $false; Error = $errMsg }
     }
 }

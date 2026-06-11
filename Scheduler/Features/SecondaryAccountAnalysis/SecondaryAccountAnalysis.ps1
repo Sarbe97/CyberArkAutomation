@@ -291,7 +291,7 @@ try {
             $primaryUsername = $primaryUserMap[$emp]
             $primaryInfo = $primaryInfoMap[$emp]
             $primaryEmail = if ($primaryInfo) { $primaryInfo.Mail } else { "" }
-            $primaryFirstName = if ($primaryInfo -and $primaryInfo.GivenName) { $primaryInfo.GivenName } else { "Colleague" }
+            $primaryFirstName = if ($primaryInfo -and $primaryInfo.GivenName) { $primaryInfo.GivenName } else { "" }
             $primaryFullName  = if ($primaryInfo) { "$($primaryInfo.GivenName) $($primaryInfo.Surname)".Trim() } else { "" }
             
             $hasPrimary = $null -ne $primaryInfo
@@ -448,6 +448,7 @@ try {
             SecondaryAccount = $plan.SecondaryAccount
             Domain           = $plan.Domain
             SafeName         = $plan.ExpectedSafe
+            PlatformId       = $plan.PlatformId
             Simulated        = $SimulationMode
             Success          = $overallSuccess
             ErrorMessage     = $errorMsg
@@ -487,7 +488,7 @@ try {
             # Find the primary email and name from the original plan
             $planMatch = $csvPlan | Where-Object { $_.PrimaryAccount -eq $primaryAccount } | Select-Object -First 1
             $primaryEmail = if ($planMatch) { $planMatch.PrimaryEmail } else { "" }
-            $primaryFirstName = if ($planMatch -and $planMatch.PrimaryFirstName) { $planMatch.PrimaryFirstName } else { "Colleague" }
+            $primaryFirstName = if ($planMatch -and $planMatch.PrimaryFirstName) { $planMatch.PrimaryFirstName } else { "" }
             $primaryFullName  = if ($planMatch -and $planMatch.PrimaryFullName) { $planMatch.PrimaryFullName } else { $primaryFirstName }
             
             # Generate the HTML table of onboarded accounts

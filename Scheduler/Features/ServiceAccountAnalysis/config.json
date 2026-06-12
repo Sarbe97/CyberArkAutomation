@@ -1,0 +1,60 @@
+{
+  "Features": {
+    "ServiceAccountAnalysis": {
+      "Enabled": true,
+
+      "_Comment_Mode": "Supported values: Discovery | Analysis",
+      "Mode": "Analysis",
+
+      "PersonalAccount": {
+        "_Comment": "Pattern matching personal accounts. Both primary and secondary typically fall under this regex.",
+        "Pattern": "^[A-Za-z]\\d{6}$"
+      },
+
+      "_Comment_Domains": "List of domains to scan for Service Accounts. Direct credentials or CCP can be used.",
+      "Domains": [
+        {
+          "Name": "NA",
+          "FQDN": "na.company.com",
+          "Server": "na-dc.company.com",
+          "Username": "",
+          "Password": "",
+          "CCP": {
+            "AppId": "CyberArkHealthCheck",
+            "Safe": "PAM-AD-NA",
+            "Object": "AD-NA-ScanAccount"
+          }
+        },
+        {
+          "Name": "NADEV",
+          "FQDN": "nadev.company.com",
+          "Server": "nadev-dc.company.com",
+          "Username": "nadev_scan",
+          "Password": "DirectPasswordExample",
+          "CCP": {
+            "AppId": "CyberArkHealthCheck",
+            "Safe": "PAM-AD-NADEV",
+            "Object": "AD-NADEV-ScanAccount"
+          }
+        }
+      ],
+
+      "Exclusions": {
+        "_Comment": "Domains: skip entire domain. UsernamePatterns: regex patterns to skip specific usernames.",
+        "Domains": [],
+        "UsernamePatterns": [
+          "krbtgt"
+        ]
+      },
+
+      "Notifications": {
+        "AdminFrom": "",
+        "_Comment_AdminTo": "Admin alert recipients for summary email",
+        "AdminTo": [ "pam-admins@company.com" ],
+        "AdminCC": [],
+        "_Comment_SendSimulationSummary": "If true, sends a summary email at the end of a run",
+        "SendSummary": true
+      }
+    }
+  }
+}

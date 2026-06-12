@@ -1,0 +1,66 @@
+{
+  "Features": {
+    "SafeAnalysis": {
+      "Enabled": true,
+
+      "_Comment_Mode": "Supported values: Discovery | Analysis | Remediation | Simulation",
+      "Mode": "Simulation",
+
+      "CommonSafeMembers": [
+        {
+          "Name": "CyberArk Admins",
+          "Type": "Group",
+          "MemberSource": "Vault",
+          "PermissionSet": "VAULT_ADMIN"
+        }
+      ],
+
+      "PersonalSafes": {
+        "Pattern": "^S-A-PR-WI-U\\d{6}$",
+        "_Comment_Extraction": "Regex capture group used to extract the primary owner's username from the safe name",
+        "OwnerExtractionRegex": "^S-A-PR-WI-(U\\d{6})$",
+        "OwnerPermissionSet": "USER_ACCESS"
+      },
+
+      "_Comment_SafePermissionSets": "Mirrors CyberArkCLI/config.json pattern. Add sets here; reference by name in Members[].PermissionSet",
+      "SafePermissionSets": {
+        "VAULT_ADMIN": [
+          "ManageSafe",
+          "ManageSafeMembers",
+          "BackupSafe",
+          "ViewAuditLog",
+          "ViewSafeMembers",
+          "AccessWithoutConfirmation",
+          "UnlockAccounts",
+          "MoveAccountsAndFolders"
+        ],
+        "USER_ACCESS": [
+          "UseAccounts",
+          "ListAccounts",
+          "RetrieveAccounts",
+          "InitiateCPMAccountManagementOperations"
+        ]
+      },
+
+      "Exclusions": {
+        "InbuiltSafes": [
+          "System",
+          "VaultInternal",
+          "Notification Engine",
+          "PasswordManager",
+          "PasswordManager_workspace",
+          "PasswordManagerShared",
+          "PVWAConfig"
+        ],
+        "ExceptionSafes": []
+      },
+
+      "Notifications": {
+        "AdminFrom": "",
+        "AdminTo": [ "pam-admins@company.com" ],
+        "AdminCC": [],
+        "SendSimulationSummary": true
+      }
+    }
+  }
+}

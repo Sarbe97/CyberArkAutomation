@@ -289,10 +289,38 @@ function Get-CACMembersOfGroup {
         # Build output using List<T>
         $output = [System.Collections.Generic.List[object]]::new()
         foreach ($m in $group.members) {
+            $memberType = if ($m.memberType) { $m.memberType } else { "Unknown" }
+            
+            $fullName = ""
+            $email = ""
+            $department = ""
+            $title = ""
+
+            # Check if it's likely a user
+            if ($memberType -eq "User" -or $memberType -eq "Unknown") {
+                $userDetails = Get-CACUserDetailsFromStore -InputValue $m.userName
+                if ($userDetails.FullName -ne "Not Found") {
+                    $fullName = $userDetails.FullName
+                    $email = $userDetails.Email
+                    $department = $userDetails.Department
+                    $title = $userDetails.Title
+                    if ($memberType -eq "Unknown") { $memberType = "User" }
+                } elseif ($memberType -eq "Unknown") {
+                    $memberType = "Group"
+                }
+            }
+
             $output.Add([PSCustomObject]@{
-                    Id       = $m.id
-                    UserName = $m.userName
-                })
+                GroupName  = $GroupName
+                Id         = $m.id
+                MemberId   = $m.id
+                UserName   = $m.userName
+                MemberType = $memberType
+                FullName   = $fullName
+                Email      = $email
+                Department = $department
+                Title      = $title
+            })
         }
 
         Write-Log "Retrieved $($output.Count) members from $GroupName" "DEBUG"
@@ -564,35 +592,58 @@ function Invoke-CACUserLookup {
 function Invoke-CACGroupMembersLookup {
     <#
     .SYNOPSIS
-        Interactive wrapper: prompts for group name and displays members.
+        Interactive wrapper: prompts for group name(s) and displays members, with personal details if available.
     #>
     [CmdletBinding()]
     param()
 
-    $groupName = Read-Host "Enter Group Name"
-    if ([string]::IsNullOrWhiteSpace($groupName)) {
-        Write-Host "Group name cannot be empty." -ForegroundColor Yellow
+    $groupInput = Read-Host "Enter Group Name(s) (comma-separated)"
+    if ([string]::IsNullOrWhiteSpace($groupInput)) {
+        Write-Host "Group name(s) cannot be empty." -ForegroundColor Yellow
         return
     }
 
-    Write-Host "Fetching members for group: $groupName ..." -ForegroundColor Cyan
-    $members = Get-CACMembersOfGroup -GroupName $groupName
+    $groupNames = $groupInput -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+    $allMembers = [System.Collections.Generic.List[object]]::new()
 
-    if ($null -eq $members) {
-        Write-Host "Group '$groupName' not found." -ForegroundColor Yellow
-        return
+    foreach ($groupName in $groupNames) {
+        Write-Host "Fetching members for group: $groupName ..." -ForegroundColor Cyan
+        $members = Get-CACMembersOfGroup -GroupName $groupName
+
+        if ($null -eq $members) {
+            Write-Host "Group '$groupName' not found." -ForegroundColor Yellow
+            continue
+        }
+
+        if ($members.Count -eq 0) {
+            Write-Host "Group '$groupName' has no members." -ForegroundColor Yellow
+            continue
+        }
+
+        foreach ($m in $members) {
+            $allMembers.Add($m)
+        }
     }
 
-    if ($members.Count -eq 0) {
-        Write-Host "Group '$groupName' has no members." -ForegroundColor Yellow
+    if ($allMembers.Count -eq 0) {
+        Write-Host "No members found in any of the specified groups." -ForegroundColor Yellow
         return
     }
 
     Write-Host ""
-    Write-Host "===== Members of '$groupName' =====" -ForegroundColor Cyan
-    Write-Host "Total Members: $($members.Count)"
+    Write-Host "===== Group Members =====" -ForegroundColor Cyan
+    Write-Host "Total Members: $($allMembers.Count)"
     Write-Host ""
-    $members | Format-Table -AutoSize
+    
+    $allMembers | Format-Table -AutoSize
+
+    # Always export to CSV
+    $outputDir = Get-CACOutputDir
+    $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $outputFile = "$outputDir/group_members_$timestamp.csv"
+
+    $allMembers | Export-Csv -Path $outputFile -NoTypeInformation -Encoding UTF8
+    Write-Host "Export File: $outputFile" -ForegroundColor Green
 }
 
 # ============================================================

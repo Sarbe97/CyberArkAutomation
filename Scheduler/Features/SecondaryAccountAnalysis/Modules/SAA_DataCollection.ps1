@@ -257,7 +257,7 @@ function Get-SAASecondaryADAccounts {
             $adParams = @{
                 Filter      = $adFilter
                 Server      = $domain.Server
-                Properties  = @("SamAccountName", "Enabled", "Mail")
+                Properties  = @("SamAccountName", "Enabled", "Mail", "GivenName", "Surname", "LastLogonDate", "PasswordLastSet", "DistinguishedName")
                 ErrorAction = "Stop"
             }
             if ($null -ne $credentialObj) {
@@ -266,7 +266,7 @@ function Get-SAASecondaryADAccounts {
 
             Write-Log -Message "[$domainIndex/$totalDomains] Sending AD query to server '$($domain.Server)' using filter '$adFilter'..." -ScriptName $ScriptName -LogPath $LogPath
             Write-Progress -Id 21 -ParentId 20 -Activity "AD Query" -Status "Querying '$($domain.Server)'... (this may take a moment)" -PercentComplete -1
-            $adUsers = @(Get-ADUser @adParams | Select-Object SamAccountName, Enabled, Mail)
+            $adUsers = @(Get-ADUser @adParams | Select-Object SamAccountName, Enabled, Mail, GivenName, Surname, LastLogonDate, PasswordLastSet, DistinguishedName)
             $rawCount = if ($adUsers) { $adUsers.Count } else { 0 }
             Write-Log -Message "[$domainIndex/$totalDomains] AD query completed. Received $rawCount raw user records from server '$($domain.Server)'. Processing secondary account prefixes..." -ScriptName $ScriptName -LogPath $LogPath
             Write-Progress -Id 21 -Activity "AD Query" -Status "Processing $rawCount records from '$($domain.Server)'..." -PercentComplete -1
@@ -299,14 +299,23 @@ function Get-SAASecondaryADAccounts {
                 # Skip accounts that don't end in exactly 6 digits — they are not valid employee accounts
                 if ([string]::IsNullOrEmpty($empNbr)) { continue }
 
+                # Extract the closest parent OU from DistinguishedName (e.g., "CN=jdoe,OU=IT Admins,DC=domain,DC=com" => "IT Admins")
+                $ouValue = ""
+                if ($user.DistinguishedName -match 'OU=([^,]+)') { $ouValue = $Matches[1] }
+
                 $row = [PSCustomObject]@{
-                    Username    = $user.SamAccountName
-                    Prefix      = $matchedPrefix
-                    EmployeeNbr = $empNbr
-                    Domain      = $domain.Name
-                    DomainFQDN  = $domain.FQDN
-                    Enabled     = $user.Enabled
-                    Mail        = if ($user.Mail) { $user.Mail } else { "" }
+                    Username          = $user.SamAccountName
+                    Prefix            = $matchedPrefix
+                    EmployeeNbr       = $empNbr
+                    Domain            = $domain.Name
+                    DomainFQDN        = $domain.FQDN
+                    Enabled           = $user.Enabled
+                    GivenName         = if ($user.GivenName)       { $user.GivenName }       else { "" }
+                    Surname           = if ($user.Surname)          { $user.Surname }          else { "" }
+                    Mail              = if ($user.Mail)             { $user.Mail }             else { "" }
+                    LastLogonDate     = if ($user.LastLogonDate)    { $user.LastLogonDate.ToString("yyyy-MM-dd HH:mm:ss") } else { "" }
+                    PasswordLastSet   = if ($user.PasswordLastSet)  { $user.PasswordLastSet.ToString("yyyy-MM-dd HH:mm:ss") }  else { "" }
+                    OU                = $ouValue
                 }
                 $domainResult.Add($row)
                 $allAccounts.Add($row)

@@ -328,21 +328,29 @@ try {
 
             $inCyberArk = if ($hasPrimary -and $epvUserSet.Contains($primaryUsername)) { "Yes" } else { "No" }
 
+            $secondaryFullName = "$($secondary.GivenName) $($secondary.Surname)".Trim()
+            $secondaryStatus   = if ([string]$secondary.Enabled -eq 'True') { "Enabled" } else { "Disabled" }
+
             $reportRow = [PSCustomObject]@{
-                EmployeeNumber      = $emp
-                PrimaryAccount      = $primaryUsername
-                PrimaryFirstName    = $primaryFirstName
-                PrimaryFullName     = $primaryFullName
-                PrimaryEmail        = $primaryEmail
-                SecondaryAccount    = $secondary.Username
-                Domain              = $secondary.DomainFQDN
-                ShortDomain         = $secondary.Domain
-                PlatformId          = $domainPlatformMap[$secondary.Domain]
-                ExpectedSafe        = $expectedSafe
-                SafeExists          = $safeExists
-                Onboarded           = $isOnboarded
-                InCyberArk          = $inCyberArk
-                Status              = $status
+                EmployeeNumber           = $emp
+                PrimaryAccount           = $primaryUsername
+                PrimaryFirstName         = $primaryFirstName
+                PrimaryFullName          = $primaryFullName
+                PrimaryEmail             = $primaryEmail
+                SecondaryAccount         = $secondary.Username
+                SecondaryFullName        = $secondaryFullName
+                SecondaryStatus          = $secondaryStatus
+                SecondaryLastLogon       = $secondary.LastLogonDate
+                SecondaryPasswordLastSet = $secondary.PasswordLastSet
+                SecondaryOU              = $secondary.OU
+                Domain                   = $secondary.DomainFQDN
+                ShortDomain              = $secondary.Domain
+                PlatformId               = $domainPlatformMap[$secondary.Domain]
+                ExpectedSafe             = $expectedSafe
+                SafeExists               = $safeExists
+                Onboarded                = $isOnboarded
+                InCyberArk               = $inCyberArk
+                Status                   = $status
             }
             $analysisReport.Add($reportRow)
 
@@ -442,16 +450,29 @@ try {
             }
         }
 
+        # Determine which step failed (if any)
+        $failureStep = ""
+        if (-not $overallSuccess) {
+            if ($provResult -and $provResult.Errors.Count -gt 0) { $failureStep = "SafeProvisioning" }
+            elseif ($onboardResult -and -not $onboardResult.Success)  { $failureStep = "AccountOnboarding" }
+        }
+
         # Record result
         $onboardingResults.Add([PSCustomObject]@{
-            PrimaryAccount   = $plan.PrimaryAccount
-            SecondaryAccount = $plan.SecondaryAccount
-            Domain           = $plan.Domain
-            SafeName         = $plan.ExpectedSafe
-            PlatformId       = $plan.PlatformId
-            Simulated        = $SimulationMode
-            Success          = $overallSuccess
-            ErrorMessage     = $errorMsg
+            EmployeeNumber           = $plan.EmployeeNumber
+            PrimaryAccount           = $plan.PrimaryAccount
+            PrimaryFullName          = $plan.PrimaryFullName
+            PrimaryEmail             = $plan.PrimaryEmail
+            SecondaryAccount         = $plan.SecondaryAccount
+            SecondaryFullName        = $plan.SecondaryFullName
+            SecondaryOU              = $plan.SecondaryOU
+            Domain                   = $plan.Domain
+            SafeName                 = $plan.ExpectedSafe
+            PlatformId               = $plan.PlatformId
+            Simulated                = if ($SimulationMode) { "Yes" } else { "No" }
+            Success                  = if ($overallSuccess)  { "Yes" } else { "No" }
+            FailureStep              = $failureStep
+            ErrorMessage             = $errorMsg
         })
     }
 

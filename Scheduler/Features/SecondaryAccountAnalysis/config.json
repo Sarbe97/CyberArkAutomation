@@ -6,6 +6,11 @@
       "_Comment_Mode": "Supported values: Discovery | Analysis | Onboarding | Simulation",
       "Mode": "Simulation",
 
+      "Cleanup": {
+        "Enabled": true,
+        "RetentionDays": 30
+      },
+
       "PrimaryAccount": {
         "_Comment": "Primary accounts exist ONLY in the domain where IsPrimary=true",
         "Pattern": "^U\\d{6}$",

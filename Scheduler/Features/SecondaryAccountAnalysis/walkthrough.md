@@ -13,6 +13,7 @@ The main configuration file `Scheduler/Features/SecondaryAccountAnalysis/config.
 - **Personal Safes**: Specifies the naming convention for the personal safes (e.g., `S-A-PR-WI-{PrimaryAccount}`) and the permission sets granted to the primary owner.
 - **Domains**: A list of AD domains to query for primary and secondary accounts, with support for specific platform IDs.
 - **Notifications**: Configures email recipients for administrative summaries and controls user notification behavior.
+- **Cleanup**: Controls log and output data retention limits (e.g., `RetentionDays`).
 
 ### 2. SecondaryAccountAnalysis Orchestrator
 The main script `SecondaryAccountAnalysis.ps1` runs the workflow in distinct phases:
@@ -23,6 +24,7 @@ The main script `SecondaryAccountAnalysis.ps1` runs the workflow in distinct pha
    - Onboards the unmanaged secondary accounts into the corresponding personal safe.
 4. **Phase 3B: User Notifications**: Sends an automated email to each primary user listing the accounts that were successfully provisioned for them.
 5. **Phase 4: Run Summary**: Sends a consolidated report to the PAM Administrators outlining license utilization, status breakdowns, and attaches the generated CSVs.
+6. **Phase 5: Cleanup**: Automatically removes `.log` files and `Output` date-folders older than the configured `RetentionDays` to prevent uncontrolled disk growth.
 
 ### 3. Data Collection Module
 `Modules/SAA_DataCollection.ps1` handles robust, cached data retrieval:

@@ -1,27 +1,44 @@
-1. Data Collection (Gathering the Raw Data)
+### 1. Current State Topology
 
-Active Directory: Pulls all Primary users (U accounts) from the NA domain.
-Active Directory: Pulls all Secondary accounts (A, S, etc.) from all configured domains.
-Active Directory: Pulls all members of the kapamprodusers group.
-CyberArk: Pulls the names of all existing Safes and all Onboarded Accounts.
-2. Analysis (Checking the Rules) (Loops through every secondary account to assign it exactly one of these statuses):
+* **Active Directory (External LDAP):** Contains the human administrator group `kapamprodvaultadmins`.
+* **CyberArk Vault Internal Directory:** Contains the internal utility accounts `automationTask`, `SCIM-user`, and `nipamadmin`.
+* **The Parent Group Wrapper:** `VaultAdmins` contains all of the above identities.
 
-MissingPrimary: It has no matching Primary user. (Action: Skip)
-PrimaryDisabled: The Primary user is disabled in AD. (Action: Skip)
-MissingGroupAccess: The Primary user is NOT in the kapamprodusers group. (Action: Skip)
-Managed: The secondary account is already onboarded in CyberArk. (Action: Skip, nothing to do)
-NeedsOnboarding: The personal safe already exists, but the account is not in it. (Action: Ready for Onboarding)
-NeedsAll: The personal safe does not exist, and the account is not onboarded. (Action: Ready for Safe Creation + Onboarding)
-3. Execution (Doing the Work) (Only applies to accounts flagged as NeedsOnboarding or NeedsAll)
+---
 
-Create Safe: Creates the personal safe in CyberArk and adds the required members.
-Onboard Account: Adds the secondary account to the safe.
-Send User Email: After all accounts are finished, the script groups the successful accounts by user and sends one "Welcome to your Vault" email to the Primary User's email address (listing all the secondary accounts that were just added for them).
-4. Admin Reporting (The Final Recap)
+### 2. Core Operational Issues Identified
 
-Sends one Run Summary email to the Admins.
-Attaches 4 CSVs:
-OnboardingResults.csv (What safes were actually created & accounts onboarded)
-MissingGroupAccess.csv (Users who need to be added to AD group)
-SkippedAccounts.csv (Users skipped because primary is missing or disabled)
-AnalysisReport.csv (The master list of all 15,000+ accounts and their statuses)
+* **The Inbound Automation Block:**
+* The `automationTask` user is an internal Vault account. It **cannot** be added to the external Active Directory group `kapamprodvaultadmins`.
+* Because Safes only list `kapamprodvaultadmins` as a member, the `automationTask` user has zero permission paths into the Safes.
+* **Result:** All automated ingestion workflows fail with a "Not Authorized" error.
+
+
+* **The Single-User Access Monopolization:**
+* You are completely correct. Because `nipamadmin` is mapped as an explicit, loose individual account on the Safe roster, **no other internal Vault user has access to that safe.** * If a new utility account or automation tool is spun up in the Vault, it is completely blind to the Safe infrastructure until manual, manual intervention occurs.
+
+
+* **The Identity Governance (SailPoint) Blind Spot:**
+* SailPoint indexes access via group memberships. Because permissions are explicitly split across loose child entries on the Safe (`kapamprodvaultadmins` group + explicit `nipamadmin` individual user account), SailPoint cannot calculate parent entitlements.
+
+
+
+---
+
+### 3. The Resolution: Architecture Alignment Matrix
+
+To resolve all onboarding failures and flatten the permission layer, every Safe must stop hosting individual user entries. Instead, every Safe will host exactly these three entries:
+
+| Target Safe Member Name | Object Type | Mandatory Safe Permissions | Explicitly Unchecked | Operational Objective |
+| --- | --- | --- | --- | --- |
+| **`VaultAdmins`** | 👥 **Group** | Add, Update, Delete, Manage Members | **Retrieve** & **Use** | **Fixes Automation:** Unblocks internal Vault users (`automationTask`) and human admins without exposing credential strings. |
+| **`PAM_BreakGlass_Admin_Group`** | 👥 **Group** | **ALL PERMISSIONS** | None | **Fixes Single-User Monopolization:** Groups `nipamadmin` (and any future backup accounts) into an easily editable, highly auditable emergency track. |
+| **`SCIM-user`** | 👤 **User** | **ALL PERMISSIONS** | None | **Fixes Governance:** Unblocks SailPoint engine to query and clean up tracking dashboards. |
+
+---
+
+### 4. Direct Execution Rules
+
+1. **Enforce Group Nesting:** Ensure `kapamprodvaultadmins` (AD), `automationTask` (Vault), and `SCIM-user` (Vault) sit cleanly inside the parent **`VaultAdmins`** group configuration.
+2. **Strip Individual Roster Overrides:** Remove direct individual listings of `nipamadmin` from the Safes. Map the account exclusively inside the new `PAM_BreakGlass_Admin_Group`.
+3. **Automate Creation Rules:** Program the Safe onboarding script to automatically stamp these three target entries onto all new Safes at the runtime creation phase.

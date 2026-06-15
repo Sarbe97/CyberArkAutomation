@@ -37,8 +37,6 @@ function Get-SAAEmailConfig {
 # Send-SAAUserSuccessNotification
 # Sent to the primary account's email address (from AD mail attribute) after
 # their secondary account is successfully onboarded.
-# If UseADMailAttribute=true and no mail was found, falls back to constructing
-# address from UserEmailFallbackDomain.
 # In SimulationMode: logs only.
 # ---------------------------------------------------------------------------
 function Send-SAAUserSuccessNotification {

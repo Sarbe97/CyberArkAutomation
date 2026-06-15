@@ -467,15 +467,12 @@ try {
     # PHASE 3B — USER SUCCESS NOTIFICATIONS
     # Group successful onboardings by primary user and send one email per user
     # ==========================================================
-    if ($cfgNotif.UseADMailAttribute) {
-        Write-Log -Message "========== PHASE 3B: USER SUCCESS NOTIFICATIONS ==========" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "========== PHASE 3B: USER SUCCESS NOTIFICATIONS ==========" -ScriptName $ScriptName -LogPath $LogPath
         
         $successfulOnboards = $onboardingResults | Where-Object { $_.Success }
         $groupedByUser = $successfulOnboards | Group-Object -Property PrimaryAccount
         
         Write-Log -Message "Found $($groupedByUser.Count) users who had accounts successfully provisioned." -ScriptName $ScriptName -LogPath $LogPath
-        
-        $sampleSentToAdmin = $false
 
         foreach ($group in $groupedByUser) {
             $primaryAccount = $group.Name
@@ -512,22 +509,6 @@ try {
                 SecondaryAccount       = "Multiple" # Fallback log message token
             }
             
-            # Optional: Send one sample email to the Admin during Simulation
-            if ($SimulationMode -and -not $sampleSentToAdmin -and $cfgNotif.AdminTo) {
-                Write-Log -Message "[SIMULATION] Sending one sample user success notification to Admin ($($cfgNotif.AdminTo[0]))" -ScriptName $ScriptName -LogPath $LogPath
-                Send-SAAUserSuccessNotification `
-                    -Tokens           $tokens `
-                    -UserEmail        $cfgNotif.AdminTo[0] `
-                    -GlobalEmailConfig $config.Email `
-                    -TemplatesPath    $templatesPath `
-                    -ScriptName       $ScriptName `
-                    -LogPath          $LogPath `
-                    -FromOverride     $cfgNotif.UserFrom `
-                    -Bcc              $cfgNotif.UserBcc `
-                    -SimulationMode   $false # Force it to actually send
-                $sampleSentToAdmin = $true
-            }
-
             Send-SAAUserSuccessNotification `
                 -Tokens           $tokens `
                 -UserEmail        $primaryEmail `
@@ -539,7 +520,6 @@ try {
                 -Bcc              $cfgNotif.UserBcc `
                 -SimulationMode   $SimulationMode
         }
-    }
 
     # ==========================================================
     # PHASE 4 — RUN SUMMARY EMAIL

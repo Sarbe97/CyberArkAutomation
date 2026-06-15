@@ -181,9 +181,6 @@
         "_Comment_AdminTo": "Admin alert recipients for missing access, safe creation, and failures",
         "AdminTo": [ "pam-admins@company.com" ],
         "AdminCC": [],
-        "_Comment_UserEmail": "UseADMailAttribute=true fetches the mail attribute from AD for user notifications",
-        "UseADMailAttribute": true,
-        "UserEmailFallbackDomain": "company.com",
         "_Comment_SendSimulationSummary": "If true, sends a summary email at the end of a Simulation run",
         "SendSimulationSummary": true
       }

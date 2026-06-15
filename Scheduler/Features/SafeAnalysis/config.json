@@ -6,6 +6,11 @@
       "_Comment_Mode": "Supported values: Discovery | Analysis | Remediation | Simulation",
       "Mode": "Simulation",
 
+      "Cleanup": {
+        "Enabled": true,
+        "RetentionDays": 30
+      },
+
       "CommonSafeMembers": [
         {
           "Name": "CyberArk Admins",

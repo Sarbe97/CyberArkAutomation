@@ -35,6 +35,7 @@ Settings that control the report are managed in the `Scheduler/config.json` file
 *   **Recipients**: Managed under the `Email.To` section.
 *   **Exclusions**: Platforms to ignore are listed in `FailedAccountExcludePlatforms`.
 *   **Tracked Accounts**: Specific high-priority accounts are monitored in the `TrackedFailedAccounts` list.
+*   **Cleanup**: Controls log and output data retention limits (e.g., `RetentionDays`).
 
 ### B. Scheduling
 The report is scheduled on **Server A** via Windows Task Scheduler.

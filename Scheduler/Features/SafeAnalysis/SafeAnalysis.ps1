@@ -354,6 +354,35 @@ try {
             -FromOverride           $cfgNotif.AdminFrom
     }
 
+    # ==========================================================
+    # PHASE 5: CLEANUP
+    # Remove old log files and output directories based on retention config
+    # ==========================================================
+    $cfgCleanup = $featureConfig.Cleanup
+    if ($null -ne $cfgCleanup -and $cfgCleanup.Enabled -and $cfgCleanup.RetentionDays -gt 0) {
+        Write-Log -Message "========== PHASE 5: CLEANUP ==========" -ScriptName $ScriptName -LogPath $LogPath
+        $cutoffDate = (Get-Date).AddDays(-$cfgCleanup.RetentionDays)
+        Write-Log -Message "Cleaning up logs and output older than $($cfgCleanup.RetentionDays) days ($cutoffDate)..." -ScriptName $ScriptName -LogPath $LogPath
+
+        # Cleanup Logs
+        if (Test-Path $LogDir) {
+            $oldLogs = Get-ChildItem -Path $LogDir -Filter "*.log" | Where-Object { $_.LastWriteTime -lt $cutoffDate }
+            foreach ($log in $oldLogs) {
+                Remove-Item -Path $log.FullName -Force -ErrorAction SilentlyContinue
+            }
+            Write-Log -Message "Removed $($oldLogs.Count) old log files." -ScriptName $ScriptName -LogPath $LogPath
+        }
+
+        # Cleanup Output
+        if (Test-Path $BaseOutputDir) {
+            $oldOutputs = Get-ChildItem -Path $BaseOutputDir -Directory | Where-Object { $_.LastWriteTime -lt $cutoffDate }
+            foreach ($dir in $oldOutputs) {
+                Remove-Item -Path $dir.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            Write-Log -Message "Removed $($oldOutputs.Count) old output directories." -ScriptName $ScriptName -LogPath $LogPath
+        }
+    }
+
 }
 catch {
     Write-Log -Message "SafeAnalysis failed: $($_.Exception.Message)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath

@@ -10,6 +10,7 @@ The main configuration file `Scheduler/Features/ServiceAccountAnalysis/config.js
 - **PersonalAccount.Pattern**: The regex pattern `^[A-Za-z]\d{6}$` used to identify and filter out personal (primary and secondary) accounts.
 - **Exclusions**: Contains the ability to exclude entire domains or specific username patterns (e.g., `krbtgt`).
 - **Notifications**: Configures the email recipients who will receive the summary report.
+- **Cleanup**: Controls log and output data retention limits (e.g., `RetentionDays`).
 
 ### 2. ServiceAccountAnalysis Orchestrator
 The main script `ServiceAccountAnalysis.ps1` runs the core logic:
@@ -17,6 +18,7 @@ The main script `ServiceAccountAnalysis.ps1` runs the core logic:
 2. Coordinate with `SVC_DataCollection.ps1` to query the AD domains.
 3. Organize the discovered Service Accounts and write them to `Output/SVC_AnalysisReport_YYYYMMDD_HHMMSS.csv`.
 4. Trigger the summary email via `SVC_Notifications.ps1` using the `RunSummary.html` template.
+5. **Cleanup**: Automatically removes `.log` files and `Output` date-folders older than the configured `RetentionDays`.
 
 ### 3. Data Collection Module
 The module `Modules/SVC_DataCollection.ps1` contains the key functionality for interacting with AD:

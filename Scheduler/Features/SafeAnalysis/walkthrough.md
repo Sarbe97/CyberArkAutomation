@@ -12,12 +12,14 @@ The `Scheduler/Features/SafeAnalysis/config.json` sets the compliance rules:
   - Uses the `Pattern` regex (e.g. `^S-A-PR-WI-U\d{6}$`) to identify personal safes.
   - Dynamically extracts the primary owner using `OwnerExtractionRegex` to verify that the target owner is a member with the exact `OwnerPermissionSet`.
 - **Exclusions**: Prevents auditing of built-in system safes (like `System` or `PasswordManager`) and any defined exception safes.
+- **Cleanup**: Controls log and output data retention limits (e.g., `RetentionDays`).
 
 ### 2. Orchestrator Script
 `SafeAnalysis.ps1` manages the workflow phases:
 1. **Discovery & Analysis**: Iterates over every non-excluded safe, checking its members against the required `CommonSafeMembers` and (if applicable) its dynamically calculated Primary Owner.
 2. **Remediation**: If `Mode` is set to `Remediation` and deviations are found, it invokes the CyberArk API to add the missing member or merge in the missing permissions.
 3. **Summary Notifications**: Dispatches an email report listing the compliance breakdown and attaches detailed CSVs (`SAFE_AnalysisReport.csv` and `SAFE_RemediationResults.csv`).
+4. **Cleanup**: Automatically removes `.log` files and `Output` date-folders older than the configured `RetentionDays`.
 
 ### 3. Data Collection Module
 `Modules/SAFE_DataCollection.ps1` focuses on querying the CyberArk REST API:

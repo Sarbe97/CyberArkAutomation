@@ -6,6 +6,11 @@
       "_Comment_Mode": "Supported values: Discovery | Analysis",
       "Mode": "Analysis",
 
+      "Cleanup": {
+        "Enabled": true,
+        "RetentionDays": 30
+      },
+
       "PersonalAccount": {
         "_Comment": "Pattern matching personal accounts. Both primary and secondary typically fall under this regex.",
         "Pattern": "^[A-Za-z]\\d{6}$"

@@ -13,7 +13,7 @@ $SchedulerRoot = Split-Path -Parent (Split-Path -Parent $FeatureRoot)
 $ConfigPath    = Join-Path $FeatureRoot "config.json"
 
 # ============================================================
-# Setup Paths — Logs & Output
+# Setup Paths - Logs & Output
 # ============================================================
 $TodayStr   = Get-Date -Format "yyyyMMdd"
 $Timestamp  = Get-Date -Format "yyyyMMdd_HHmmss"
@@ -80,7 +80,7 @@ $cfgDomains         = $featureConfig.Domains
 $cfgNotif           = $featureConfig.Notifications
 $templatesPath      = Join-Path $FeatureRoot "Templates"
 
-# Personal safe regex — read from this feature's own config.
+# Personal safe regex - read from this feature's own config.
 # Accounts whose SafeName matches this pattern are excluded from the
 # CyberArk service-account count and the AD cross-reference.
 $cfgPersonalSafeRegex = if ($featureConfig.PersonalSafe -and $featureConfig.PersonalSafe.NamingPatternRegex) {
@@ -90,7 +90,7 @@ $cfgPersonalSafeRegex = if ($featureConfig.PersonalSafe -and $featureConfig.Pers
 if ($cfgPersonalSafeRegex) {
     Write-Log -Message "Personal safe regex: $cfgPersonalSafeRegex" -ScriptName $ScriptName -LogPath $LogPath
 } else {
-    Write-Log -Message "No PersonalSafe.NamingPatternRegex configured — personal safe filter will be skipped." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "No PersonalSafe.NamingPatternRegex configured - personal safe filter will be skipped." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
 }
 
 Write-Log -Message "Personal Account pattern (to exclude from AD): $($cfgPersonalAccount.Pattern)" -ScriptName $ScriptName -LogPath $LogPath
@@ -104,7 +104,7 @@ $analysisFile = Join-Path $ExportDir "SVC_AnalysisReport_$Timestamp.csv"
 # ============================================================
 # Main Execution Block
 # CyberArk auth is attempted first (nested try/catch so a failed
-# auth is non-fatal — script continues in AD-only mode).
+# auth is non-fatal - script continues in AD-only mode).
 # ============================================================
 $cyberArkToken         = $null
 $cyberArkAuthAvailable = $false
@@ -146,7 +146,7 @@ try {
     }
 
     # ==========================================================
-    # PHASE 1 — AD DATA COLLECTION
+    # PHASE 1 - AD DATA COLLECTION
     # ==========================================================
     Write-Log -Message "========== PHASE 1: AD DATA COLLECTION ==========" -ScriptName $ScriptName -LogPath $LogPath
     $phaseStart = Get-Date
@@ -167,7 +167,7 @@ try {
     Write-Log -Message "AD Data Collection completed in $([math]::Round($phaseDuration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
 
     # ==========================================================
-    # PHASE 2 — CYBERARK FETCH + ONBOARDING ANALYSIS
+    # PHASE 2 - CYBERARK FETCH + ONBOARDING ANALYSIS
     # ==========================================================
     Write-Log -Message "========== PHASE 2: CYBERARK FETCH & ANALYSIS ==========" -ScriptName $ScriptName -LogPath $LogPath
     $phaseStart = Get-Date
@@ -234,7 +234,7 @@ try {
     }
 
     # ==========================================================
-    # PHASE 3 — SUMMARY EMAIL
+    # PHASE 3 - SUMMARY EMAIL
     # ==========================================================
     if ($effectiveMode -eq "Analysis" -and $cfgNotif.SendSummary) {
         Write-Log -Message "========== PHASE 3: RUN SUMMARY EMAIL ==========" -ScriptName $ScriptName -LogPath $LogPath

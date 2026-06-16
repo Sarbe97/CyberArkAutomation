@@ -113,7 +113,9 @@ function Get-SVCADAccounts {
                 "PasswordLastSet",
                 "PasswordNeverExpires",
                 "LastLogonDate",
-                "wwwHomePage"
+                "wwwHomePage",
+                "Manager",
+                "info"
             )
 
             $adParams = @{
@@ -129,7 +131,7 @@ function Get-SVCADAccounts {
             Write-Log -Message "[$domainIndex/$totalDomains] Sending AD query to server '$($domain.Server)'..." -ScriptName $ScriptName -LogPath $LogPath
             Write-Progress -Id 21 -ParentId 20 -Activity "AD Query" -Status "Querying '$($domain.Server)'... (this may take a moment)" -PercentComplete -1
 
-            $adUsers = @(Get-ADUser @adParams | Select-Object SamAccountName, DistinguishedName, Enabled, Mail, Description, PasswordExpired, PasswordLastSet, PasswordNeverExpires, LastLogonDate, wwwHomePage)
+            $adUsers = @(Get-ADUser @adParams | Select-Object SamAccountName, DistinguishedName, Enabled, Mail, Description, PasswordExpired, PasswordLastSet, PasswordNeverExpires, LastLogonDate, wwwHomePage, Manager, info)
             $rawCount = if ($adUsers) { $adUsers.Count } else { 0 }
 
             Write-Log -Message "[$domainIndex/$totalDomains] AD query completed. Received $rawCount raw user records from server '$($domain.Server)'. Applying filters..." -ScriptName $ScriptName -LogPath $LogPath
@@ -159,10 +161,24 @@ function Get-SVCADAccounts {
                     if ($inExcludedOU) { $ouSkipCount++; continue }
                 }
 
+                # Extract immediate parent OU from DN
+                # DN example: CN=svc_app,OU=AppAccounts,OU=Services,DC=na,DC=company,DC=com
+                $ouMatch = [regex]::Match($user.DistinguishedName, '(?i)OU=([^,]+)')
+                $ouName  = if ($ouMatch.Success) { $ouMatch.Groups[1].Value } else { "" }
+
+                # Extract manager display name (CN) from manager DN
+                $managerCN = ""
+                if ($user.Manager) {
+                    $mgMatch = [regex]::Match($user.Manager, '^CN=([^,]+)')
+                    $managerCN = if ($mgMatch.Success) { $mgMatch.Groups[1].Value } else { $user.Manager }
+                }
+
                 $row = [PSCustomObject]@{
                     Username             = $user.SamAccountName
                     Domain               = $domain.Name
                     DomainFQDN           = $domain.FQDN
+                    DistinguishedName    = $user.DistinguishedName
+                    OU                   = $ouName
                     Enabled              = $user.Enabled
                     PasswordExpired      = if ($null -ne $user.PasswordExpired)      { $user.PasswordExpired }      else { "" }
                     PasswordLastSet      = if ($null -ne $user.PasswordLastSet)      { $user.PasswordLastSet.ToString("yyyy-MM-dd HH:mm:ss") } else { "" }
@@ -171,6 +187,8 @@ function Get-SVCADAccounts {
                     Mail                 = if ($user.Mail)        { $user.Mail }        else { "" }
                     Description          = if ($user.Description) { $user.Description } else { "" }
                     wwwHomePage          = if ($user.wwwHomePage)  { $user.wwwHomePage }  else { "" }
+                    Manager              = $managerCN
+                    Info                 = if ($user.info)         { $user.info }         else { "" }
                 }
                 $domainResult.Add($row)
                 $allAccounts.Add($row)
@@ -424,6 +442,8 @@ function Resolve-SVCCyberArkOnboarding {
             Username             = $ad.Username
             Domain               = $ad.Domain
             DomainFQDN           = $ad.DomainFQDN
+            DistinguishedName    = $ad.DistinguishedName
+            OU                   = $ad.OU
             Enabled              = $ad.Enabled
             PasswordExpired      = $ad.PasswordExpired
             PasswordLastSet      = $ad.PasswordLastSet
@@ -432,6 +452,8 @@ function Resolve-SVCCyberArkOnboarding {
             Mail                 = $ad.Mail
             Description          = $ad.Description
             wwwHomePage          = $ad.wwwHomePage
+            Manager              = $ad.Manager
+            Info                 = $ad.Info
             InCyberArk           = $matched
             CyberArkSafe         = $matchedSafe
             CyberArkPlatform     = $matchedPlat

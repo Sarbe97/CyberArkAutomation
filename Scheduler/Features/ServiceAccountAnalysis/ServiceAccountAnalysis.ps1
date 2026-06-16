@@ -201,6 +201,8 @@ try {
                 Username             = $sa.Username
                 Domain               = $sa.Domain
                 DomainFQDN           = $sa.DomainFQDN
+                DistinguishedName    = $sa.DistinguishedName
+                OU                   = $sa.OU
                 Enabled              = $sa.Enabled
                 PasswordExpired      = $sa.PasswordExpired
                 PasswordLastSet      = $sa.PasswordLastSet
@@ -209,6 +211,8 @@ try {
                 Mail                 = $sa.Mail
                 Description          = $sa.Description
                 wwwHomePage          = $sa.wwwHomePage
+                Manager              = $sa.Manager
+                Info                 = $sa.Info
                 InCyberArk           = "Unknown"
                 CyberArkSafe         = ""
                 CyberArkPlatform     = ""

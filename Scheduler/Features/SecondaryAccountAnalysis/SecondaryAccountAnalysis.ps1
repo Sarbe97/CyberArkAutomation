@@ -338,8 +338,6 @@ try {
                 PrimaryFullName              = $primaryFullName
                 PrimaryEmail                 = $primaryEmail
                 SecondaryAccount             = $secondary.Username
-                SecondaryGivenName           = $secondary.GivenName
-                SecondarySurname             = $secondary.Surname
                 SecondaryFullName            = $secondaryFullName
                 SecondaryStatus              = $secondaryStatus
                 SecondaryLastLogon           = $secondary.LastLogonDate
@@ -471,8 +469,6 @@ try {
             PrimaryFullName              = $plan.PrimaryFullName
             PrimaryEmail                 = $plan.PrimaryEmail
             SecondaryAccount             = $plan.SecondaryAccount
-            SecondaryGivenName           = $plan.SecondaryGivenName
-            SecondarySurname             = $plan.SecondarySurname
             SecondaryFullName            = $plan.SecondaryFullName
             SecondaryStatus              = $plan.SecondaryStatus
             SecondaryLastLogon           = $plan.SecondaryLastLogon

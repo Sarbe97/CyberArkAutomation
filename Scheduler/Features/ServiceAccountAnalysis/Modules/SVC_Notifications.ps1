@@ -3,17 +3,39 @@
 # Handles generating and sending summary emails for ServiceAccountAnalysis.
 # =============================================================================
 
+# ---------------------------------------------------------------------------
+# Resolve-SAATemplate
+# Replaces {{TokenName}} placeholders in an HTML template with token values.
+# ---------------------------------------------------------------------------
+function Resolve-SAATemplate {
+    param(
+        [Parameter(Mandatory=$true)] [string]    $TemplatePath,
+        [Parameter(Mandatory=$true)] [hashtable] $Tokens
+    )
+    $content = Get-Content -Path $TemplatePath -Raw
+    foreach ($key in $Tokens.Keys) {
+        $placeholder = "{{$key}}"
+        $value       = if ($null -ne $Tokens[$key]) { [string]$Tokens[$key] } else { "" }
+        $content     = $content -replace [regex]::Escape($placeholder), $value
+    }
+    return $content
+}
+
+# ---------------------------------------------------------------------------
+# Send-SVCRunSummary
+# Generates the HTML summary email and sends it to configured admin recipients.
+# ---------------------------------------------------------------------------
 function Send-SVCRunSummary {
     param(
-        [Parameter(Mandatory=$true)] [hashtable] $Tokens,
-        [Parameter(Mandatory=$true)] [string]    $AnalysisReportFile,
+        [Parameter(Mandatory=$true)] [hashtable]     $Tokens,
+        [Parameter(Mandatory=$true)] [string]        $AnalysisReportFile,
         [Parameter(Mandatory=$true)] [PSCustomObject] $GlobalEmailConfig,
-        [Parameter(Mandatory=$true)] [array]     $AdminTo,
-        [Parameter(Mandatory=$false)][array]     $AdminCC = @(),
-        [Parameter(Mandatory=$true)] [string]    $TemplatesPath,
-        [Parameter(Mandatory=$true)] [string]    $ScriptName,
-        [Parameter(Mandatory=$true)] [string]    $LogPath,
-        [Parameter(Mandatory=$false)][string]    $FromOverride = ""
+        [Parameter(Mandatory=$true)] [array]         $AdminTo,
+        [Parameter(Mandatory=$false)][array]         $AdminCC = @(),
+        [Parameter(Mandatory=$true)] [string]        $TemplatesPath,
+        [Parameter(Mandatory=$true)] [string]        $ScriptName,
+        [Parameter(Mandatory=$true)] [string]        $LogPath,
+        [Parameter(Mandatory=$false)][string]        $FromOverride = ""
     )
 
     if (-not $AdminTo -or $AdminTo.Count -eq 0) {
@@ -31,23 +53,35 @@ function Send-SVCRunSummary {
     $htmlBody = Resolve-SAATemplate -TemplatePath $templatePath -Tokens $Tokens
 
     $subject = "CyberArk Automated Report - Service Account Analysis ($($Tokens.EffectiveMode))"
-    
-    $fromAddress = if ($FromOverride) { $FromOverride } else { $GlobalEmailConfig.FromAddress }
+
+    $fromAddress = if ($FromOverride) { $FromOverride } else { $GlobalEmailConfig.From }
 
     $attachments = @()
     if (Test-Path $AnalysisReportFile) { $attachments += $AnalysisReportFile }
 
-    Send-SchedulerEmail `
-        -SmtpServer  $GlobalEmailConfig.SmtpServer `
-        -SmtpPort    $GlobalEmailConfig.SmtpPort `
-        -From        $fromAddress `
-        -To          $AdminTo `
-        -Cc          $AdminCC `
-        -Subject     $subject `
-        -BodyHtml    $htmlBody `
-        -Attachments $attachments `
-        -ScriptName  $ScriptName `
-        -LogPath     $LogPath
+    $mailParams = @{
+        SmtpServer = $GlobalEmailConfig.SmtpServer
+        From       = $fromAddress
+        To         = $AdminTo
+        Subject    = $subject
+        Body       = $htmlBody
+        BodyAsHtml = $true
+    }
+    if ($GlobalEmailConfig.SmtpPort) {
+        $mailParams["Port"] = $GlobalEmailConfig.SmtpPort
+    }
+    if ($AdminCC -and $AdminCC.Count -gt 0) {
+        $mailParams["Cc"] = $AdminCC
+    }
+    if ($attachments.Count -gt 0) {
+        $mailParams["Attachments"] = $attachments
+    }
 
-    Write-Log -Message "Run Summary Email sent to: $($AdminTo -join ', ')" -ScriptName $ScriptName -LogPath $LogPath
+    try {
+        Send-MailMessage @mailParams -ErrorAction Stop
+        Write-Log -Message "Run Summary Email sent to: $($AdminTo -join ', ')" -ScriptName $ScriptName -LogPath $LogPath
+    }
+    catch {
+        Write-Log -Message "Failed to send Run Summary Email: $($_.Exception.Message)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
+    }
 }

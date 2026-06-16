@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>ServiceAccountAnalysis – Run Summary</title>
+    <title>ServiceAccountAnalysis &ndash; Run Summary</title>
     <!--[if mso]>
     <noscript>
         <xml>
@@ -17,64 +17,199 @@
     <style type="text/css">
         body, table, td, p, a, li { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
         table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
-        body { margin: 0 !important; padding: 0 !important; background-color: #f2f2f2; width: 100%; }
+        body { margin: 0 !important; padding: 0 !important; background-color: #f0f2f5; width: 100%; }
         h1, h2, p, td, th, li, div { font-family: Arial, 'Helvetica Neue', Helvetica, sans-serif; }
     </style>
 </head>
 <body>
 
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f2f2f2;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f0f2f5;">
     <tr>
-        <td align="center" style="padding:20px 12px;">
+        <td align="center" style="padding:24px 12px;">
 
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600"
-                   style="width:600px; max-width:600px; background-color:#ffffff; border:1px solid #d8d8d8;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="640"
+                   style="width:640px; max-width:640px; background-color:#ffffff; border:1px solid #d4d8de; border-radius:4px;">
 
                 <!-- ── HEADER ── -->
                 <tr>
-                    <td style="padding:20px 24px 14px 24px; border-bottom:1px solid #e0e0e0;">
-                        <p style="margin:0; font-size:16px; font-weight:bold; color:#222222;">
-                            Service Account Analysis &ndash; {{ModeTitle}}
-                        </p>
-                        <p style="margin:4px 0 0 0; font-size:12px; color:#888888;">
-                            Generated: {{GeneratedDate}}
-                        </p>
+                    <td style="padding:0; background-color:#1a2744; border-radius:4px 4px 0 0;">
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                            <tr>
+                                <td style="padding:22px 28px 20px 28px;">
+                                    <p style="margin:0; font-size:18px; font-weight:bold; color:#ffffff; letter-spacing:0.3px;">
+                                        Service Account Analysis
+                                    </p>
+                                    <p style="margin:5px 0 0 0; font-size:12px; color:#8fa3cc;">
+                                        {{ModeTitle}} &nbsp;&middot;&nbsp; Generated: {{GeneratedDate}}
+                                    </p>
+                                </td>
+                                <td align="right" style="padding:22px 28px 20px 10px; white-space:nowrap;">
+                                    <p style="margin:0; font-size:11px; color:#8fa3cc;">CyberArk Vault</p>
+                                    <p style="margin:3px 0 0 0; font-size:12px; font-weight:bold; color:#{{CyberArkAuthStatusColor}};">&#9679; {{CyberArkAuthStatus}}</p>
+                                </td>
+                            </tr>
+                        </table>
                     </td>
                 </tr>
 
-                <!-- ── METRIC CARDS ── -->
+                <!-- ── OVERVIEW ROW ── -->
                 <tr>
-                    <td style="padding:24px 20px 16px 20px; background-color:#fafafa; border-bottom:1px solid #e8e8e8;">
-
-                        <!-- Row 1 -->
+                    <td style="padding:20px 20px 0 20px; background-color:#fafbfc;">
                         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                             <tr>
-                                <!-- Total Service Accounts -->
-                                <td width="100%" valign="top" style="padding:0 6px 10px 0;">
+                                <!-- Total AD Service Accounts -->
+                                <td width="48%" valign="top" style="padding:0 6px 12px 0;">
                                     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
-                                           style="background:#ffffff; border:1px solid #e0e0e0; border-top:3px solid #3498db;">
+                                           style="background:#ffffff; border:1px solid #dde1e7; border-top:3px solid #2c5f9e;">
                                         <tr>
-                                            <td style="padding:16px 18px 14px 18px; text-align: center;">
-                                                <p style="margin:0; font-size:32px; font-weight:bold; color:#3498db; line-height:1;">{{TotalServiceAccounts}}</p>
-                                                <p style="margin:6px 0 0 0; font-size:11px; color:#666666; text-transform:uppercase; letter-spacing:0.5px;">Total Service Accounts Found</p>
+                                            <td style="padding:16px 18px 14px 18px; text-align:center;">
+                                                <p style="margin:0; font-size:34px; font-weight:bold; color:#2c5f9e; line-height:1;">{{TotalServiceAccounts}}</p>
+                                                <p style="margin:6px 0 0 0; font-size:10px; color:#666666; text-transform:uppercase; letter-spacing:0.6px;">Total Service Accounts (AD)</p>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                                <!-- Total CyberArk Accounts -->
+                                <td width="48%" valign="top" style="padding:0 0 12px 6px;">
+                                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                                           style="background:#ffffff; border:1px solid #dde1e7; border-top:3px solid #7b5ea7;">
+                                        <tr>
+                                            <td style="padding:16px 18px 14px 18px; text-align:center;">
+                                                <p style="margin:0; font-size:34px; font-weight:bold; color:#7b5ea7; line-height:1;">{{TotalCyberArkAccounts}}</p>
+                                                <p style="margin:6px 0 0 0; font-size:10px; color:#666666; text-transform:uppercase; letter-spacing:0.6px;">Total Accounts in CyberArk</p>
                                             </td>
                                         </tr>
                                     </table>
                                 </td>
                             </tr>
                         </table>
-
                     </td>
                 </tr>
 
-                <!-- ── Attached Reports ── -->
+                <!-- ── ENABLED BREAKDOWN ── -->
                 <tr>
-                    <td style="padding:20px 24px 24px 24px;">
+                    <td style="padding:0 20px 0 20px; background-color:#fafbfc;">
+
+                        <!-- Section Label -->
                         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                             <tr>
-                                <td style="background-color:#f7f9fb; border:1px solid #dce8f0; border-left:3px solid #3498db; padding:12px 16px;">
-                                    <p style="margin:0 0 8px 0; font-size:12px; font-weight:bold; color:#333333;">Attached Reports</p>
-                                    <p style="margin:2px 0; font-size:12px; color:#555555;">&#8250; AnalysisReport.csv</p>
+                                <td style="padding:4px 0 8px 2px;">
+                                    <p style="margin:0; font-size:11px; font-weight:bold; color:#2d7d46; text-transform:uppercase; letter-spacing:0.8px;">
+                                        &#9646; Enabled Accounts
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                            <tr>
+                                <!-- Enabled in AD -->
+                                <td width="32%" valign="top" style="padding:0 5px 14px 0;">
+                                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                                           style="background:#ffffff; border:1px solid #dde1e7; border-top:3px solid #2d7d46;">
+                                        <tr>
+                                            <td style="padding:14px 12px 12px 12px; text-align:center;">
+                                                <p style="margin:0; font-size:26px; font-weight:bold; color:#2d7d46; line-height:1;">{{EnabledInAD}}</p>
+                                                <p style="margin:5px 0 0 0; font-size:10px; color:#555555; text-transform:uppercase; letter-spacing:0.5px;">Enabled in AD</p>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                                <!-- Enabled & In CyberArk -->
+                                <td width="32%" valign="top" style="padding:0 5px 14px 5px;">
+                                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                                           style="background:#ffffff; border:1px solid #dde1e7; border-top:3px solid #1f8c5a;">
+                                        <tr>
+                                            <td style="padding:14px 12px 12px 12px; text-align:center;">
+                                                <p style="margin:0; font-size:26px; font-weight:bold; color:#1f8c5a; line-height:1;">{{EnabledInCyberArk}}</p>
+                                                <p style="margin:5px 0 0 0; font-size:10px; color:#555555; text-transform:uppercase; letter-spacing:0.5px;">In CyberArk</p>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                                <!-- Enabled & NOT in CyberArk -->
+                                <td width="32%" valign="top" style="padding:0 0 14px 5px;">
+                                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                                           style="background:#ffffff; border:1px solid #dde1e7; border-top:3px solid #d97706;">
+                                        <tr>
+                                            <td style="padding:14px 12px 12px 12px; text-align:center;">
+                                                <p style="margin:0; font-size:26px; font-weight:bold; color:#d97706; line-height:1;">{{EnabledNotInCyberArk}}</p>
+                                                <p style="margin:5px 0 0 0; font-size:10px; color:#555555; text-transform:uppercase; letter-spacing:0.5px;">Not in CyberArk</p>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <!-- ── DISABLED BREAKDOWN ── -->
+                <tr>
+                    <td style="padding:0 20px 0 20px; background-color:#fafbfc;">
+
+                        <!-- Section Label -->
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                            <tr>
+                                <td style="padding:4px 0 8px 2px;">
+                                    <p style="margin:0; font-size:11px; font-weight:bold; color:#888888; text-transform:uppercase; letter-spacing:0.8px;">
+                                        &#9646; Disabled Accounts
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                            <tr>
+                                <!-- Disabled in AD -->
+                                <td width="32%" valign="top" style="padding:0 5px 20px 0;">
+                                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                                           style="background:#ffffff; border:1px solid #dde1e7; border-top:3px solid #888888;">
+                                        <tr>
+                                            <td style="padding:14px 12px 12px 12px; text-align:center;">
+                                                <p style="margin:0; font-size:26px; font-weight:bold; color:#888888; line-height:1;">{{DisabledInAD}}</p>
+                                                <p style="margin:5px 0 0 0; font-size:10px; color:#555555; text-transform:uppercase; letter-spacing:0.5px;">Disabled in AD</p>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                                <!-- Disabled & In CyberArk -->
+                                <td width="32%" valign="top" style="padding:0 5px 20px 5px;">
+                                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                                           style="background:#ffffff; border:1px solid #dde1e7; border-top:3px solid #c0392b;">
+                                        <tr>
+                                            <td style="padding:14px 12px 12px 12px; text-align:center;">
+                                                <p style="margin:0; font-size:26px; font-weight:bold; color:#c0392b; line-height:1;">{{DisabledInCyberArk}}</p>
+                                                <p style="margin:5px 0 0 0; font-size:10px; color:#555555; text-transform:uppercase; letter-spacing:0.5px;">In CyberArk</p>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                                <!-- Disabled & NOT in CyberArk -->
+                                <td width="32%" valign="top" style="padding:0 0 20px 5px;">
+                                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                                           style="background:#ffffff; border:1px solid #dde1e7; border-top:3px solid #aaaaaa;">
+                                        <tr>
+                                            <td style="padding:14px 12px 12px 12px; text-align:center;">
+                                                <p style="margin:0; font-size:26px; font-weight:bold; color:#aaaaaa; line-height:1;">{{DisabledNotInCyberArk}}</p>
+                                                <p style="margin:5px 0 0 0; font-size:10px; color:#555555; text-transform:uppercase; letter-spacing:0.5px;">Not in CyberArk</p>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <!-- ── ATTACHED REPORTS ── -->
+                <tr>
+                    <td style="padding:4px 20px 20px 20px; background-color:#fafbfc; border-top:1px solid #e8eaed;">
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                            <tr>
+                                <td style="background-color:#f0f5fb; border:1px solid #c8d8ed; border-left:4px solid #2c5f9e; padding:12px 16px; border-radius:2px;">
+                                    <p style="margin:0 0 6px 0; font-size:11px; font-weight:bold; color:#333333; text-transform:uppercase; letter-spacing:0.5px;">Attached Reports</p>
+                                    <p style="margin:2px 0; font-size:12px; color:#444444;">&#8250; SVC_AnalysisReport.csv &mdash; Full service account list with AD attributes and CyberArk onboarding status</p>
                                 </td>
                             </tr>
                         </table>
@@ -83,7 +218,7 @@
 
                 <!-- ── FOOTER ── -->
                 <tr>
-                    <td style="padding:12px 24px; border-top:1px solid #e0e0e0;">
+                    <td style="padding:12px 24px; border-top:1px solid #e0e0e0; background-color:#f7f8fa; border-radius:0 0 4px 4px;">
                         <p style="margin:0; font-size:11px; color:#999999; text-align:center;">
                             Automated report from CyberArk Scheduler &nbsp;&middot;&nbsp; Do not reply to this email.
                         </p>

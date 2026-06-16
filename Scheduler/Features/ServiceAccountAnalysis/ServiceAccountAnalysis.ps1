@@ -89,11 +89,48 @@ Write-Log -Message "Domains configured: $($cfgDomains.Count)" -ScriptName $Scrip
 # ============================================================
 $analysisFile = Join-Path $ExportDir "SVC_AnalysisReport_$Timestamp.csv"
 
+# ============================================================
+# CyberArk Authentication
+# Uses global config credentials: direct if both Username+Password
+# are non-blank, otherwise falls through to CCP.
+# ============================================================
+$cyberArkToken          = $null
+$cyberArkAuthAvailable  = $false
+
+try {
+    Write-Log -Message "========== CYBERARK AUTHENTICATION ==========" -ScriptName $ScriptName -LogPath $LogPath
+
+    $globalUsername = if ($config.Username) { $config.Username } else { "" }
+    $globalPassword = if ($config.Password) { $config.Password } else { "" }
+
+    $cyberArkCred = Get-SchedulerCredential `
+        -CCPConfig   $config.CCP `
+        -ManualLogin:$ManualLogin `
+        -Username    $globalUsername `
+        -Password    $globalPassword `
+        -ScriptName  $ScriptName `
+        -LogPath     $LogPath
+
+    Write-Log -Message "Credential resolved for CyberArk (Username: $($cyberArkCred.Username)). Connecting..." -ScriptName $ScriptName -LogPath $LogPath
+
+    $cyberArkToken = Connect-CyberArkApi `
+        -BaseUrl    $BaseUrl `
+        -Credential $cyberArkCred `
+        -ScriptName $ScriptName `
+        -LogPath    $LogPath
+
+    $cyberArkAuthAvailable = $true
+    Write-Log -Message "CyberArk authentication successful." -ScriptName $ScriptName -LogPath $LogPath
+}
+catch {
+    Write-Log -Message "CyberArk authentication failed: $($_.Exception.Message). Continuing with AD-only analysis (InCyberArk will be Unknown)." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+}
+
 try {
     # ==========================================================
-    # PHASE 1 & 2 — DISCOVERY AND ANALYSIS
+    # PHASE 1 — AD DATA COLLECTION
     # ==========================================================
-    Write-Log -Message "========== PHASE 1 & 2: DATA COLLECTION AND ANALYSIS ==========" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "========== PHASE 1: AD DATA COLLECTION ==========" -ScriptName $ScriptName -LogPath $LogPath
     $phaseStart = Get-Date
 
     # Collect service accounts by querying AD and filtering out Personal IDs
@@ -110,21 +147,65 @@ try {
 
     Write-Log -Message "Service accounts collected (after exclusions): $($serviceAccounts.Count)" -ScriptName $ScriptName -LogPath $LogPath
 
-    $analysisReport = [System.Collections.Generic.List[object]]::new()
-    foreach ($sa in $serviceAccounts) {
-        $analysisReport.Add([PSCustomObject]@{
-            Username    = $sa.Username
-            Domain      = $sa.DomainFQDN
-            ShortDomain = $sa.Domain
-            Enabled     = $sa.Enabled
-            Mail        = $sa.Mail
-            Description = $sa.Description
-        })
+    $phaseDuration = (Get-Date) - $phaseStart
+    Write-Log -Message "AD Data Collection completed in $([math]::Round($phaseDuration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
+
+    # ==========================================================
+    # PHASE 2 — CYBERARK FETCH + ONBOARDING ANALYSIS
+    # ==========================================================
+    Write-Log -Message "========== PHASE 2: CYBERARK FETCH & ANALYSIS ==========" -ScriptName $ScriptName -LogPath $LogPath
+    $phaseStart = Get-Date
+
+    $cyberArkAccounts = @()
+    $analysisReport   = [System.Collections.Generic.List[object]]::new()
+
+    if ($cyberArkAuthAvailable -and $cyberArkToken) {
+        # Fetch all CyberArk accounts (with caching)
+        $cyberArkAccounts = Get-SVCCyberArkAccounts `
+            -BaseUrl    $BaseUrl `
+            -Token      $cyberArkToken `
+            -CacheDir   $ExportDir `
+            -TodayStr   $TodayStr `
+            -ScriptName $ScriptName `
+            -LogPath    $LogPath
+
+        # Cross-reference AD vs CyberArk
+        $enrichedAccounts = Resolve-SVCCyberArkOnboarding `
+            -ADAccounts       $serviceAccounts `
+            -CyberArkAccounts $cyberArkAccounts `
+            -ScriptName       $ScriptName `
+            -LogPath          $LogPath
+
+        foreach ($acct in $enrichedAccounts) {
+            $analysisReport.Add($acct)
+        }
+    } else {
+        # No CyberArk auth — build report from AD only, mark InCyberArk as Unknown
+        Write-Log -Message "Skipping CyberArk cross-reference (no auth). Marking all accounts as InCyberArk=Unknown." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+        foreach ($sa in $serviceAccounts) {
+            $analysisReport.Add([PSCustomObject]@{
+                Username             = $sa.Username
+                Domain               = $sa.Domain
+                DomainFQDN           = $sa.DomainFQDN
+                Enabled              = $sa.Enabled
+                PasswordExpired      = $sa.PasswordExpired
+                PasswordLastSet      = $sa.PasswordLastSet
+                PasswordNeverExpires = $sa.PasswordNeverExpires
+                LastLogonDate        = $sa.LastLogonDate
+                Mail                 = $sa.Mail
+                Description          = $sa.Description
+                wwwHomePage          = $sa.wwwHomePage
+                InCyberArk           = "Unknown"
+                CyberArkSafe         = ""
+                CyberArkPlatform     = ""
+            })
+        }
     }
 
     $phaseDuration = (Get-Date) - $phaseStart
-    Write-Log -Message "Discovery and Analysis completed in $([math]::Round($phaseDuration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "CyberArk Fetch & Analysis completed in $([math]::Round($phaseDuration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
 
+    # Export enriched report
     if ($analysisReport.Count -gt 0) {
         $analysisReport | Export-Csv -Path $analysisFile -NoTypeInformation -Encoding UTF8
         Write-Log -Message "Analysis report saved: $analysisFile" -ScriptName $ScriptName -LogPath $LogPath
@@ -138,13 +219,30 @@ try {
     if ($effectiveMode -eq "Analysis" -and $cfgNotif.SendSummary) {
         Write-Log -Message "========== PHASE 3: RUN SUMMARY EMAIL ==========" -ScriptName $ScriptName -LogPath $LogPath
 
-        $modeTitle = "Execution Run Complete"
+        # --- Compute breakdown metrics ---
+        # Enabled / Disabled (cast string from CSV back to bool-comparable)
+        $enabledAccounts  = @($analysisReport | Where-Object { $_.Enabled -eq $true -or $_.Enabled -eq "True" })
+        $disabledAccounts = @($analysisReport | Where-Object { $_.Enabled -eq $false -or $_.Enabled -eq "False" })
+
+        $enabledInCyberArk    = @($enabledAccounts  | Where-Object { $_.InCyberArk -eq $true -or $_.InCyberArk -eq "True" })
+        $enabledNotInCyberArk = @($enabledAccounts  | Where-Object { $_.InCyberArk -eq $false -or $_.InCyberArk -eq "False" })
+        $disabledInCyberArk   = @($disabledAccounts | Where-Object { $_.InCyberArk -eq $true -or $_.InCyberArk -eq "True" })
+        $disabledNotCyberArk  = @($disabledAccounts | Where-Object { $_.InCyberArk -eq $false -or $_.InCyberArk -eq "False" })
 
         $summaryTokens = @{
-            EffectiveMode        = $effectiveMode
-            ModeTitle            = $modeTitle
-            TotalServiceAccounts = $serviceAccounts.Count
-            GeneratedDate        = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+            EffectiveMode            = $effectiveMode
+            ModeTitle                = "Execution Run Complete"
+            GeneratedDate            = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+            TotalServiceAccounts     = $analysisReport.Count
+            TotalCyberArkAccounts    = $cyberArkAccounts.Count
+            EnabledInAD              = $enabledAccounts.Count
+            DisabledInAD             = $disabledAccounts.Count
+            EnabledInCyberArk        = $enabledInCyberArk.Count
+            EnabledNotInCyberArk     = $enabledNotInCyberArk.Count
+            DisabledInCyberArk       = $disabledInCyberArk.Count
+            DisabledNotInCyberArk    = $disabledNotCyberArk.Count
+            CyberArkAuthStatus       = if ($cyberArkAuthAvailable) { "Connected" } else { "Unavailable" }
+            CyberArkAuthStatusColor  = if ($cyberArkAuthAvailable) { "4caf7d" } else { "e05252" }
         }
 
         Send-SVCRunSummary `
@@ -194,6 +292,11 @@ catch {
     Write-Log -Message "Stack trace: $($_.ScriptStackTrace)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
 }
 finally {
+    # Always attempt CyberArk logoff if a session was established
+    if ($cyberArkAuthAvailable) {
+        Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
+    }
+
     $overallDuration = (Get-Date) - $overallStartTime
     Write-Log -Message "Execution completed in $([math]::Round($overallDuration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
     Write-Log -Message "Execution completed (mode: $effectiveMode)" -ScriptName $ScriptName -LogPath $LogPath

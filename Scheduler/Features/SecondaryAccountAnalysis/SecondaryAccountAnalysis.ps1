@@ -332,25 +332,32 @@ try {
             $secondaryStatus   = if ([string]$secondary.Enabled -eq 'True') { "Enabled" } else { "Disabled" }
 
             $reportRow = [PSCustomObject]@{
-                EmployeeNumber           = $emp
-                PrimaryAccount           = $primaryUsername
-                PrimaryFirstName         = $primaryFirstName
-                PrimaryFullName          = $primaryFullName
-                PrimaryEmail             = $primaryEmail
-                SecondaryAccount         = $secondary.Username
-                SecondaryFullName        = $secondaryFullName
-                SecondaryStatus          = $secondaryStatus
-                SecondaryLastLogon       = $secondary.LastLogonDate
-                SecondaryPasswordLastSet = $secondary.PasswordLastSet
-                SecondaryOU              = $secondary.OU
-                Domain                   = $secondary.DomainFQDN
-                ShortDomain              = $secondary.Domain
-                PlatformId               = $domainPlatformMap[$secondary.Domain]
-                ExpectedSafe             = $expectedSafe
-                SafeExists               = $safeExists
-                Onboarded                = $isOnboarded
-                InCyberArk               = $inCyberArk
-                Status                   = $status
+                EmployeeNumber               = $emp
+                PrimaryAccount               = $primaryUsername
+                PrimaryFirstName             = $primaryFirstName
+                PrimaryFullName              = $primaryFullName
+                PrimaryEmail                 = $primaryEmail
+                SecondaryAccount             = $secondary.Username
+                SecondaryGivenName           = $secondary.GivenName
+                SecondarySurname             = $secondary.Surname
+                SecondaryFullName            = $secondaryFullName
+                SecondaryStatus              = $secondaryStatus
+                SecondaryLastLogon           = $secondary.LastLogonDate
+                SecondaryPasswordLastSet     = $secondary.PasswordLastSet
+                SecondaryPasswordExpired     = $secondary.PasswordExpired
+                SecondaryOU                  = $secondary.OU
+                SecondaryManager             = $secondary.Manager
+                SecondaryDescription         = $secondary.Description
+                SecondaryInfo                = $secondary.Info
+                SecondaryHomePage            = $secondary.HomePage
+                Domain                       = $secondary.DomainFQDN
+                ShortDomain                  = $secondary.Domain
+                PlatformId                   = $domainPlatformMap[$secondary.Domain]
+                ExpectedSafe                 = $expectedSafe
+                SafeExists                   = $safeExists
+                Onboarded                    = $isOnboarded
+                InCyberArk                   = $inCyberArk
+                Status                       = $status
             }
             $analysisReport.Add($reportRow)
 
@@ -459,20 +466,30 @@ try {
 
         # Record result
         $onboardingResults.Add([PSCustomObject]@{
-            EmployeeNumber           = $plan.EmployeeNumber
-            PrimaryAccount           = $plan.PrimaryAccount
-            PrimaryFullName          = $plan.PrimaryFullName
-            PrimaryEmail             = $plan.PrimaryEmail
-            SecondaryAccount         = $plan.SecondaryAccount
-            SecondaryFullName        = $plan.SecondaryFullName
-            SecondaryOU              = $plan.SecondaryOU
-            Domain                   = $plan.Domain
-            SafeName                 = $plan.ExpectedSafe
-            PlatformId               = $plan.PlatformId
-            Simulated                = if ($SimulationMode) { "Yes" } else { "No" }
-            Success                  = if ($overallSuccess)  { "Yes" } else { "No" }
-            FailureStep              = $failureStep
-            ErrorMessage             = $errorMsg
+            EmployeeNumber               = $plan.EmployeeNumber
+            PrimaryAccount               = $plan.PrimaryAccount
+            PrimaryFullName              = $plan.PrimaryFullName
+            PrimaryEmail                 = $plan.PrimaryEmail
+            SecondaryAccount             = $plan.SecondaryAccount
+            SecondaryGivenName           = $plan.SecondaryGivenName
+            SecondarySurname             = $plan.SecondarySurname
+            SecondaryFullName            = $plan.SecondaryFullName
+            SecondaryStatus              = $plan.SecondaryStatus
+            SecondaryLastLogon           = $plan.SecondaryLastLogon
+            SecondaryPasswordLastSet     = $plan.SecondaryPasswordLastSet
+            SecondaryPasswordExpired     = $plan.SecondaryPasswordExpired
+            SecondaryOU                  = $plan.SecondaryOU
+            SecondaryManager             = $plan.SecondaryManager
+            SecondaryDescription         = $plan.SecondaryDescription
+            SecondaryInfo                = $plan.SecondaryInfo
+            SecondaryHomePage            = $plan.SecondaryHomePage
+            Domain                       = $plan.Domain
+            SafeName                     = $plan.ExpectedSafe
+            PlatformId                   = $plan.PlatformId
+            Simulated                    = if ($SimulationMode) { "Yes" } else { "No" }
+            Success                      = if ($overallSuccess)  { "Yes" } else { "No" }
+            FailureStep                  = $failureStep
+            ErrorMessage                 = $errorMsg
         })
     }
 

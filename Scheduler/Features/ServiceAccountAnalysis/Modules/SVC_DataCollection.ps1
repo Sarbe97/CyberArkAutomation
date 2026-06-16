@@ -252,7 +252,7 @@ function Get-SVCCyberArkAccounts {
         if ($d.Name)  { [void]$domainIdentifiers.Add($d.Name.ToLower()) }
     }
 
-    # ── Step 1: Raw fetch (or load from cache) ──────────────────────────────
+    # -- Step 1: Raw fetch (or load from cache) ------------------------------
     $allRaw = [System.Collections.Generic.List[object]]::new()
 
     if (Test-Path $RawCachePath) {
@@ -313,7 +313,7 @@ function Get-SVCCyberArkAccounts {
         }
     }
 
-    # ── Step 2: Filter out personal safes ───────────────────────────────────
+    # -- Step 2: Filter out personal safes -----------------------------------
     $afterPersonalFilter = [System.Collections.Generic.List[object]]::new()
     $personalSafeSkipCount = 0
 
@@ -327,7 +327,7 @@ function Get-SVCCyberArkAccounts {
 
     Write-Log -Message "Personal safe filter: removed $personalSafeSkipCount accounts. Remaining: $($afterPersonalFilter.Count)" -ScriptName $ScriptName -LogPath $LogPath
 
-    # ── Step 3: Address-domain match — keep only service-domain accounts ─────
+    # -- Step 3: Address-domain match - keep only service-domain accounts -----
     # An account is considered a service account in CyberArk if its Address
     # fuzzy-matches one of the configured domains (FQDN or short name).
     $serviceAccounts = [System.Collections.Generic.List[object]]::new()

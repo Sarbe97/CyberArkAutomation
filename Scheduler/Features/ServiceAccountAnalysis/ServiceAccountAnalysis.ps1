@@ -77,11 +77,24 @@ Write-Log -Message "Effective execution mode: $effectiveMode" -ScriptName $Scrip
 # ============================================================
 $cfgPersonalAccount = $featureConfig.PersonalAccount
 $cfgDomains         = $featureConfig.Domains
-$cfgExclusions      = if ($featureConfig.Exclusions) { $featureConfig.Exclusions } else { [PSCustomObject]@{ Domains=@(); UsernamePatterns=@() } }
 $cfgNotif           = $featureConfig.Notifications
 $templatesPath      = Join-Path $FeatureRoot "Templates"
 
-Write-Log -Message "Personal Account pattern (to exclude): $($cfgPersonalAccount.Pattern)" -ScriptName $ScriptName -LogPath $LogPath
+# Personal safe regex — read from this feature's own config.
+# Accounts whose SafeName matches this pattern are excluded from the
+# CyberArk service-account count and the AD cross-reference.
+$cfgPersonalSafeRegex = if ($featureConfig.PersonalSafe -and $featureConfig.PersonalSafe.NamingPatternRegex) {
+    $featureConfig.PersonalSafe.NamingPatternRegex
+} else { "" }
+
+if ($cfgPersonalSafeRegex) {
+    Write-Log -Message "Personal safe regex: $cfgPersonalSafeRegex" -ScriptName $ScriptName -LogPath $LogPath
+} else {
+    Write-Log -Message "No PersonalSafe.NamingPatternRegex configured — personal safe filter will be skipped." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+}
+
+
+Write-Log -Message "Personal Account pattern (to exclude from AD): $($cfgPersonalAccount.Pattern)" -ScriptName $ScriptName -LogPath $LogPath
 Write-Log -Message "Domains configured: $($cfgDomains.Count)" -ScriptName $ScriptName -LogPath $LogPath
 
 # ============================================================
@@ -133,11 +146,10 @@ try {
     Write-Log -Message "========== PHASE 1: AD DATA COLLECTION ==========" -ScriptName $ScriptName -LogPath $LogPath
     $phaseStart = Get-Date
 
-    # Collect service accounts by querying AD and filtering out Personal IDs
+    # Collect service accounts by querying AD, filtering out Personal IDs and excluded OUs
     $serviceAccounts = Get-SVCADAccounts `
         -Domains                $cfgDomains `
         -PersonalAccountPattern $cfgPersonalAccount.Pattern `
-        -Exclusions             $cfgExclusions `
         -CacheDir               $ExportDir `
         -TodayStr               $TodayStr `
         -ScriptName             $ScriptName `
@@ -145,7 +157,7 @@ try {
         -GlobalCCPUrl           $config.CCP.Url `
         -ManualLogin            $ManualLogin
 
-    Write-Log -Message "Service accounts collected (after exclusions): $($serviceAccounts.Count)" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "AD service accounts collected: $($serviceAccounts.Count)" -ScriptName $ScriptName -LogPath $LogPath
 
     $phaseDuration = (Get-Date) - $phaseStart
     Write-Log -Message "AD Data Collection completed in $([math]::Round($phaseDuration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
@@ -160,14 +172,16 @@ try {
     $analysisReport   = [System.Collections.Generic.List[object]]::new()
 
     if ($cyberArkAuthAvailable -and $cyberArkToken) {
-        # Fetch all CyberArk accounts (with caching)
+        # Fetch CyberArk accounts — applies personal-safe filter then domain-address filter
         $cyberArkAccounts = Get-SVCCyberArkAccounts `
-            -BaseUrl    $BaseUrl `
-            -Token      $cyberArkToken `
-            -CacheDir   $ExportDir `
-            -TodayStr   $TodayStr `
-            -ScriptName $ScriptName `
-            -LogPath    $LogPath
+            -BaseUrl          $BaseUrl `
+            -Token            $cyberArkToken `
+            -CacheDir         $ExportDir `
+            -TodayStr         $TodayStr `
+            -ScriptName       $ScriptName `
+            -LogPath          $LogPath `
+            -PersonalSafeRegex $cfgPersonalSafeRegex `
+            -Domains          $cfgDomains
 
         # Cross-reference AD vs CyberArk
         $enrichedAccounts = Resolve-SVCCyberArkOnboarding `

@@ -12,11 +12,16 @@
       },
 
       "PersonalAccount": {
-        "_Comment": "Pattern matching personal accounts. Both primary and secondary typically fall under this regex.",
+        "_Comment": "Regex matching personal/human accounts to exclude from the AD service account list.",
         "Pattern": "^[A-Za-z]\\d{6}$"
       },
 
-      "_Comment_Domains": "List of domains to scan for Service Accounts. Direct credentials or CCP can be used.",
+      "PersonalSafe": {
+        "_Comment": "Regex matching personal safe names in CyberArk. Accounts stored in these safes are excluded from the CyberArk service-account count and cross-reference.",
+        "NamingPatternRegex": "^S-A-PR-WI-U\\d{6}$"
+      },
+
+      "_Comment_Domains": "List of domains to scan for Service Accounts. ExcludeOUs: list of OU distinguished names to skip during AD query (e.g. 'OU=ServiceAccounts_Disabled,DC=na,DC=company,DC=com').",
       "Domains": [
         {
           "Name": "NA",
@@ -28,7 +33,8 @@
             "AppId": "CyberArkHealthCheck",
             "Safe": "PAM-AD-NA",
             "Object": "AD-NA-ScanAccount"
-          }
+          },
+          "ExcludeOUs": []
         },
         {
           "Name": "NADEV",
@@ -40,17 +46,10 @@
             "AppId": "CyberArkHealthCheck",
             "Safe": "PAM-AD-NADEV",
             "Object": "AD-NADEV-ScanAccount"
-          }
+          },
+          "ExcludeOUs": []
         }
       ],
-
-      "Exclusions": {
-        "_Comment": "Domains: skip entire domain. UsernamePatterns: regex patterns to skip specific usernames.",
-        "Domains": [],
-        "UsernamePatterns": [
-          "krbtgt"
-        ]
-      },
 
       "Notifications": {
         "AdminFrom": "",

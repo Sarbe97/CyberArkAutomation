@@ -7,7 +7,7 @@ param (
 # ============================================================
 # Script Identity
 # ============================================================
-$ScriptName    = "SecondaryAccountAnalysis"
+$ScriptName    = "SAA_Analysis"
 $FeatureRoot   = $PSScriptRoot                                         # Scheduler/Features/SecondaryAccountAnalysis/
 $SchedulerRoot = Split-Path -Parent (Split-Path -Parent $FeatureRoot)  # Scheduler/
 $ConfigPath    = Join-Path $FeatureRoot "config.json"

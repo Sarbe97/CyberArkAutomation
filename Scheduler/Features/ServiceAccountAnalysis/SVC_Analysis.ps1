@@ -7,7 +7,7 @@ param (
 # ============================================================
 # Script Identity
 # ============================================================
-$ScriptName    = "ServiceAccountAnalysis"
+$ScriptName    = "SVC_Analysis"
 $FeatureRoot   = $PSScriptRoot
 $SchedulerRoot = Split-Path -Parent (Split-Path -Parent $FeatureRoot)
 $ConfigPath    = Join-Path $FeatureRoot "config.json"

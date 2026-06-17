@@ -257,6 +257,7 @@ try {
             GeneratedDate           = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
             TotalServiceAccounts    = $analysisReport.Count
             TotalCyberArkAccounts   = $cyberArkAccounts.Count
+            TotalMatchedAccounts    = $enabledInCyberArk.Count + $disabledInCyberArk.Count
             EnabledInAD             = $enabledAccounts.Count
             DisabledInAD            = $disabledAccounts.Count
             EnabledInCyberArk       = $enabledInCyberArk.Count

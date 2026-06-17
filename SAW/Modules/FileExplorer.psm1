@@ -1,5 +1,5 @@
 #========================================================================
-# FileExplorer.psm1 — UNC File System Browser
+# FileExplorer.psm1 - UNC File System Browser
 # All UNC access is credential-based via temporary PSDrive (no persistent mapping)
 # Includes: Get-UNCDirectoryListing, Get-UNCFileContent, Show-PathBrowserDialog
 #========================================================================
@@ -118,7 +118,7 @@ function Save-UserDefinedPath {
         $data.UserDefined = @($data.UserDefined) + @($newEntry)
         $data | ConvertTo-Json -Depth 5 | Set-Content -Path $script:QuickPathsFile -Encoding UTF8
 
-        Write-NexusLog "User path saved: '$Name' → $FullPath" -Level INFO -Component 'FileExplorer'
+        Write-NexusLog "User path saved: '$Name' --- $FullPath" -Level INFO -Component 'FileExplorer'
         return $true
     }
     catch {
@@ -441,7 +441,7 @@ function Show-PathBrowserDialog {
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="&#x1F4C1;" FontSize="16" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                    <TextBlock Text="[Dir]" FontSize="16" VerticalAlignment="Center" Margin="0,0,10,0"/>
                     <StackPanel>
                         <TextBlock Text="Browse Network Path" FontSize="14" FontWeight="SemiBold" Foreground="#E2E8F0"/>
                         <TextBlock x:Name="lblHeaderSub" Text="Navigate to a folder or file on a remote server"
@@ -465,10 +465,10 @@ function Show-PathBrowserDialog {
                     <ColumnDefinition Width="8"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <Button x:Name="btnBack" Grid.Column="0" Content="&#x2190;" Width="32" Margin="0,0,4,0"/>
-                <Button x:Name="btnUp"   Grid.Column="1" Content="&#x2191; Up" Width="50" Margin="0,0,8,0"/>
+                <Button x:Name="btnBack" Grid.Column="0" Content="Back" Width="36" Margin="0,0,4,0"/>
+                <Button x:Name="btnUp"   Grid.Column="1" Content="^ Up" Width="50" Margin="0,0,8,0"/>
                 <TextBox x:Name="txtPath" Grid.Column="2"/>
-                <Button x:Name="btnRefresh" Grid.Column="3" Content="&#x21BB;" Width="32" Margin="8,0,0,0" ToolTip="Refresh"/>
+                <Button x:Name="btnRefresh" Grid.Column="3" Content="[Refresh]" Width="32" Margin="8,0,0,0" ToolTip="Refresh"/>
                 <Button x:Name="btnGo" Grid.Column="5" Content="Go" Style="{StaticResource AccentBtn}" Width="50"/>
             </Grid>
         </Border>
@@ -518,10 +518,10 @@ function Show-PathBrowserDialog {
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="&#x2B50; Save as Quick Path:" Foreground="#F0883E"
+                <TextBlock Grid.Column="0" Text="[*] Save as Quick Path:" Foreground="#F0883E"
                            FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
                 <TextBox x:Name="txtSaveName" Grid.Column="1" Margin="0,0,8,0"/>
-                <Button x:Name="btnSavePath" Grid.Column="2" Content="&#x1F4BE; Save Path"
+                <Button x:Name="btnSavePath" Grid.Column="2" Content="[Save] Save Path"
                         Style="{StaticResource AccentBtn}"/>
             </Grid>
         </Border>
@@ -538,7 +538,7 @@ function Show-PathBrowserDialog {
                        FontFamily="Consolas" FontSize="10" VerticalAlignment="Center"
                        TextTrimming="CharacterEllipsis"/>
             <Button x:Name="btnCancel" Grid.Column="1" Content="Cancel" Width="80"/>
-            <Button x:Name="btnSelect" Grid.Column="3" Content="Use This Path &#x2192;"
+            <Button x:Name="btnSelect" Grid.Column="3" Content="Use This Path ->"
                     Style="{StaticResource AccentBtn}"/>
         </Grid>
     </Grid>
@@ -578,7 +578,7 @@ function Show-PathBrowserDialog {
         if ([string]::IsNullOrWhiteSpace($path)) { return }
 
         $pnlStatus.Visibility = 'Visible'
-        $lblStatus.Text       = '⏳  Loading...'
+        $lblStatus.Text       = '---  Loading...'
         $lstItems.Items.Clear()
 
         try {
@@ -586,7 +586,7 @@ function Show-PathBrowserDialog {
 
             foreach ($item in $items) {
                 $null = $lstItems.Items.Add([PSCustomObject]@{
-                    Icon     = if ($item.IsDirectory) { '📁' } else { '📄' }
+                    Icon     = if ($item.IsDirectory) { '----' } else { '----' }
                     Name     = $item.Name
                     Size     = $item.Size
                     Modified = $item.LastModified.ToString('yyyy-MM-dd HH:mm')
@@ -606,7 +606,7 @@ function Show-PathBrowserDialog {
             }
         }
         catch {
-            $lblStatus.Text = "❌  $($_.Exception.Message)"
+            $lblStatus.Text = "---  $($_.Exception.Message)"
         }
     }
 
@@ -681,7 +681,7 @@ function Show-PathBrowserDialog {
         if ($ok) {
             [System.Windows.MessageBox]::Show(
                 "Path saved as '$saveName'.`n`nYou can access it from the Quick Paths panel.",
-                'Saved ✓', 'OK', 'Information') | Out-Null
+                'Saved ---', 'OK', 'Information') | Out-Null
 
             $dialog.Tag = [PSCustomObject]@{
                 SelectedPath = $savePath

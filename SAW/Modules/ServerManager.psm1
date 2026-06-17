@@ -1,5 +1,5 @@
-#========================================================================
-# ServerManager.psm1 — Server Configuration Module
+﻿#========================================================================
+# ServerManager.psm1 - Server Configuration Module
 # Manages Servers.json: CRUD, import/export, connectivity testing
 #========================================================================
 
@@ -71,7 +71,7 @@ function Get-Servers {
 }
 
 function Get-ServerCategories {
-    return @($script:Servers | Select-Object -ExpandProperty Category -Unique | Sort-Object)
+    return @($script:Servers | ForEach-Object { $_.Category } | Where-Object { [string]::IsNullOrWhiteSpace($_) -eq $false } | Select-Object -Unique | Sort-Object)
 }
 
 function Get-ServerByName {

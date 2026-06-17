@@ -1,5 +1,5 @@
-#========================================================================
-# Auth.psm1 — Authentication Module
+﻿#========================================================================
+# Auth.psm1 - Authentication Module
 # SECURITY: Credentials held in [PSCredential] only. Never persisted.
 # Default domain account format: NA\S123456
 #========================================================================
@@ -106,7 +106,7 @@ function Show-LoginDialog {
         <!-- Header / Brand -->
         <Border Grid.Row="0" Background="#161B22">
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,12">
-                <TextBlock Text="&#x26A1;" FontSize="36" HorizontalAlignment="Center"
+                <TextBlock Text="***" FontSize="36" HorizontalAlignment="Center"
                            Foreground="#F0883E" Margin="0,0,0,6"/>
                 <TextBlock Text="Server Access Workbench" FontSize="17" FontWeight="Bold"
                            Foreground="#E2E8F0" HorizontalAlignment="Center"/>
@@ -137,7 +137,7 @@ function Show-LoginDialog {
                 </Grid.ColumnDefinitions>
                 <Button x:Name="btnCancel" Grid.Column="0" Content="Cancel"
                         Style="{StaticResource SecondaryBtn}"/>
-                <Button x:Name="btnLogin"  Grid.Column="2" Content="Connect &#x2192;"
+                <Button x:Name="btnLogin"  Grid.Column="2" Content="Connect ->"
                         Style="{StaticResource PrimaryBtn}"/>
             </Grid>
         </StackPanel>

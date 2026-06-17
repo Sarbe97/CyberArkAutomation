@@ -1,5 +1,5 @@
-#========================================================================
-# LogViewer.psm1 — Log File Content & Viewer Support Module
+﻿#========================================================================
+# LogViewer.psm1 - Log File Content & Viewer Support Module
 # Supports: pagination, search highlighting, large file streaming
 #========================================================================
 

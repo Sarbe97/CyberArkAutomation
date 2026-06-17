@@ -1,5 +1,5 @@
-#========================================================================
-# Search.psm1 — Global Multi-Server Parallel Search Engine
+﻿#========================================================================
+# Search.psm1 - Global Multi-Server Parallel Search Engine
 # Uses PowerShell RunspacePool for concurrent server searching
 # Results streamed via ConcurrentQueue to keep UI responsive
 #========================================================================
@@ -141,7 +141,7 @@ function Start-GlobalSearch {
             }
         }
         catch {
-            # Inaccessible server — enqueue an error result
+            # Inaccessible server - enqueue an error result
             $ResultQueue.Enqueue([PSCustomObject]@{
                 ServerName = $Server.Name
                 FilePath   = $Server.RootShare

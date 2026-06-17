@@ -1,5 +1,5 @@
 #========================================================================
-# UI\MainWindow.ps1 — Main Application Window
+# UI\MainWindow.ps1 - Main Application Window
 # Full WPF UI: server browser, file explorer, log viewer, global search
 # Dot-sourced from SAW.ps1 after all modules are imported
 #========================================================================
@@ -11,7 +11,7 @@ function Show-MainWindow {
         [System.Management.Automation.PSCredential]$Credential
     )
 
-    # ── Load Settings ──────────────────────────────────────────────────
+    # ------ Load Settings ------------------------------------------------------------------------------------------------------------------------------------------------------
     $settingsFile = Join-Path $script:ConfigDir 'Settings.json'
     $settings     = if (Test-Path $settingsFile) {
         Get-Content $settingsFile -Raw | ConvertFrom-Json
@@ -19,7 +19,7 @@ function Show-MainWindow {
         [PSCustomObject]@{ DefaultUsername = 'NA\S123456'; MaxRecentItems = 50; LogViewerMaxLines = 5000 }
     }
 
-    # ── Window state ───────────────────────────────────────────────────
+    # ------ Window state ---------------------------------------------------------------------------------------------------------------------------------------------------------
     $script:MW_Cred           = $Credential
     $script:MW_CurrentServer  = $null
     $script:MW_CurrentPath    = $null
@@ -28,12 +28,12 @@ function Show-MainWindow {
     $maxLinesRaw      = if ($settings.LogViewerMaxLines) { $settings.LogViewerMaxLines } else { 5000 }
     $script:MW_LogMaxLines    = [int]$maxLinesRaw
 
-    # ── Main XAML ──────────────────────────────────────────────────────
+    # ------ Main XAML ------------------------------------------------------------------------------------------------------------------------------------------------------------------
     $mainXaml = @'
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Server Access Workbench — CyberArk Operations Console"
+    Title="Server Access Workbench - CyberArk Operations Console"
     Height="900" Width="1480"
     MinHeight="650" MinWidth="1000"
     WindowStartupLocation="CenterScreen"
@@ -41,7 +41,7 @@ function Show-MainWindow {
     FontFamily="Segoe UI">
 
     <Window.Resources>
-        <!-- ── Colours ── -->
+        <!-- ====== Colours ====== -->
         <SolidColorBrush x:Key="BgDeep"     Color="#0D1117"/>
         <SolidColorBrush x:Key="BgSurface"  Color="#161B22"/>
         <SolidColorBrush x:Key="BgPanel"    Color="#1C2128"/>
@@ -56,13 +56,13 @@ function Show-MainWindow {
         <SolidColorBrush x:Key="TextMuted"  Color="#484F58"/>
         <SolidColorBrush x:Key="Highlight"  Color="#F0883E"/>
 
-        <!-- ── Base TextBlock ── -->
+        <!-- ====== Base TextBlock ====== -->
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource TextPri}"/>
             <Setter Property="FontFamily" Value="Segoe UI"/>
         </Style>
 
-        <!-- ── Scroll bars ── -->
+        <!-- ====== Scroll bars ====== -->
         <Style TargetType="ScrollBar">
             <Setter Property="Background"   Value="#161B22"/>
             <Setter Property="Foreground"   Value="#30363D"/>
@@ -70,7 +70,7 @@ function Show-MainWindow {
             <Setter Property="Width"        Value="8"/>
         </Style>
 
-        <!-- ── TextBox ── -->
+        <!-- ====== TextBox ====== -->
         <Style TargetType="TextBox">
             <Setter Property="Background"      Value="#161B22"/>
             <Setter Property="Foreground"      Value="#E6EDF3"/>
@@ -82,7 +82,7 @@ function Show-MainWindow {
             <Setter Property="SelectionBrush"  Value="#1F6FEB"/>
         </Style>
 
-        <!-- ── Standard Button ── -->
+        <!-- ====== Standard Button ====== -->
         <Style TargetType="Button">
             <Setter Property="Background"      Value="#21262D"/>
             <Setter Property="Foreground"      Value="#E6EDF3"/>
@@ -111,7 +111,7 @@ function Show-MainWindow {
             </Setter>
         </Style>
 
-        <!-- ── Accent Button (Blue) ── -->
+        <!-- ====== Accent Button (Blue) ====== -->
         <Style x:Key="BtnAccent" TargetType="Button">
             <Setter Property="Background"      Value="#1F6FEB"/>
             <Setter Property="Foreground"      Value="White"/>
@@ -140,7 +140,7 @@ function Show-MainWindow {
             </Setter>
         </Style>
 
-        <!-- ── Accent Button (Green) ── -->
+        <!-- ====== Accent Button (Green) ====== -->
         <Style x:Key="BtnGreen" TargetType="Button">
             <Setter Property="Background"      Value="#238636"/>
             <Setter Property="Foreground"      Value="White"/>
@@ -166,7 +166,7 @@ function Show-MainWindow {
             </Setter>
         </Style>
 
-        <!-- ── Danger Button (Red) ── -->
+        <!-- ====== Danger Button (Red) ====== -->
         <Style x:Key="BtnDanger" TargetType="Button">
             <Setter Property="Background"      Value="#DA3633"/>
             <Setter Property="Foreground"      Value="White"/>
@@ -191,7 +191,7 @@ function Show-MainWindow {
             </Setter>
         </Style>
 
-        <!-- ── ListBox / ListBoxItem ── -->
+        <!-- ====== ListBox / ListBoxItem ====== -->
         <Style TargetType="ListBox">
             <Setter Property="Background"      Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
@@ -224,7 +224,7 @@ function Show-MainWindow {
             </Setter>
         </Style>
 
-        <!-- ── DataGrid ── -->
+        <!-- ====== DataGrid ====== -->
         <Style TargetType="DataGrid">
             <Setter Property="Background"           Value="#0D1117"/>
             <Setter Property="Foreground"           Value="#E6EDF3"/>
@@ -267,7 +267,7 @@ function Show-MainWindow {
             <Setter Property="Foreground"      Value="#E6EDF3"/>
         </Style>
 
-        <!-- ── TabControl ── -->
+        <!-- ====== TabControl ====== -->
         <Style TargetType="TabControl">
             <Setter Property="Background"      Value="#0D1117"/>
             <Setter Property="BorderBrush"     Value="#30363D"/>
@@ -293,7 +293,7 @@ function Show-MainWindow {
             </Style.Triggers>
         </Style>
 
-        <!-- ── ComboBox ── -->
+        <!-- ====== ComboBox ====== -->
         <Style TargetType="ComboBox">
             <Setter Property="Background"      Value="#161B22"/>
             <Setter Property="Foreground"      Value="#E6EDF3"/>
@@ -303,13 +303,13 @@ function Show-MainWindow {
             <Setter Property="FontSize"        Value="12"/>
         </Style>
 
-        <!-- ── CheckBox ── -->
+        <!-- ====== CheckBox ====== -->
         <Style TargetType="CheckBox">
             <Setter Property="Foreground"      Value="#E6EDF3"/>
             <Setter Property="FontSize"        Value="11"/>
         </Style>
 
-        <!-- ── ProgressBar ── -->
+        <!-- ====== ProgressBar ====== -->
         <Style TargetType="ProgressBar">
             <Setter Property="Background"   Value="#21262D"/>
             <Setter Property="Foreground"   Value="#1F6FEB"/>
@@ -317,7 +317,7 @@ function Show-MainWindow {
             <Setter Property="Height"       Value="4"/>
         </Style>
 
-        <!-- ── Expander ── -->
+        <!-- ====== Expander ====== -->
         <Style TargetType="Expander">
             <Setter Property="Background"       Value="Transparent"/>
             <Setter Property="BorderThickness"  Value="0"/>
@@ -327,22 +327,22 @@ function Show-MainWindow {
     </Window.Resources>
 
     <DockPanel>
-        <!-- ═══ MENU BAR ═══ -->
+        <!-- ========= MENU BAR ========= -->
         <Menu DockPanel.Dock="Top" Background="#161B22" Foreground="#E6EDF3" FontSize="12" Padding="4,2">
             <MenuItem Header="_File" Foreground="#E6EDF3">
-                <MenuItem x:Name="mnuImportServers"   Header="&#x1F4C2; Import Servers..."/>
-                <MenuItem x:Name="mnuExportServers"   Header="&#x1F4BE; Export Servers..."/>
+                <MenuItem x:Name="mnuImportServers"   Header="[Dir] Import Servers..."/>
+                <MenuItem x:Name="mnuExportServers"   Header="[Save] Export Servers..."/>
                 <Separator Background="#30363D"/>
-                <MenuItem x:Name="mnuOpenLog"         Header="&#x1F4C4; Open App Log"/>
+                <MenuItem x:Name="mnuOpenLog"         Header="[Log] Open App Log"/>
                 <Separator Background="#30363D"/>
                 <MenuItem x:Name="mnuExit"            Header="Exit"/>
             </MenuItem>
             <MenuItem Header="_Servers" Foreground="#E6EDF3">
-                <MenuItem x:Name="mnuAddServer"       Header="&#x2795; Add Server"/>
-                <MenuItem x:Name="mnuEditServer"      Header="&#x270E; Edit Selected Server"/>
-                <MenuItem x:Name="mnuDeleteServer"    Header="&#x1F5D1; Delete Selected Server"/>
+                <MenuItem x:Name="mnuAddServer"       Header="[+] Add Server"/>
+                <MenuItem x:Name="mnuEditServer"      Header="[Edit] Edit Selected Server"/>
+                <MenuItem x:Name="mnuDeleteServer"    Header="[Del] Delete Selected Server"/>
                 <Separator Background="#30363D"/>
-                <MenuItem x:Name="mnuTestConnection"  Header="&#x1F9EA; Test Connection"/>
+                <MenuItem x:Name="mnuTestConnection"  Header="[Test] Test Connection"/>
             </MenuItem>
             <MenuItem Header="_Search" Foreground="#E6EDF3">
                 <MenuItem x:Name="mnuSearchAll"       Header="Search All Servers"/>
@@ -352,7 +352,7 @@ function Show-MainWindow {
                 <MenuItem x:Name="mnuExportResults"   Header="Export Search Results to CSV"/>
             </MenuItem>
             <MenuItem Header="_Tools" Foreground="#E6EDF3">
-                <MenuItem x:Name="mnuBrowsePath"      Header="&#x1F4C1; Browse Network Path..."/>
+                <MenuItem x:Name="mnuBrowsePath"      Header="[Dir] Browse Network Path..."/>
                 <MenuItem x:Name="mnuClearHistory"    Header="Clear Recent History"/>
             </MenuItem>
             <MenuItem Header="_Help" Foreground="#E6EDF3">
@@ -360,7 +360,7 @@ function Show-MainWindow {
             </MenuItem>
         </Menu>
 
-        <!-- ═══ STATUS BAR ═══ -->
+        <!-- ========= STATUS BAR ========= -->
         <StatusBar DockPanel.Dock="Bottom" Background="#161B22" Height="26" Padding="8,0">
             <StatusBarItem>
                 <TextBlock x:Name="sbServer" Text="No server selected" Foreground="#8B949E" FontSize="11"/>
@@ -374,7 +374,7 @@ function Show-MainWindow {
             </StatusBarItem>
             <Separator Background="#30363D"/>
             <StatusBarItem>
-                <TextBlock x:Name="sbUser" Text="—" Foreground="#8B949E" FontSize="11"/>
+                <TextBlock x:Name="sbUser" Text="-" Foreground="#8B949E" FontSize="11"/>
             </StatusBarItem>
             <StatusBarItem HorizontalAlignment="Right">
                 <StackPanel Orientation="Horizontal">
@@ -384,7 +384,7 @@ function Show-MainWindow {
             </StatusBarItem>
         </StatusBar>
 
-        <!-- ═══ MAIN CONTENT ═══ -->
+        <!-- ========= MAIN CONTENT ========= -->
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="3*" MinHeight="300"/>
@@ -392,7 +392,7 @@ function Show-MainWindow {
                 <RowDefinition Height="2*" MinHeight="160"/>
             </Grid.RowDefinitions>
 
-            <!-- ── Top: 3-panel row ── -->
+            <!-- ====== Top: 3=panel row ====== -->
             <Grid Grid.Row="0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="270" MinWidth="200"/>
@@ -402,7 +402,7 @@ function Show-MainWindow {
                     <ColumnDefinition Width="320" MinWidth="250"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- ══ LEFT PANEL — Server List ══ -->
+                <!-- ====== LEFT PANEL = Server List ====== -->
                 <Border Grid.Column="0" Background="#161B22" BorderBrush="#30363D" BorderThickness="0,0,1,0">
                     <Grid>
                         <Grid.RowDefinitions>
@@ -425,7 +425,7 @@ function Show-MainWindow {
                                            FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
                                 <Button x:Name="btnAddServer" Grid.Column="1" Content="+" Width="26" Height="22"
                                         FontSize="14" FontWeight="Bold" ToolTip="Add Server"/>
-                                <Button x:Name="btnRefreshServers" Grid.Column="3" Content="↻" Width="26" Height="22"
+                                <Button x:Name="btnRefreshServers" Grid.Column="3" Content="[R]" Width="26" Height="22"
                                         FontSize="13" ToolTip="Refresh server list"/>
                             </Grid>
                         </Border>
@@ -434,12 +434,12 @@ function Show-MainWindow {
                         <Border Grid.Row="1" Padding="8,6" BorderBrush="#30363D" BorderThickness="0,0,0,1">
                             <Grid>
                                 <TextBox x:Name="txtServerFilter" FontSize="12" Padding="24,5,8,5"/>
-                                <TextBlock Text="&#x1F50D;" Foreground="#484F58" FontSize="12"
+                                <TextBlock Text="[Find]" Foreground="#484F58" FontSize="12"
                                            Margin="8,0" VerticalAlignment="Center" IsHitTestVisible="False"/>
                             </Grid>
                         </Border>
 
-                        <!-- Server tree (categories → servers) -->
+                        <!-- Server tree (categories === servers) -->
                         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Disabled">
                             <StackPanel x:Name="pnlServerTree" Margin="4,4"/>
@@ -447,7 +447,7 @@ function Show-MainWindow {
 
                         <!-- Favorites strip -->
                         <Border Grid.Row="3" Background="#1C2128" BorderBrush="#30363D" BorderThickness="0,1,0,0">
-                            <Expander Header="⭐ FAVORITES" Foreground="#8B949E"
+                            <Expander Header="FAVORITES" Foreground="#8B949E"
                                       FontSize="10" FontWeight="SemiBold" Padding="8,4">
                                 <ListBox x:Name="lstFavoriteServers" MaxHeight="120" FontSize="11"
                                          ScrollViewer.VerticalScrollBarVisibility="Auto"/>
@@ -459,7 +459,7 @@ function Show-MainWindow {
                 <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch"
                               Background="#21262D" ResizeBehavior="PreviousAndNext"/>
 
-                <!-- ══ CENTER PANEL — File Browser ══ -->
+                <!-- ====== CENTER PANEL = File Browser ====== -->
                 <Border Grid.Column="2" Background="#0D1117">
                     <Grid>
                         <Grid.RowDefinitions>
@@ -480,15 +480,15 @@ function Show-MainWindow {
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <Button x:Name="btnNavUp" Grid.Column="0" Content="↑" Width="28" Margin="0,0,4,0" ToolTip="Go up"/>
-                                <Button x:Name="btnNavBack" Grid.Column="1" Content="←" Width="28" Margin="0,0,8,0" ToolTip="Back"/>
+                                <Button x:Name="btnNavUp" Grid.Column="0" Content="Up" Width="28" Margin="0,0,4,0" ToolTip="Go up"/>
+                                <Button x:Name="btnNavBack" Grid.Column="1" Content="Back" Width="32" Margin="0,0,8,0" ToolTip="Back"/>
                                 <TextBox x:Name="txtCurrentPath" Grid.Column="2" FontFamily="Consolas"
                                          FontSize="11" Padding="8,5" IsReadOnly="False"/>
                                 <Button x:Name="btnGoPath" Grid.Column="3" Content="Go" Margin="4,0,0,0"
                                         Style="{StaticResource BtnAccent}" Width="40"/>
-                                <Button x:Name="btnBrowsePath" Grid.Column="4" Content="&#x1F4C2; Browse"
+                                <Button x:Name="btnBrowsePath" Grid.Column="4" Content="[Dir] Browse"
                                         Margin="4,0,0,0" ToolTip="Browse network path"/>
-                                <Button x:Name="btnSaveFavPath" Grid.Column="5" Content="⭐"
+                                <Button x:Name="btnSaveFavPath" Grid.Column="5" Content="[*]"
                                         Margin="4,0,0,0" Width="28" ToolTip="Save path as favorite"/>
                             </Grid>
                         </Border>
@@ -520,11 +520,11 @@ function Show-MainWindow {
                                 </Grid.ColumnDefinitions>
                                 <TextBlock x:Name="lblFileCount" Grid.Column="0" Text="Select a server and path"
                                            Foreground="#8B949E" FontSize="11" VerticalAlignment="Center"/>
-                                <Button x:Name="btnRefreshFiles" Grid.Column="1" Content="↻ Refresh"
+                                <Button x:Name="btnRefreshFiles" Grid.Column="1" Content="[Refresh]"
                                         FontSize="11" Margin="0,0,4,0"/>
-                                <Button x:Name="btnCopyPath" Grid.Column="2" Content="&#x1F4CB; Copy Path"
+                                <Button x:Name="btnCopyPath" Grid.Column="2" Content="[Copy] Copy Path"
                                         FontSize="11" Margin="0,0,4,0"/>
-                                <Button x:Name="btnOpenFile" Grid.Column="3" Content="Open ↓"
+                                <Button x:Name="btnOpenFile" Grid.Column="3" Content="Open ---"
                                         FontSize="11" Style="{StaticResource BtnAccent}"/>
                             </Grid>
                         </Border>
@@ -555,7 +555,7 @@ function Show-MainWindow {
                 <GridSplitter Grid.Column="3" Width="5" HorizontalAlignment="Stretch"
                               Background="#21262D" ResizeBehavior="PreviousAndNext"/>
 
-                <!-- ══ RIGHT PANEL — Global Search ══ -->
+                <!-- ====== RIGHT PANEL = Global Search ====== -->
                 <Border Grid.Column="4" Background="#161B22" BorderBrush="#30363D" BorderThickness="1,0,0,0">
                     <Grid>
                         <Grid.RowDefinitions>
@@ -569,7 +569,7 @@ function Show-MainWindow {
 
                         <!-- Header -->
                         <Border Grid.Row="0" Background="#1C2128" Padding="12,10" BorderBrush="#30363D" BorderThickness="0,0,0,1">
-                            <TextBlock Text="&#x1F50E; GLOBAL SEARCH" Foreground="#8B949E"
+                            <TextBlock Text="[Search] GLOBAL SEARCH" Foreground="#8B949E"
                                        FontSize="11" FontWeight="SemiBold"/>
                         </Border>
 
@@ -600,7 +600,7 @@ function Show-MainWindow {
                                 </ComboBox>
                                 <Button x:Name="btnSearch"    Grid.Column="2" Content="Search"
                                         Style="{StaticResource BtnAccent}" FontSize="11"/>
-                                <Button x:Name="btnStopSearch" Grid.Column="4" Content="■ Stop"
+                                <Button x:Name="btnStopSearch" Grid.Column="4" Content="[Stop]"
                                         Style="{StaticResource BtnDanger}" FontSize="11" Visibility="Collapsed"/>
                             </Grid>
                         </StackPanel>
@@ -668,9 +668,9 @@ function Show-MainWindow {
                                 </Grid.ColumnDefinitions>
                                 <TextBlock x:Name="lblResultCount" Grid.Column="0" Text="0 results"
                                            Foreground="#8B949E" FontSize="11" VerticalAlignment="Center"/>
-                                <Button x:Name="btnExportResults" Grid.Column="1" Content="&#x1F4BE; Export"
+                                <Button x:Name="btnExportResults" Grid.Column="1" Content="[Save] Export"
                                         FontSize="11" Margin="0,0,4,0"/>
-                                <Button x:Name="btnCopyResults" Grid.Column="2" Content="&#x1F4CB; Copy"
+                                <Button x:Name="btnCopyResults" Grid.Column="2" Content="[Copy] Copy"
                                         FontSize="11"/>
                             </Grid>
                         </Border>
@@ -687,11 +687,11 @@ function Show-MainWindow {
                 </Border>
             </Grid>
 
-            <!-- ── Horizontal splitter ── -->
+            <!-- ====== Horizontal splitter ====== -->
             <GridSplitter Grid.Row="1" Height="5" HorizontalAlignment="Stretch"
                           Background="#21262D" ResizeBehavior="PreviousAndNext"/>
 
-            <!-- ══ BOTTOM PANEL — Integrated Log Viewer ══ -->
+            <!-- ====== BOTTOM PANEL = Integrated Log Viewer ====== -->
             <Border Grid.Row="2" Background="#0D1117" BorderBrush="#30363D" BorderThickness="0,1,0,0">
                 <Grid>
                     <Grid.RowDefinitions>
@@ -719,21 +719,21 @@ function Show-MainWindow {
                                      Padding="6,4" MaxWidth="200" HorizontalAlignment="Left"
                                      ToolTip="Search within current file"/>
                             <Button x:Name="btnLogSearchGo"  Grid.Column="2" Content="Find" FontSize="11" Margin="4,0"/>
-                            <Button x:Name="btnLogPrevMatch" Grid.Column="3" Content="↑" Width="26" Margin="0,0,2,0" ToolTip="Previous match"/>
-                            <Button x:Name="btnLogNextMatch" Grid.Column="4" Content="↓" Width="26" Margin="0,0,8,0" ToolTip="Next match"/>
+                            <Button x:Name="btnLogPrevMatch" Grid.Column="3" Content="Prev" Width="36" Margin="0,0,2,0" ToolTip="Previous match"/>
+                            <Button x:Name="btnLogNextMatch" Grid.Column="4" Content="Next" Width="36" Margin="0,0,8,0" ToolTip="Next match"/>
                             <Button x:Name="btnWordWrap"   Grid.Column="5" Content="Wrap" FontSize="11" Margin="0,0,4,0" ToolTip="Toggle word wrap"/>
-                            <Button x:Name="btnLogTail"    Grid.Column="6" Content="⤓ Tail" FontSize="11" Margin="0,0,4,0" ToolTip="Jump to end"/>
-                            <Button x:Name="btnLogRefresh" Grid.Column="7" Content="↻ Refresh" FontSize="11" Margin="0,0,4,0"/>
-                            <Button x:Name="btnLogCopy"    Grid.Column="8" Content="&#x1F4CB; Copy" FontSize="11"/>
+                            <Button x:Name="btnLogTail"    Grid.Column="6" Content="[Tail]" FontSize="11" Margin="0,0,4,0" ToolTip="Jump to end"/>
+                            <Button x:Name="btnLogRefresh" Grid.Column="7" Content="[Refresh]" FontSize="11" Margin="0,0,4,0"/>
+                            <Button x:Name="btnLogCopy"    Grid.Column="8" Content="[Copy] Copy" FontSize="11"/>
                         </Grid>
                     </Border>
 
                     <!-- Log viewer tabs -->
                     <TabControl x:Name="tabLogViewer" Grid.Row="1">
-                        <TabItem Header="— No file open —" x:Name="tabWelcome">
+                        <TabItem Header="- No file open -" x:Name="tabWelcome">
                             <Border Background="#0D1117">
                                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                                    <TextBlock Text="&#x1F4C4;" FontSize="48" HorizontalAlignment="Center"
+                                    <TextBlock Text="[Log]" FontSize="48" HorizontalAlignment="Center"
                                                Foreground="#21262D" Margin="0,0,0,16"/>
                                     <TextBlock Text="Double-click a file in the browser above to open it here."
                                                Foreground="#484F58" FontSize="13" HorizontalAlignment="Center"/>
@@ -753,7 +753,7 @@ function Show-MainWindow {
     [xml]$xml = $mainXaml
     $w        = [Windows.Markup.XamlReader]::Load([System.Xml.XmlNodeReader]::new($xml))
 
-    # ── Control references ────────────────────────────────────────────
+    # ------ Control references ------------------------------------------------------------------------------------------------------------------------------------
     $pnlServerTree    = $w.FindName('pnlServerTree')
     $txtServerFilter  = $w.FindName('txtServerFilter')
     $lstFavServers    = $w.FindName('lstFavoriteServers')
@@ -816,7 +816,7 @@ function Show-MainWindow {
     $mnuOpenLog      = $w.FindName('mnuOpenLog')
     $mnuExit         = $w.FindName('mnuExit')
 
-    # ── Inner state ───────────────────────────────────────────────────
+    # ------ Inner state ---------------------------------------------------------------------------------------------------------------------------------------------------------
     $script:MW_Window         = $w
     $script:MW_NavHistory     = [System.Collections.Generic.Stack[string]]::new()
     $script:MW_SearchResults  = [System.Collections.Generic.List[PSCustomObject]]::new()
@@ -825,7 +825,7 @@ function Show-MainWindow {
     $script:MW_WordWrap       = $false
     $script:MW_SearchTimer    = $null
 
-    # ── Status bar helpers ─────────────────────────────────────────────
+    # ------ Status bar helpers ---------------------------------------------------------------------------------------------------------------------------------------
     $setStatus = {
         param([string]$Text, [string]$Color = '#8B949E')
         $sbServer.Text     = $Text
@@ -841,7 +841,7 @@ function Show-MainWindow {
         $sbSearchStatus.Text      = $Text
     }
 
-    # ── Server tree builder ────────────────────────────────────────────
+    # ------ Server tree builder ------------------------------------------------------------------------------------------------------------------------------------
     function _BuildServerTree {
         param([string]$Filter = '')
 
@@ -927,7 +927,7 @@ function Show-MainWindow {
         }
     }
 
-    # ── Select a server ───────────────────────────────────────────────
+    # ------ Select a server ---------------------------------------------------------------------------------------------------------------------------------------------
     function _SelectServer {
         param([hashtable]$Server)
 
@@ -947,7 +947,7 @@ function Show-MainWindow {
         Write-NexusLog "Server selected: $($Server.Name)" -Level INFO -Component 'MainWindow'
     }
 
-    # ── Quick paths panel ─────────────────────────────────────────────
+    # ------ Quick paths panel ---------------------------------------------------------------------------------------------------------------------------------------
     function _LoadQuickPaths {
         param([string]$Category)
 
@@ -991,7 +991,7 @@ function Show-MainWindow {
         $null = $pnlQuickPaths.Children.Add($bBtn)
     }
 
-    # ── File list loader (background thread) ──────────────────────────
+    # ------ File list loader (background thread) ------------------------------------------------------------------------------
     function _LoadFileList {
         param([string]$Path)
 
@@ -1040,7 +1040,7 @@ function Show-MainWindow {
         $thread.Start()
     }
 
-    # ── Open file in log viewer ───────────────────────────────────────
+    # ------ Open file in log viewer ---------------------------------------------------------------------------------------------------------------------
     function _OpenLogFile {
         param([string]$FilePath, [int]$JumpToLine = 0, [string]$HighlightText = '')
 
@@ -1080,7 +1080,7 @@ function Show-MainWindow {
         $thread.Start()
     }
 
-    # ── Add log viewer tab ────────────────────────────────────────────
+    # ------ Add log viewer tab ------------------------------------------------------------------------------------------------------------------------------------
     function _AddLogTab {
         param(
             [string]$FilePath, [string]$FileName,
@@ -1233,7 +1233,7 @@ function Show-MainWindow {
         }
     }
 
-    # ── Path browser ──────────────────────────────────────────────────
+    # ------ Path browser ------------------------------------------------------------------------------------------------------------------------------------------------------
     function _OpenPathBrowser {
         $cat = if ($script:MW_CurrentServer) { $script:MW_CurrentServer.Category } else { '' }
         $srvName = if ($script:MW_CurrentServer) { $script:MW_CurrentServer.Name } else { '' }
@@ -1260,7 +1260,7 @@ function Show-MainWindow {
         }
     }
 
-    # ── Server editor dialog ──────────────────────────────────────────
+    # ------ Server editor dialog ------------------------------------------------------------------------------------------------------------------------------
     function _ShowServerEditor {
         param([hashtable]$ExistingServer = $null)
 
@@ -1413,7 +1413,7 @@ function Show-MainWindow {
                 Name        = $eName.Text.Trim()
                 ServerName  = $eSrv.Text.Trim()
                 RootShare   = $eShare.Text.Trim()
-                Category    = ($eCat.SelectedItem).Content
+                Category    = [string](if ($eCat.SelectedItem -is [System.Windows.Controls.ComboBoxItem]) { $eCat.SelectedItem.Content } else { $eCat.Text })
                 Description = $eDesc.Text.Trim()
             }
             $edDlg.DialogResult = $true
@@ -1427,7 +1427,7 @@ function Show-MainWindow {
         return $null
     }
 
-    # ── Favorites update ──────────────────────────────────────────────
+    # ------ Favorites update ------------------------------------------------------------------------------------------------------------------------------------------
     function _RefreshFavoriteServers {
         $lstFavServers.Items.Clear()
         foreach ($fav in Get-FavoriteServers) {
@@ -1461,7 +1461,7 @@ function Show-MainWindow {
         }
     }
 
-    # ── Search engine integration ─────────────────────────────────────
+    # ------ Search engine integration ---------------------------------------------------------------------------------------------------------------
     function _StartSearch {
         $searchText = $txtSearch.Text.Trim()
         if ([string]::IsNullOrWhiteSpace($searchText)) { return }
@@ -1540,7 +1540,7 @@ function Show-MainWindow {
         Write-NexusLog "Search started: '$searchText' scope=$scopeText servers=$($servers.Count)" -Level INFO -Component 'MainWindow'
     }
 
-    # ── Wire up all events ────────────────────────────────────────────
+    # ------ Wire up all events ------------------------------------------------------------------------------------------------------------------------------------
 
     # Server filter
     $txtServerFilter.Add_TextChanged({ _BuildServerTree -Filter $txtServerFilter.Text })
@@ -1608,7 +1608,7 @@ function Show-MainWindow {
         }
     })
 
-    # File list double-click → open
+    # File list double-click --- open
     $dgFiles.Add_MouseDoubleClick({
         $sel = $dgFiles.SelectedItem
         if ($sel) {
@@ -1661,7 +1661,7 @@ function Show-MainWindow {
         $sbSearchStatus.Text = 'Search cancelled'
     })
 
-    # Double-click search result → open file at line
+    # Double-click search result --- open file at line
     $dgSearchResults.Add_MouseDoubleClick({
         $sel = $dgSearchResults.SelectedItem
         if ($sel -and $sel.LineNumber -gt 0) {
@@ -1886,7 +1886,7 @@ function Show-MainWindow {
         Write-NexusLog 'Application window closing' -Level INFO -Component 'MainWindow'
     })
 
-    # ── Initialize UI data ────────────────────────────────────────────
+    # ------ Initialize UI data ------------------------------------------------------------------------------------------------------------------------------------
     $sbUser.Text = "Authenticated as: $($Credential.UserName)"
     Initialize-FileExplorer -ConfigDirectory $script:ConfigDir
     _BuildServerTree
@@ -1895,6 +1895,6 @@ function Show-MainWindow {
 
     Write-NexusLog 'Main window loaded' -Level INFO -Component 'MainWindow'
 
-    # ── Show window ───────────────────────────────────────────────────
+    # ------ Show window ---------------------------------------------------------------------------------------------------------------------------------------------------------
     $w.ShowDialog() | Out-Null
 }

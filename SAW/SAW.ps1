@@ -1,6 +1,6 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 #========================================================================
-# SAW.ps1 — Server Access Workbench
+# SAW.ps1 - Server Access Workbench
 # CyberArk Log Explorer & Operations Console
 # Entry point: loads modules, shows login, launches main window
 #
@@ -13,7 +13,7 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# ── Resolve paths ──────────────────────────────────────────────────────────
+# â”€â”€ Resolve paths â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 $script:AppRoot   = $PSScriptRoot
 $script:ModuleDir = Join-Path $AppRoot 'Modules'
 $script:UIDir     = Join-Path $AppRoot 'UI'
@@ -27,7 +27,7 @@ foreach ($dir in @($script:LogDir, $script:ConfigDir)) {
     }
 }
 
-# ── Load WPF / Windows assemblies ─────────────────────────────────────────
+# â”€â”€ Load WPF / Windows assemblies â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
@@ -37,7 +37,7 @@ Add-Type -AssemblyName Microsoft.VisualBasic   # For InputBox
 # WPF STA requirement
 [System.Threading.Thread]::CurrentThread.SetApartmentState([System.Threading.ApartmentState]::STA) 2>$null
 
-# ── Import modules ─────────────────────────────────────────────────────────
+# â”€â”€ Import modules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 $moduleLoadOrder = @(
     'AppLogger'
     'Auth'
@@ -56,27 +56,27 @@ foreach ($modName in $moduleLoadOrder) {
     Import-Module $modPath -Force -Global -ErrorAction Stop
 }
 
-# ── Initialize subsystems ──────────────────────────────────────────────────
+# â”€â”€ Initialize subsystems â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Initialize-AppLogger   -LogDirectory $script:LogDir
 Initialize-ServerManager -ConfigDirectory $script:ConfigDir
 Initialize-Favorites   -ConfigDirectory $script:ConfigDir
 
-Write-NexusLog 'SAW initialisation complete — showing login dialog' -Level INFO -Component 'SAW'
+Write-NexusLog "SAW initialisation complete - showing login dialog" -Level INFO -Component 'SAW'
 
-# ── Dot-source main window (after modules so all functions are available) ──
+# â”€â”€ Dot-source main window (after modules so all functions are available) â”€â”€
 . (Join-Path $script:UIDir 'MainWindow.ps1')
 
-# ── Show login ─────────────────────────────────────────────────────────────
+# â”€â”€ Show login â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 $script:Credential = Show-LoginDialog -DefaultUsername 'NA\S123456'
 
 if (-not $script:Credential) {
-    Write-NexusLog 'Login cancelled — exiting' -Level INFO -Component 'SAW'
+    Write-NexusLog 'Login cancelled - exiting' -Level INFO -Component 'SAW'
     exit 0
 }
 
 Write-NexusLog "Session authenticated: $($script:Credential.UserName)" -Level INFO -Component 'SAW'
 
-# ── Launch main window ─────────────────────────────────────────────────────
+# â”€â”€ Launch main window â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 try {
     Show-MainWindow -Credential $script:Credential
 }
@@ -84,7 +84,7 @@ catch {
     Write-NexusLog "Fatal error in main window: $($_.Exception.Message)" -Level ERROR -Component 'SAW' -Exception $_.Exception
     [System.Windows.MessageBox]::Show(
         "A fatal error occurred:`n`n$($_.Exception.Message)`n`nPlease check the application log at:`n$(Join-Path $script:LogDir "SAW_$(Get-Date -Format 'yyyyMMdd').log")",
-        'SAW — Fatal Error', 'OK', 'Error') | Out-Null
+        'SAW - Fatal Error', 'OK', 'Error') | Out-Null
 }
 finally {
     Write-NexusLog 'SAW session ended' -Level INFO -Component 'SAW'

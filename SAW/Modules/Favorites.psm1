@@ -1,5 +1,5 @@
-#========================================================================
-# Favorites.psm1 — Favorites and Recent History Module
+﻿#========================================================================
+# Favorites.psm1 - Favorites and Recent History Module
 # Stores: favorite servers, favorite folders, recent history
 # NEVER stores credentials or passwords
 #========================================================================

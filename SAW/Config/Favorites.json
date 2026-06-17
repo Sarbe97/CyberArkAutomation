@@ -1,9 +1,23 @@
-{
-  "FavoriteServers":  [],
-  "FavoriteFolders":  [],
-  "FavoriteFiles":    [],
-  "RecentServers":    [],
-  "RecentFiles":      [],
-  "RecentSearches":   [],
-  "RecentLocations":  []
+﻿{
+    "FavoriteServers":  [
+
+                        ],
+    "FavoriteFolders":  [
+
+                        ],
+    "FavoriteFiles":  [
+
+                      ],
+    "RecentServers":  [
+                          "CPM02"
+                      ],
+    "RecentFiles":  [
+
+                    ],
+    "RecentSearches":  [
+
+                       ],
+    "RecentLocations":  [
+                            "\\\\CPM02\\D$"
+                        ]
 }

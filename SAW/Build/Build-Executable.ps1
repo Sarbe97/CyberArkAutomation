@@ -1,5 +1,5 @@
-#========================================================================
-# Build-Executable.ps1 — Package SAW into a standalone .exe
+﻿#========================================================================
+# Build-Executable.ps1 - Package SAW into a standalone .exe
 # Uses PS2EXE (install with: Install-Module -Name ps2exe -Scope CurrentUser)
 #
 # Usage:
@@ -16,7 +16,7 @@ $MainScript = Join-Path $AppRoot 'SAW.ps1'
 $OutputExe  = Join-Path $OutputDir 'SAW.exe'
 
 Write-Host '========================================' -ForegroundColor Cyan
-Write-Host ' Server Access Workbench — Build Script' -ForegroundColor Cyan
+Write-Host ' Server Access Workbench - Build Script' -ForegroundColor Cyan
 Write-Host '========================================' -ForegroundColor Cyan
 
 # Ensure output directory
@@ -70,10 +70,10 @@ $ps2exeParams = @{
 Invoke-ps2exe @ps2exeParams
 
 if (Test-Path (Join-Path $distApp 'SAW.exe')) {
-    Write-Host "`n✅  Build successful!" -ForegroundColor Green
+    Write-Host "`nâœ…  Build successful!" -ForegroundColor Green
     Write-Host "Output: $(Join-Path $distApp 'SAW.exe')" -ForegroundColor Green
 } else {
-    Write-Host "`n❌  Build failed. Check PS2EXE output above." -ForegroundColor Red
+    Write-Host "`nâŒ  Build failed. Check PS2EXE output above." -ForegroundColor Red
 }
 
 Write-Host "`nDistribution files: $distApp" -ForegroundColor Cyan

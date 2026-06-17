@@ -251,6 +251,20 @@ try {
         $disabledInCyberArk   = @($disabledAccounts | Where-Object { [string]$_.InCyberArk -eq "True" })
         $disabledNotCyberArk  = @($disabledAccounts | Where-Object { [string]$_.InCyberArk -ne "True" })
 
+        $allExcludedOUs = [System.Collections.Generic.List[string]]::new()
+        foreach ($d in $cfgDomains) {
+            if ($d.ExcludeOUs -and $d.ExcludeOUs.Count -gt 0) {
+                foreach ($ou in $d.ExcludeOUs) {
+                    $allExcludedOUs.Add("<strong>[$($d.Name)]</strong> $ou")
+                }
+            }
+        }
+        $excludedOUsHtml = if ($allExcludedOUs.Count -gt 0) {
+            $allExcludedOUs -join "<br/>"
+        } else {
+            "<i>None configured</i>"
+        }
+
         $summaryTokens = @{
             EffectiveMode           = $effectiveMode
             ModeTitle               = "Execution Run Complete"
@@ -264,6 +278,7 @@ try {
             EnabledNotInCyberArk    = $enabledNotInCyberArk.Count
             DisabledInCyberArk      = $disabledInCyberArk.Count
             DisabledNotInCyberArk   = $disabledNotCyberArk.Count
+            ExcludedOUsHtml         = $excludedOUsHtml
             CyberArkAuthStatus      = if ($cyberArkAuthAvailable) { "Connected" } else { "Unavailable" }
             CyberArkAuthStatusColor = if ($cyberArkAuthAvailable) { "4caf7d" } else { "e05252" }
         }

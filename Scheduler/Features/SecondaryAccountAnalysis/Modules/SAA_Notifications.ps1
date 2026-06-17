@@ -100,8 +100,7 @@ function Send-SAARunSummary {
 
     try {
         $body     = Get-TemplateContent -TemplateName "RunSummary" -Data $Tokens -TemplatesPath $TemplatesPath
-        $modeStr  = if ($Tokens["EffectiveMode"] -eq "Simulation") { "Simulation" } else { "Execution" }
-        $subject  = "CyberArk SAA: $modeStr Run Complete - $(Get-Date -Format 'yyyy-MM-dd')"
+        $subject  = "CyberArk Automated Report - Secondary Account Analysis ($($Tokens.EffectiveMode))"
         $emailCfg = Get-SAAEmailConfig -GlobalEmailConfig $GlobalEmailConfig -To $AdminTo -CC $AdminCC -FromOverride $FromOverride
 
         $attachments = @($AnalysisReportFile, $OnboardingResultsFile, $SkippedAccountsFile, $MissingGroupFile) | Where-Object { $_ -and (Test-Path $_) }

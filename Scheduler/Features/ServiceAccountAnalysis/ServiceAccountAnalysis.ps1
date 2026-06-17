@@ -241,15 +241,15 @@ try {
 
         # --- Compute breakdown metrics ---
         # If 'Enabled' is missing or anything other than explicitly False, treat it as True
-        $disabledAccounts = @($analysisReport | Where-Object { $_.Enabled -eq $false -or $_.Enabled -eq "False" })
-        $enabledAccounts  = @($analysisReport | Where-Object { $_.Enabled -ne $false -and $_.Enabled -ne "False" })
+        $disabledAccounts = @($analysisReport | Where-Object { [string]$_.Enabled -eq "False" })
+        $enabledAccounts  = @($analysisReport | Where-Object { [string]$_.Enabled -ne "False" })
 
         # If 'InCyberArk' is anything other than explicitly True (including False or Unknown), count as Not in CyberArk
-        $enabledInCyberArk    = @($enabledAccounts  | Where-Object { $_.InCyberArk -eq $true  -or $_.InCyberArk -eq "True"  })
-        $enabledNotInCyberArk = @($enabledAccounts  | Where-Object { $_.InCyberArk -ne $true  -and $_.InCyberArk -ne "True" })
+        $enabledInCyberArk    = @($enabledAccounts  | Where-Object { [string]$_.InCyberArk -eq "True" })
+        $enabledNotInCyberArk = @($enabledAccounts  | Where-Object { [string]$_.InCyberArk -ne "True" })
         
-        $disabledInCyberArk   = @($disabledAccounts | Where-Object { $_.InCyberArk -eq $true  -or $_.InCyberArk -eq "True"  })
-        $disabledNotCyberArk  = @($disabledAccounts | Where-Object { $_.InCyberArk -ne $true  -and $_.InCyberArk -ne "True" })
+        $disabledInCyberArk   = @($disabledAccounts | Where-Object { [string]$_.InCyberArk -eq "True" })
+        $disabledNotCyberArk  = @($disabledAccounts | Where-Object { [string]$_.InCyberArk -ne "True" })
 
         $summaryTokens = @{
             EffectiveMode           = $effectiveMode

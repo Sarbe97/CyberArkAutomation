@@ -427,6 +427,7 @@ try {
                 -ScriptName        $ScriptName `
                 -LogPath           $LogPath `
                 -LDAPDomain        $featureConfig.LDAPDomain `
+                -CurrentUsername   $Credential.Username `
                 -SimulationMode    $SimulationMode
 
             if ($provResult.Errors.Count -gt 0) {
@@ -492,8 +493,8 @@ try {
     # Export onboarding results
     if ($onboardingResults.Count -gt 0) {
         $onboardingResults | Export-Csv -Path $onboardingFile -NoTypeInformation -Encoding UTF8
-        $succeeded = ($onboardingResults | Where-Object { $_.Success }).Count
-        $failed    = ($onboardingResults | Where-Object { -not $_.Success }).Count
+        $succeeded = ($onboardingResults | Where-Object { $_.Success -eq "Yes" }).Count
+        $failed    = ($onboardingResults | Where-Object { $_.Success -ne "Yes" }).Count
         Write-Log -Message "Onboarding results saved: $onboardingFile (Success: $succeeded, Failed: $failed)" -ScriptName $ScriptName -LogPath $LogPath
     }
 
@@ -501,9 +502,10 @@ try {
     # PHASE 3B — USER SUCCESS NOTIFICATIONS
     # Group successful onboardings by primary user and send one email per user
     # ==========================================================
-    Write-Log -Message "========== PHASE 3B: USER SUCCESS NOTIFICATIONS ==========" -ScriptName $ScriptName -LogPath $LogPath
+    if ($cfgNotif.SendUserSuccessNotification -ne $false) {
+        Write-Log -Message "========== PHASE 3B: USER SUCCESS NOTIFICATIONS ==========" -ScriptName $ScriptName -LogPath $LogPath
         
-        $successfulOnboards = $onboardingResults | Where-Object { $_.Success }
+        $successfulOnboards = $onboardingResults | Where-Object { $_.Success -eq "Yes" }
         $groupedByUser = $successfulOnboards | Group-Object -Property PrimaryAccount
         
         Write-Log -Message "Found $($groupedByUser.Count) users who had accounts successfully provisioned." -ScriptName $ScriptName -LogPath $LogPath
@@ -554,6 +556,9 @@ try {
                 -Bcc              $cfgNotif.UserBcc `
                 -SimulationMode   $SimulationMode
         }
+    } else {
+        Write-Log -Message "Phase 3B: User Success Notifications are disabled in config. Skipping." -ScriptName $ScriptName -LogPath $LogPath
+    }
 
     # ==========================================================
     # PHASE 4 — RUN SUMMARY EMAIL
@@ -589,8 +594,8 @@ try {
         $plannedSafes    = $countNeedsAll
         $plannedOnboards = $countNeedsAll + $countNeedsOnboarding
 
-        $actualSafes     = @($onboardingResults | Where-Object { $_.Success }).Count # Rough estimate if we tracked safes specifically, but usually 1:1 or less
-        $actualOnboards  = @($onboardingResults | Where-Object { $_.Success }).Count
+        $actualSafes     = @($onboardingResults | Where-Object { $_.Success -eq "Yes" }).Count # Rough estimate if we tracked safes specifically, but usually 1:1 or less
+        $actualOnboards  = @($onboardingResults | Where-Object { $_.Success -eq "Yes" }).Count
 
         $isSim = $effectiveMode -eq "Simulation"
 

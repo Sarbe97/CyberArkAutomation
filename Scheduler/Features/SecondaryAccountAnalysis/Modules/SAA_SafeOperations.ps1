@@ -164,6 +164,12 @@ function Add-SAASafeMember {
             Write-Log -Message "Member '$MemberName' already exists in '$SafeName'. Skipping." -ScriptName $ScriptName -LogPath $LogPath
             return @{ Success = $true; Simulated = $false; AlreadyExisted = $true }
         }
+        # HTTP 403 = usually "You cannot update your own account" when API user tries to add themselves. 
+        # Safe creators automatically get full permissions, so this is non-fatal.
+        if ($errMsg -match "403|Forbidden|cannot update your own account") {
+            Write-Log -Message "Member '$MemberName' returned Forbidden (403). If this is the API user, it already has full permissions. Skipping." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+            return @{ Success = $true; Simulated = $false; AlreadyExisted = $true }
+        }
         Write-Log -Message "Failed to add member '$MemberName' to '$SafeName': $errMsg" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
         return @{ Success = $false; Simulated = $false; AlreadyExisted = $false; Error = $errMsg }
     }
@@ -247,6 +253,7 @@ function Invoke-SAASafeProvisioning {
         [Parameter(Mandatory=$true)] [string]          $ScriptName,
         [Parameter(Mandatory=$true)] [string]          $LogPath,
         [string] $LDAPDomain = "",
+        [string] $CurrentUsername = "",
         [bool] $SimulationMode = $false
     )
 
@@ -273,6 +280,11 @@ function Invoke-SAASafeProvisioning {
     # Step 2: Add each configured member
     foreach ($member in $PersonalSafeConfig.Members) {
         $resolvedName = Resolve-SAAToken -Template $member.Name -Tokens $Tokens
+
+        if ($CurrentUsername -and ($resolvedName -eq $CurrentUsername)) {
+            Write-Log -Message "Skipping member '$resolvedName' because it is the currently logged-in API user (the safe creator is automatically added with full permissions)." -ScriptName $ScriptName -LogPath $LogPath
+            continue
+        }
 
         $permSet = $SafePermissionSets[$member.PermissionSet]
         if (-not $permSet) {

@@ -178,6 +178,8 @@
         "AdminFrom": "",
         "UserFrom": "",
         "UserBcc": [],
+        "_Comment_SendUserSuccessNotification": "If true, sends an email to the user when their account is successfully onboarded",
+        "SendUserSuccessNotification": false,
         "_Comment_AdminTo": "Admin alert recipients for missing access, safe creation, and failures",
         "AdminTo": [ "pam-admins@company.com" ],
         "AdminCC": [],

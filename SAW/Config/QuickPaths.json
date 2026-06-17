@@ -1,0 +1,36 @@
+{
+  "PVWA": [
+    { "Name": "PVWA Logs",           "RelativePath": "CyberArk\\Password Vault Web Access\\Logs" },
+    { "Name": "IIS Logs",            "RelativePath": "inetpub\\logs\\LogFiles" },
+    { "Name": "Configuration",       "RelativePath": "CyberArk\\Password Vault Web Access\\Configuration" },
+    { "Name": "Installation Folder", "RelativePath": "CyberArk\\Password Vault Web Access" },
+    { "Name": "Web Application",     "RelativePath": "inetpub\\wwwroot" }
+  ],
+  "CPM": [
+    { "Name": "CPM Logs",            "RelativePath": "CyberArk\\Password Manager\\Logs" },
+    { "Name": "CPM Configuration",   "RelativePath": "CyberArk\\Password Manager" },
+    { "Name": "Vault.ini",           "RelativePath": "CyberArk\\Password Manager\\vault.ini" }
+  ],
+  "PSM": [
+    { "Name": "PSM Logs",            "RelativePath": "CyberArk\\PSM\\Logs" },
+    { "Name": "PSM Recordings",      "RelativePath": "CyberArk\\PSM\\Recordings" },
+    { "Name": "PSM Configuration",   "RelativePath": "CyberArk\\PSM" },
+    { "Name": "Vault.ini",           "RelativePath": "CyberArk\\PSM\\vault.ini" }
+  ],
+  "PTA": [
+    { "Name": "PTA Logs",            "RelativePath": "opt\\tomcat\\logs" },
+    { "Name": "PTA Configuration",   "RelativePath": "opt\\tomcat\\conf" },
+    { "Name": "Elastic Logs",        "RelativePath": "var\\log\\elasticsearch" }
+  ],
+  "IIS": [
+    { "Name": "IIS Logs",            "RelativePath": "inetpub\\logs\\LogFiles" },
+    { "Name": "Web Root",            "RelativePath": "inetpub\\wwwroot" }
+  ],
+  "SQL": [
+    { "Name": "SQL Server",          "RelativePath": "Program Files\\Microsoft SQL Server" },
+    { "Name": "Error Logs",          "RelativePath": "Program Files\\Microsoft SQL Server\\MSSQL\\Log" }
+  ],
+  "Utility": [],
+  "Other":   [],
+  "UserDefined": []
+}

@@ -149,11 +149,13 @@ function Get-SVCADAccounts {
 
                 # OU exclusion check — skip users whose DN falls under any excluded OU
                 if ($excludedOUs.Count -gt 0) {
-                    $userDN = $user.DistinguishedName.ToLower()
+                    # Strip spaces after commas to handle AD formatting inconsistencies
+                    $userDN = $user.DistinguishedName.ToLower() -replace ',\s*', ','
                     $inExcludedOU = $false
                     foreach ($ouDN in $excludedOUs) {
+                        $cleanOuDN = $ouDN -replace ',\s*', ','
                         # Check if the user's DN ends with the excluded OU DN
-                        if ($userDN.EndsWith(",$ouDN") -or $userDN -eq $ouDN) {
+                        if ($userDN.EndsWith(",$cleanOuDN") -or $userDN -eq $cleanOuDN) {
                             $inExcludedOU = $true
                             break
                         }

@@ -2,7 +2,6 @@
   "Features": {
     "PersonalSafeAnalysis": {
       "Enabled": true,
-
       "_Comment_Mode": "Supported values: Analysis",
       "Mode": "Analysis",
 

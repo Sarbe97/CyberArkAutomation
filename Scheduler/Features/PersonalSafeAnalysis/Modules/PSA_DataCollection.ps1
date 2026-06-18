@@ -140,7 +140,11 @@ function Get-PSASafeAccountCount {
     
     try {
         $resp = Invoke-CyberArkApi -Uri $uri -TimeoutSec 60
-        return if ($null -ne $resp.count) { $resp.count } else { 0 }
+        if ($null -ne $resp.count) {
+            return $resp.count
+        } else {
+            return 0
+        }
     }
     catch {
         Write-Log -Message "Failed to fetch accounts for safe '$SafeName': $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath

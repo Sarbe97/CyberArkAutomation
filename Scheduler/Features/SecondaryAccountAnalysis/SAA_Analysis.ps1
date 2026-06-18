@@ -591,24 +591,33 @@ try {
         # Calculate EPV users (licenses) consumed
         $newEpvUsersConsumedCnt = @($csvData | Where-Object { $_.Status -in @("NeedsAll", "NeedsOnboarding") -and $_.InCyberArk -eq "No" } | Select-Object -Property PrimaryAccount -Unique).Count
 
-        $plannedSafes    = $countNeedsAll
+        # Recalculate unique safes that we planned to create
+        if ($skipPhases1and2) {
+            $safesToCreate = @($csvData | Where-Object Status -eq "NeedsAll" | Select-Object -ExpandProperty ExpectedSafe -Unique)
+        } else {
+            $safesToCreate = @($analysisReport | Where-Object Status -eq "NeedsAll" | Select-Object -ExpandProperty ExpectedSafe -Unique)
+        }
+
+        $plannedSafes    = $safesToCreate.Count
         $plannedOnboards = $countNeedsAll + $countNeedsOnboarding
 
-        $actualSafes     = @($onboardingResults | Where-Object { $_.Success -eq "Yes" }).Count # Rough estimate if we tracked safes specifically, but usually 1:1 or less
+        # Safes are created if provisioning didn't fail for them
+        $actualSafes     = @($onboardingResults | Where-Object { $_.SafeName -in $safesToCreate -and $_.FailureStep -ne "SafeProvisioning" } | Select-Object -ExpandProperty SafeName -Unique).Count
         $actualOnboards  = @($onboardingResults | Where-Object { $_.Success -eq "Yes" }).Count
 
         $isSim = $effectiveMode -eq "Simulation"
 
         $modeTitle        = if ($isSim) { "Simulation Run Complete" } else { "Execution Run Complete" }
         $modeBanner       = if ($isSim) { 'SIMULATION MODE - No safes were created. No accounts were onboarded. No operational emails were sent.' } else { 'EXECUTION COMPLETE - Safes and accounts have been provisioned in CyberArk.' }
-        $safesLabel       = if ($isSim) { "Safes Would Be Created" } else { "Safes Created" }
-        $onboardsLabel    = if ($isSim) { "Accounts Would Be Onboarded" } else { "Accounts Onboarded" }
+        
+        $safesLabel       = if ($isSim) { "Safes Would Be Created" } else { "Safes Created / Planned" }
+        $onboardsLabel    = if ($isSim) { "Accounts Would Be Onboarded" } else { "Onboarded / Planned" }
         $adminAlertsLabel = if ($isSim) { "Admin Alerts Would Be Sent" } else { "Admin Alerts Sent" }
         $userAlertsLabel  = if ($isSim) { "User Notifications Would Be Sent" } else { "User Notifications Sent" }
         
-        $plannedSafesCnt   = if ($isSim) { $plannedSafes } else { $actualSafes }
-        $plannedOnbrdsCnt  = if ($isSim) { $plannedOnboards } else { $actualOnboards }
-        $plannedUsrAlrtCnt = if ($isSim) { $plannedOnboards } else { $actualOnboards }
+        $plannedSafesCnt   = if ($isSim) { "$plannedSafes" } else { "$actualSafes / $plannedSafes" }
+        $plannedOnbrdsCnt  = if ($isSim) { "$plannedOnboards" } else { "$actualOnboards / $plannedOnboards" }
+        $plannedUsrAlrtCnt = if ($isSim) { "$plannedOnboards" } else { "$actualOnboards / $plannedOnboards" }
 
         $summaryTokens = @{
             EffectiveMode         = $effectiveMode

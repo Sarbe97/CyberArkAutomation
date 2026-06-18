@@ -67,9 +67,20 @@ function Get-PSAPersonalSafes {
 
                 # Check pattern
                 if ($safeName -match $NamingPatternRegex) {
+                    $creationDate = ""
+                    if ($null -ne $safe.creationTime) {
+                        try {
+                            $unixEpoch = [datetime]"1970-01-01T00:00:00Z"
+                            $creationDate = $unixEpoch.AddSeconds([double]$safe.creationTime).ToLocalTime().ToString("yyyy-MM-dd")
+                        } catch { $creationDate = $safe.creationTime }
+                    }
+
                     $allSafes.Add([PSCustomObject]@{
                         SafeName     = $safeName
                         Description  = $safe.description
+                        Creator      = if ($safe.creator -and $safe.creator.name) { $safe.creator.name } else { "" }
+                        CreationTime = $creationDate
+                        ManagingCPM  = if ($safe.managingCPM) { $safe.managingCPM } else { "" }
                     })
                 }
             }

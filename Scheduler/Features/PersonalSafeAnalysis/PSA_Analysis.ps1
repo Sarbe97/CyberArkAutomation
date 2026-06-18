@@ -159,9 +159,12 @@ try {
         $acctCount = if ($accountCountMap.ContainsKey($safeUpper)) { $accountCountMap[$safeUpper] } else { 0 }
 
         $safeDataMap[$safe.SafeName] = @{
-            OwnerUid = $ownerUid
-            IsMember = $isMember
-            Count    = $acctCount
+            OwnerUid     = $ownerUid
+            AccountCount = $acctCount
+            IsMember     = $isMember
+            Creator      = $safe.Creator
+            CreationTime = $safe.CreationTime
+            ManagingCPM  = $safe.ManagingCPM
         }
     }
     Write-Progress -Id 20 -Activity "Analyzing Personal Safes" -Completed
@@ -193,7 +196,7 @@ try {
 
     foreach ($safe in $personalSafes) {
         $data = $safeDataMap[$safe.SafeName]
-        $totalAccounts += $data.Count
+        $totalAccounts += $data.AccountCount
 
         $ownerUid = $data.OwnerUid
         $isMember = $data.IsMember
@@ -240,13 +243,16 @@ try {
 
         $analysisReport.Add([PSCustomObject]@{
             SafeName          = $safe.SafeName
+            Creator           = $data.Creator
+            CreationDate      = $data.CreationTime
+            ManagingCPM       = $data.ManagingCPM
             OwnerUid          = $ownerUid
             OwnerIsSafeMember = if ($isMember) { "Yes" } else { "No" }
             OwnerInAD         = $ownerInAD
             OwnerADStatus     = $ownerStatus
             OwnerFullName     = $fullName
             OwnerEmail        = $email
-            AccountCount      = $data.Count
+            AccountCount      = $data.AccountCount
             Status            = $status
         })
     }

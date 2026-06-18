@@ -324,6 +324,15 @@ function Show-LogViewer {
     $btnRefreshList.Margin = New-Object System.Windows.Forms.Padding(0, 10, 0, 0)
     $leftPanel.Controls.Add($btnRefreshList)
 
+    $btnSearchAll = New-Object System.Windows.Forms.Button
+    $btnSearchAll.Text = "Search All Files"
+    $btnSearchAll.Dock = "Bottom"
+    $btnSearchAll.Height = 32
+    $btnSearchAll.FlatStyle = "Flat"
+    $btnSearchAll.Cursor = "Hand"
+    $btnSearchAll.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 10)
+    $leftPanel.Controls.Add($btnSearchAll)
+
     # ── RIGHT PANEL (CONTENT VIEWER) ──
     $rightPanel = New-Object System.Windows.Forms.Panel
     $rightPanel.Dock = "Fill"
@@ -560,6 +569,117 @@ function Show-LogViewer {
         }
     })
 
+    $showSearchPrompt = {
+        param([string]$title)
+        $promptForm = New-Object System.Windows.Forms.Form
+        $promptForm.Text = $title
+        $promptForm.Size = New-Object System.Drawing.Size(350, 160)
+        $promptForm.StartPosition = "CenterParent"
+        $promptForm.FormBorderStyle = "FixedDialog"
+        $promptForm.MaximizeBox = $false
+        $promptForm.MinimizeBox = $false
+        $promptForm.BackColor = [System.Drawing.Color]::FromArgb(250, 250, 252)
+        $promptForm.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
+
+        $lbl = New-Object System.Windows.Forms.Label
+        $lbl.Text = "Enter search keyword:"
+        $lbl.Location = New-Object System.Drawing.Point(20, 15)
+        $lbl.Size = New-Object System.Drawing.Size(300, 20)
+        $promptForm.Controls.Add($lbl)
+
+        $txt = New-Object System.Windows.Forms.TextBox
+        $txt.Location = New-Object System.Drawing.Point(20, 40)
+        $txt.Size = New-Object System.Drawing.Size(290, 23)
+        $promptForm.Controls.Add($txt)
+
+        $btnOK = New-Object System.Windows.Forms.Button
+        $btnOK.Text = "Search"
+        $btnOK.Location = New-Object System.Drawing.Point(110, 80)
+        $btnOK.Size = New-Object System.Drawing.Size(90, 30)
+        $btnOK.DialogResult = "OK"
+        $promptForm.AcceptButton = $btnOK
+        $promptForm.Controls.Add($btnOK)
+
+        $btnCancel = New-Object System.Windows.Forms.Button
+        $btnCancel.Text = "Cancel"
+        $btnCancel.Location = New-Object System.Drawing.Point(210, 80)
+        $btnCancel.Size = New-Object System.Drawing.Size(90, 30)
+        $btnCancel.DialogResult = "Cancel"
+        $promptForm.CancelButton = $btnCancel
+        $promptForm.Controls.Add($btnCancel)
+
+        $promptForm.Add_Shown({ $txt.Focus() })
+
+        $res = $promptForm.ShowDialog()
+        $val = $txt.Text
+        $promptForm.Dispose()
+        if ($res -eq "OK") { return $val.Trim() }
+        return $null
+    }
+
+    $btnSearchAll.Add_Click({
+        $query = $showSearchPrompt.Invoke("Search All Log Files")
+        if ([string]::IsNullOrWhiteSpace($query)) { return }
+
+        $timer.Stop()
+        $txtContent.Text = "Searching all log files for '$query'..."
+        $lstFiles.SelectedIndex = -1
+        
+        try {
+            $files = Get-ChildItem -Path $Server.LogPath -File | Sort-Object LastWriteTime -Descending
+            $results = [System.Collections.Generic.List[string]]::new()
+            $results.Add("=== MULTI-FILE SEARCH RESULTS FOR: '$query' ===")
+            $results.Add("Search performed on: $(Get-Date)")
+            $results.Add("")
+
+            $totalMatches = 0
+            foreach ($file in $files) {
+                if ($file.Length -gt 20MB) { continue }
+                
+                try {
+                    $fs = [System.IO.FileStream]::new($file.FullName, 'Open', 'Read', 'ReadWrite')
+                    $reader = [System.IO.StreamReader]::new($fs)
+                    
+                    $lineNum = 0
+                    $fileMatches = 0
+                    $fileLines = [System.Collections.Generic.List[string]]::new()
+
+                    while (($line = $reader.ReadLine()) -ne $null) {
+                        $lineNum++
+                        if ($line -like "*$query*") {
+                            $fileMatches++
+                            $totalMatches++
+                            $fileLines.Add("  [Line $lineNum] $line")
+                        }
+                    }
+                    
+                    $reader.Close()
+                    $fs.Close()
+
+                    if ($fileMatches -gt 0) {
+                        $results.Add("Found in: $($file.Name) ($fileMatches matches)")
+                        $results.AddRange($fileLines)
+                        $results.Add("")
+                    }
+                }
+                catch {
+                    # Skip locked files
+                }
+            }
+
+            $results.Add("==================================================")
+            $results.Add("Total Matches Found: $totalMatches")
+            $results.Add("==================================================")
+
+            $txtContent.Text = $results -join "`r`n"
+            $txtContent.SelectionStart = 0
+            $txtContent.ScrollToCaret()
+        }
+        catch {
+            $txtContent.Text = "Search failed: $($_.Exception.Message)"
+        }
+    })
+
     $txtFilter.Add_TextChanged({
         $script:LogFilterText = $txtFilter.Text
         # Re-apply filter on existing lines
@@ -683,6 +803,50 @@ function Update-StatusBar {
     $script:lblStatus.Text = $Message
 }
 
+$script:ServerStatus = @{}
+
+function Start-PingCheck {
+    param([string]$ServerName, [string]$Address)
+    if ($ServerName -eq "Local" -or $Address -notlike "\\*") {
+        $script:ServerStatus[$ServerName] = "Online"
+        $script:lstServers.Invalidate()
+        return
+    }
+    
+    # Extract hostname
+    $hostName = $Address.TrimStart('\').Split('\')[0]
+    if ([string]::IsNullOrWhiteSpace($hostName)) {
+        $script:ServerStatus[$ServerName] = "Offline"
+        $script:lstServers.Invalidate()
+        return
+    }
+
+    $ping = New-Object System.Net.NetworkInformation.Ping
+    Register-ObjectEvent -InputObject $ping -EventName "PingCompleted" -Action {
+        $reply = $event.SourceEventArgs.Reply
+        $srvName = $event.MessageData
+        if ($reply -and $reply.Status -eq "Success") {
+            $script:ServerStatus[$srvName] = "Online"
+        } else {
+            $script:ServerStatus[$srvName] = "Offline"
+        }
+        if ($script:lstServers) {
+            $script:lstServers.Invalidate()
+        }
+        Unregister-Event -SourceIdentifier $event.SubscriptionId -ErrorAction SilentlyContinue
+    } -MessageData $ServerName | Out-Null
+    
+    try {
+        $ping.SendAsync($hostName, 1000, $null)
+    }
+    catch {
+        $script:ServerStatus[$ServerName] = "Offline"
+        if ($script:lstServers) {
+            $script:lstServers.Invalidate()
+        }
+    }
+}
+
 function Refresh-ServerList {
     param([string]$Filter = "")
     $script:Servers = Load-Servers
@@ -691,6 +855,8 @@ function Refresh-ServerList {
         if ([string]::IsNullOrWhiteSpace($Filter) -or
             $srv.Name -like "*$Filter*") {
             $script:lstServers.Items.Add($srv.Name)
+            $script:ServerStatus[$srv.Name] = "Checking"
+            Start-PingCheck -ServerName $srv.Name -Address $srv.SharePath
         }
     }
     Update-StatusBar "Loaded $($script:lstServers.Items.Count) server(s) | User: $($script:Credential.UserName)" "Info"
@@ -866,6 +1032,40 @@ $script:lstServers.Location = New-Object System.Drawing.Point(20, 85)
 $script:lstServers.Size = New-Object System.Drawing.Size(460, 240)
 $script:lstServers.Font = New-Object System.Drawing.Font("Consolas", 10.5)
 $script:lstServers.BorderStyle = "FixedSingle"
+$script:lstServers.DrawMode = "OwnerDrawFixed"
+$script:lstServers.ItemHeight = 22
+
+$script:lstServers.Add_DrawItem({
+    param($sender, $e)
+    if ($e.Index -lt 0) { return }
+    $e.DrawBackground()
+    
+    $itemText = $sender.Items[$e.Index]
+    $status = $script:ServerStatus[$itemText]
+    
+    $color = switch ($status) {
+        "Online"  { [System.Drawing.Color]::FromArgb(46, 125, 50) }   # Green
+        "Offline" { [System.Drawing.Color]::FromArgb(198, 40, 40) }  # Red
+        default   { [System.Drawing.Color]::FromArgb(120, 120, 120) } # Gray (checking)
+    }
+    
+    $brush = New-Object System.Drawing.SolidBrush($color)
+    $textBrush = New-Object System.Drawing.SolidBrush($e.ForeColor)
+    
+    # Draw status circle (X offset = 6, diameter = 8, Y centered)
+    $circleY = $e.Bounds.Y + [int](($e.Bounds.Height - 8) / 2)
+    $e.Graphics.FillEllipse($brush, $e.Bounds.X + 6, $circleY, 8, 8)
+    
+    # Draw text (X offset = 22)
+    $font = $e.Font
+    if ($null -eq $font) { $font = $sender.Font }
+    $e.Graphics.DrawString($itemText, $font, $textBrush, $e.Bounds.X + 22, $e.Bounds.Y + 2)
+    
+    $brush.Dispose()
+    $textBrush.Dispose()
+    $e.DrawFocusRectangle()
+})
+
 $script:lstServers.Add_SelectedIndexChanged({
     if ($script:lstServers.SelectedItem) {
         Update-StatusBar "Selected: $($script:lstServers.SelectedItem) | User: $($script:Credential.UserName)" "Info"
@@ -893,8 +1093,8 @@ $col3 = 330
 # Row 1 - Primary Actions
 $btnOpenShare = New-Object System.Windows.Forms.Button
 $btnOpenShare.Text = "Open Share"
-$btnOpenShare.Size = New-Object System.Drawing.Size($buttonW, $buttonH)
-$btnOpenShare.Location = New-Object System.Drawing.Point($col1, $buttonY)
+$btnOpenShare.Size = New-Object System.Drawing.Size(145, 34)
+$btnOpenShare.Location = New-Object System.Drawing.Point(20, 340)
 $btnOpenShare.BackColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
 $btnOpenShare.ForeColor = [System.Drawing.Color]::White
 $btnOpenShare.FlatStyle = "Flat"
@@ -907,26 +1107,33 @@ $btnOpenShare.Add_Click({
 })
 $form.Controls.Add($btnOpenShare)
 
-$btnOpenLog = New-Object System.Windows.Forms.Button
-$btnOpenLog.Text = "Open Log Folder"
-$btnOpenLog.Size = New-Object System.Drawing.Size($buttonW, $buttonH)
-$btnOpenLog.Location = New-Object System.Drawing.Point($col2, $buttonY)
-$btnOpenLog.BackColor = [System.Drawing.Color]::FromArgb(46, 125, 50)
-$btnOpenLog.ForeColor = [System.Drawing.Color]::White
-$btnOpenLog.FlatStyle = "Flat"
-$btnOpenLog.Cursor = "Hand"
-$btnOpenLog.Add_Click({
+$btnRDP = New-Object System.Windows.Forms.Button
+$btnRDP.Text = "RDP Connect"
+$btnRDP.Size = New-Object System.Drawing.Size(145, 34)
+$btnRDP.Location = New-Object System.Drawing.Point(175, 340)
+$btnRDP.BackColor = [System.Drawing.Color]::FromArgb(52, 73, 94)
+$btnRDP.ForeColor = [System.Drawing.Color]::White
+$btnRDP.FlatStyle = "Flat"
+$btnRDP.Cursor = "Hand"
+$btnRDP.Add_Click({
     $server = Get-SelectedServer
     if ($server) {
-        Show-LogViewer -Server $server -Credential $script:Credential
+        $address = $server.SharePath
+        if ($address -like "\\*") {
+            $hostName = $address.TrimStart('\').Split('\')[0]
+            Update-StatusBar "Initiating RDP connection to $hostName..." "Info"
+            Start-Process mstsc.exe -ArgumentList "/v:$hostName"
+        } else {
+            [System.Windows.Forms.MessageBox]::Show("RDP is only supported for remote servers (UNC paths).", "RDP Support", "OK", "Information")
+        }
     }
 })
-$form.Controls.Add($btnOpenLog)
+$form.Controls.Add($btnRDP)
 
 $btnRefresh = New-Object System.Windows.Forms.Button
 $btnRefresh.Text = "Refresh"
-$btnRefresh.Size = New-Object System.Drawing.Size($buttonW, $buttonH)
-$btnRefresh.Location = New-Object System.Drawing.Point($col3, $buttonY)
+$btnRefresh.Size = New-Object System.Drawing.Size(145, 34)
+$btnRefresh.Location = New-Object System.Drawing.Point(330, 340)
 $btnRefresh.FlatStyle = "Flat"
 $btnRefresh.Cursor = "Hand"
 $btnRefresh.Add_Click({ Refresh-ServerList -Filter $txtSearch.Text })
@@ -1188,9 +1395,26 @@ $form.Controls.Add($statusPanel)
 
 $script:lblStatus = New-Object System.Windows.Forms.Label
 $script:lblStatus.Location = New-Object System.Drawing.Point(10, 6)
-$script:lblStatus.Size = New-Object System.Drawing.Size(770, 18)
+$script:lblStatus.Size = New-Object System.Drawing.Size(660, 18)
 $script:lblStatus.ForeColor = [System.Drawing.Color]::FromArgb(55, 71, 79)
 $statusPanel.Controls.Add($script:lblStatus)
+
+$btnSwitchUser = New-Object System.Windows.Forms.Button
+$btnSwitchUser.Text = "Switch User"
+$btnSwitchUser.Location = New-Object System.Drawing.Point(680, 3)
+$btnSwitchUser.Size = New-Object System.Drawing.Size(100, 24)
+$btnSwitchUser.FlatStyle = "Flat"
+$btnSwitchUser.Cursor = "Hand"
+$btnSwitchUser.Font = New-Object System.Drawing.Font("Segoe UI", 8.5)
+$btnSwitchUser.Add_Click({
+    $cred = Get-SessionCredential
+    if ($null -ne $cred) {
+        $script:Credential = $cred
+        Refresh-ServerList -Filter $txtSearch.Text
+        Update-StatusBar "Switched user to: $($script:Credential.UserName)" "OK"
+    }
+})
+$statusPanel.Controls.Add($btnSwitchUser)
 
 # ── Load and Show ──
 Refresh-ServerList

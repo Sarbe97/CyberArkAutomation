@@ -1,0 +1,62 @@
+{
+  "Features": {
+    "PersonalSafeAnalysis": {
+      "Enabled": true,
+
+      "_Comment_Mode": "Supported values: Discovery | Analysis | Simulation",
+      "Mode": "Simulation",
+
+      "Cleanup": {
+        "Enabled": true,
+        "RetentionDays": 30
+      },
+
+      "PersonalSafe": {
+        "NamingPatternRegex": "^S-A-PR-WI-U\\d{6}$",
+        "_Comment_Extraction": "Regex capture group used to extract the primary owner's username from the safe name",
+        "OwnerExtractionRegex": "^S-A-PR-WI-(U\\d{6})$"
+      },
+
+      "PrimaryAccount": {
+        "Pattern": "^U\\d{6}$",
+        "EmployeeNumberCapture": "^U(\\d{6})$"
+      },
+
+      "Domains": [
+        {
+          "Name": "NA",
+          "FQDN": "na.company.com",
+          "Server": "na-dc.company.com",
+          "IsPrimary": true,
+          "Username": "",
+          "Password": "",
+          "CCP": {
+            "AppId": "CyberArkHealthCheck",
+            "Safe": "PAM-AD-NA",
+            "Object": "AD-NA-ScanAccount"
+          }
+        }
+      ],
+
+      "Exclusions": {
+        "InbuiltSafes": [
+          "System",
+          "VaultInternal",
+          "Notification Engine",
+          "PasswordManager",
+          "PasswordManager_workspace",
+          "PasswordManagerShared",
+          "PVWAConfig"
+        ],
+        "ExceptionSafes": []
+      },
+
+      "Notifications": {
+        "AdminFrom": "",
+        "AdminTo": [ "pam-admins@company.com" ],
+        "AdminCC": [],
+        "SendSimulationSummary": true
+      }
+    }
+  }
+}

@@ -1122,7 +1122,29 @@ $btnRDP.Add_Click({
         if ($address -like "\\*") {
             $hostName = $address.TrimStart('\').Split('\')[0]
             Update-StatusBar "Initiating RDP connection to $hostName..." "Info"
-            Start-Process mstsc.exe -ArgumentList "/v:$hostName"
+            
+            try {
+                $username = $script:Credential.UserName
+                $password = $script:Credential.GetNetworkCredential().Password
+                
+                # Securely pass credentials to Windows Credential Vault temporarily
+                $cmdArgs = @("/generic:TERMSRV/$hostName", "/user:$username", "/pass:$password")
+                Start-Process -FilePath "cmdkey.exe" -ArgumentList $cmdArgs -WindowStyle Hidden -Wait
+
+                # Launch RDP
+                Start-Process mstsc.exe -ArgumentList "/v:$hostName"
+                
+                # Clean up stored credentials from vault after 10 seconds (gives RDP enough time to read them)
+                [System.Threading.Tasks.Task]::Run({
+                    [System.Threading.Thread]::Sleep(10000)
+                    $delArgs = @("/delete:TERMSRV/$using:hostName")
+                    Start-Process -FilePath "cmdkey.exe" -ArgumentList $delArgs -WindowStyle Hidden -Wait
+                })
+            }
+            catch {
+                # Fallback to standard RDP connection
+                Start-Process mstsc.exe -ArgumentList "/v:$hostName"
+            }
         } else {
             [System.Windows.Forms.MessageBox]::Show("RDP is only supported for remote servers (UNC paths).", "RDP Support", "OK", "Information")
         }

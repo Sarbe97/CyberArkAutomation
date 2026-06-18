@@ -124,32 +124,57 @@ function Get-PSASafeMembers {
 }
 
 # ---------------------------------------------------------------------------
-# Get-PSASafeAccountCount
-# Fetches the number of accounts in a specific safe.
+# Get-PSAAllAccounts
+# Fetches all accounts from CyberArk in bulk.
 # ---------------------------------------------------------------------------
-function Get-PSASafeAccountCount {
+function Get-PSAAllAccounts {
     param (
         [Parameter(Mandatory=$true)] [string] $BaseUrl,
-        [Parameter(Mandatory=$true)] [string] $SafeName,
+        [Parameter(Mandatory=$true)] [string] $CachePath,
         [Parameter(Mandatory=$true)] [string] $ScriptName,
         [Parameter(Mandatory=$true)] [string] $LogPath
     )
 
-    $encodedSafeName = [System.Uri]::EscapeDataString($SafeName)
-    $uri = "$BaseUrl/PasswordVault/api/Accounts?filter=safeName%20eq%20$encodedSafeName&limit=1"
-    
-    try {
-        $resp = Invoke-CyberArkApi -Uri $uri -TimeoutSec 60
-        if ($null -ne $resp.count) {
-            return $resp.count
-        } else {
-            return 0
+    if (Test-Path $CachePath) {
+        Write-Log -Message "Loading all accounts from cache: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
+        return @(Import-Csv $CachePath)
+    }
+
+    Write-Log -Message "Fetching ALL CyberArk accounts in bulk..." -ScriptName $ScriptName -LogPath $LogPath
+
+    $allAccounts = [System.Collections.Generic.List[object]]::new()
+    $offset    = 0
+    $limit     = 1000
+    $hasMore   = $true
+
+    while ($hasMore) {
+        Write-Progress -Id 50 -Activity "CyberArk Accounts" -Status "Fetching accounts at offset $offset (collected: $($allAccounts.Count))..." -PercentComplete -1
+        $uri   = "$BaseUrl/PasswordVault/api/Accounts?limit=$limit&offset=$offset"
+        $resp  = Invoke-CyberArkApi -Uri $uri -TimeoutSec 120
+        $batch = if ($resp.value) { $resp.value } else { @() }
+
+        if ($batch.Count -gt 0) {
+            foreach ($acct in $batch) {
+                # We only need safeName for counting, but we can capture platform/name if needed
+                $allAccounts.Add([PSCustomObject]@{
+                    SafeName    = $acct.safeName
+                    PlatformId  = $acct.platformId
+                    AccountName = $acct.name
+                })
+            }
+            Write-Log -Message "Accounts fetched so far: $($offset + $batch.Count)..." -ScriptName $ScriptName -LogPath $LogPath
+            if ($batch.Count -lt $limit) { $hasMore = $false } else { $offset += $limit }
         }
+        else { $hasMore = $false }
     }
-    catch {
-        Write-Log -Message "Failed to fetch accounts for safe '$SafeName': $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
-        return 0
-    }
+
+    Write-Progress -Id 50 -Activity "CyberArk Accounts" -Completed
+    Write-Log -Message "Total accounts fetched: $($allAccounts.Count)" -ScriptName $ScriptName -LogPath $LogPath
+
+    $allAccounts | Export-CsvNoBom -Path $CachePath
+    Write-Log -Message "Accounts cached: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
+
+    return $allAccounts.ToArray()
 }
 
 # ---------------------------------------------------------------------------
@@ -186,6 +211,7 @@ function Get-PSAADUsers {
         $prefix = $Matches[1]
         $adFilter = "SamAccountName -like '$prefix*'"
     }
+    Write-Log -Message "AD query built with filter: $adFilter" -ScriptName $ScriptName -LogPath $LogPath
 
     $credentialObj = $null
     $hasDirectCredentials = (-not [string]::IsNullOrWhiteSpace($primaryDomain.Username)) -and
@@ -224,7 +250,10 @@ function Get-PSAADUsers {
     $result = [System.Collections.Generic.List[object]]::new()
     try {
         Write-Progress -Id 10 -Activity "AD Query" -Status "Querying '$($primaryDomain.Server)'..." -PercentComplete -1
+        
+        Write-Log -Message "Executing Get-ADUser query against $($primaryDomain.Server)..." -ScriptName $ScriptName -LogPath $LogPath
         $adUsers = @(Get-ADUser @adParams | Select-Object SamAccountName, Enabled, Mail, GivenName, Surname)
+        Write-Log -Message "Get-ADUser returned $($adUsers.Count) users before applying regex pattern." -ScriptName $ScriptName -LogPath $LogPath
         
         foreach ($user in $adUsers) {
             if ($user.SamAccountName -notmatch $Pattern) { continue }
@@ -239,12 +268,18 @@ function Get-PSAADUsers {
         }
 
         Write-Progress -Id 10 -Activity "AD Query" -Completed
-        Write-Log -Message "Found $($result.Count) AD users matching pattern" -ScriptName $ScriptName -LogPath $LogPath
-        $result | Export-CsvNoBom -Path $CachePath
+        Write-Log -Message "Found $($result.Count) AD users matching regex pattern exactly." -ScriptName $ScriptName -LogPath $LogPath
+        
+        if ($result.Count -gt 0) {
+            $result | Export-CsvNoBom -Path $CachePath
+            Write-Log -Message "Exported valid AD users to cache file: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
+        } else {
+            Write-Log -Message "0 users matched the regex pattern. Skipping CSV export." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+        }
     }
     catch {
         Write-Progress -Id 10 -Activity "AD Query" -Completed
-        Write-Log -Message "Error querying AD domain '$($primaryDomain.Name)': $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+        Write-Log -Message "Error querying AD domain '$($primaryDomain.Name)': $($_.Exception.Message)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
     }
 
     return $result.ToArray()

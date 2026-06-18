@@ -83,6 +83,7 @@ $cfgNotif         = $featureConfig.Notifications
 $templatesPath    = Join-Path $FeatureRoot "Templates"
 
 $cacheSafes = Join-Path $ExportDir "RawCache_PersonalSafes_$TodayStr.csv"
+$cacheAccounts = Join-Path $ExportDir "RawCache_AllAccounts_$TodayStr.csv"
 $cacheADUsers = Join-Path $ExportDir "RawCache_ADUsers_$TodayStr.csv"
 $analysisFile = Join-Path $ExportDir "PSA_AnalysisReport_$Timestamp.csv"
 
@@ -114,6 +115,17 @@ try {
 
     $totalSafes = $personalSafes.Count
 
+    # 1b. Fetch All Accounts and Group by Safe
+    $allAccounts = Get-PSAAllAccounts -BaseUrl $BaseUrl -CachePath $cacheAccounts -ScriptName $ScriptName -LogPath $LogPath
+    $accountCountMap = @{}
+    foreach ($acct in $allAccounts) {
+        $safeNameUpper = $acct.SafeName.ToUpper()
+        if (-not $accountCountMap.ContainsKey($safeNameUpper)) {
+            $accountCountMap[$safeNameUpper] = 0
+        }
+        $accountCountMap[$safeNameUpper]++
+    }
+
     # 2. Extract Owners and check CyberArk Members/Counts
     $extractedOwners = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     $safeDataMap = @{}
@@ -122,6 +134,7 @@ try {
     foreach ($safe in $personalSafes) {
         $safeIndex++
         Write-Progress -Id 20 -Activity "Analyzing Personal Safes" -Status "[$safeIndex/$totalSafes] Analyzing safe '$($safe.SafeName)'..." -PercentComplete ([int](($safeIndex / $totalSafes) * 100))
+        Write-Log -Message "[$safeIndex/$totalSafes] Analyzing safe '$($safe.SafeName)'..." -ScriptName $ScriptName -LogPath $LogPath
         
         $ownerUid = ""
         if ($safe.SafeName -match $cfgSafe.OwnerExtractionRegex) {
@@ -141,8 +154,9 @@ try {
             }
         }
 
-        # Account count
-        $acctCount = Get-PSASafeAccountCount -BaseUrl $BaseUrl -SafeName $safe.SafeName -ScriptName $ScriptName -LogPath $LogPath
+        # Account count from local map
+        $safeUpper = $safe.SafeName.ToUpper()
+        $acctCount = if ($accountCountMap.ContainsKey($safeUpper)) { $accountCountMap[$safeUpper] } else { 0 }
 
         $safeDataMap[$safe.SafeName] = @{
             OwnerUid = $ownerUid

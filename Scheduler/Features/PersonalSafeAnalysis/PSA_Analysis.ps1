@@ -1,6 +1,6 @@
 param (
     [switch] $ManualLogin,
-    [ValidateSet("Discovery", "Analysis", "Remediation", "Simulation", "")]
+    [ValidateSet("Analysis", "")]
     [string] $Mode = ""
 )
 
@@ -68,7 +68,7 @@ if ($null -eq $featureConfig -or -not $featureConfig.Enabled) {
 # ============================================================
 $effectiveMode = if ($Mode) { $Mode } `
                  elseif ($featureConfig.Mode) { $featureConfig.Mode } `
-                 else { "Simulation" }
+                 else { "Analysis" }
 
 Write-Log -Message "Effective execution mode: $effectiveMode" -ScriptName $ScriptName -LogPath $LogPath
 
@@ -250,18 +250,13 @@ try {
         Write-Log -Message "No personal safes matched. Analysis report not generated." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
     }
 
-    if ($effectiveMode -eq "Discovery" -or $effectiveMode -eq "Analysis") {
-        Write-Log -Message "Mode=$effectiveMode. Run Summary will still be sent if enabled." -ScriptName $ScriptName -LogPath $LogPath
-    }
-
     # ==========================================================
     # PHASE 4 — SUMMARY EMAIL
     # ==========================================================
-    if ($cfgNotif.SendSimulationSummary -or $effectiveMode -ne "Simulation") {
-        Write-Log -Message "========== PHASE 4: RUN SUMMARY EMAIL ==========" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "========== PHASE 4: RUN SUMMARY EMAIL ==========" -ScriptName $ScriptName -LogPath $LogPath
 
-        $modeTitle = if ($effectiveMode -eq "Simulation") { "Simulation Run Complete" } else { "Execution Run Complete" }
-        $modeBanner = if ($effectiveMode -eq "Simulation") { 'SIMULATION MODE - No changes were made.' } else { 'EXECUTION COMPLETE - Read-only analysis finished.' }
+    $modeTitle = "Analysis Run Complete"
+    $modeBanner = "ANALYSIS COMPLETE - Read-only analysis finished."
 
         $summaryTokens = @{
             EffectiveMode           = $effectiveMode
@@ -290,7 +285,6 @@ try {
             -ScriptName          $ScriptName `
             -LogPath             $LogPath `
             -FromOverride        $cfgNotif.AdminFrom
-    }
 
     # ==========================================================
     # PHASE 5: CLEANUP

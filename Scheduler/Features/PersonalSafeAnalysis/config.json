@@ -3,8 +3,8 @@
     "PersonalSafeAnalysis": {
       "Enabled": true,
 
-      "_Comment_Mode": "Supported values: Discovery | Analysis | Simulation",
-      "Mode": "Simulation",
+      "_Comment_Mode": "Supported values: Analysis",
+      "Mode": "Analysis",
 
       "Cleanup": {
         "Enabled": true,
@@ -54,8 +54,7 @@
       "Notifications": {
         "AdminFrom": "",
         "AdminTo": [ "pam-admins@company.com" ],
-        "AdminCC": [],
-        "SendSimulationSummary": true
+        "AdminCC": []
       }
     }
   }

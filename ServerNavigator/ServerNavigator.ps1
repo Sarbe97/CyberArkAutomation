@@ -1199,6 +1199,7 @@ $btnRDP.Add_Click({
             $hostName = $address.TrimStart('\').Split('\')[0]
             Update-StatusBar "Initiating RDP connection to $hostName..." "Info"
             
+            $rdpStarted = $false
             try {
                 $username = $script:Credentials[$script:ActiveEnv].UserName
                 $password = $script:Credentials[$script:ActiveEnv].GetNetworkCredential().Password
@@ -1209,17 +1210,23 @@ $btnRDP.Add_Click({
 
                 # Launch RDP
                 Start-Process mstsc.exe -ArgumentList "/v:$hostName"
+                $rdpStarted = $true
                 
-                # Clean up stored credentials from vault after 10 seconds (gives RDP enough time to read them)
-                [System.Threading.Tasks.Task]::Run({
-                    [System.Threading.Thread]::Sleep(10000)
-                    $delArgs = @("/delete:TERMSRV/$using:hostName")
-                    Start-Process -FilePath "cmdkey.exe" -ArgumentList $delArgs -WindowStyle Hidden -Wait
+                # Clean up stored credentials from vault after 10 seconds using a WinForms Timer
+                $cleanupTimer = New-Object System.Windows.Forms.Timer
+                $cleanupTimer.Interval = 10000
+                $cleanupTimer.Add_Tick({
+                    $cleanupTimer.Stop()
+                    $cleanupTimer.Dispose()
+                    Start-Process -FilePath "cmdkey.exe" -ArgumentList "/delete:TERMSRV/$hostName" -WindowStyle Hidden -Wait
                 })
+                $cleanupTimer.Start()
             }
             catch {
-                # Fallback to standard RDP connection
-                Start-Process mstsc.exe -ArgumentList "/v:$hostName"
+                if (-not $rdpStarted) {
+                    # Fallback to standard RDP connection
+                    Start-Process mstsc.exe -ArgumentList "/v:$hostName"
+                }
             }
         } else {
             [System.Windows.Forms.MessageBox]::Show("RDP is only supported for remote servers (UNC paths).", "RDP Support", "OK", "Information")

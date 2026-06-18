@@ -84,6 +84,7 @@ $templatesPath    = Join-Path $FeatureRoot "Templates"
 
 $cacheSafes = Join-Path $ExportDir "RawCache_PersonalSafes_$TodayStr.csv"
 $cacheAccounts = Join-Path $ExportDir "RawCache_AllAccounts_$TodayStr.csv"
+$cacheMembers = Join-Path $ExportDir "RawCache_SafeMembers_$TodayStr.csv"
 $cacheADUsers = Join-Path $ExportDir "RawCache_ADUsers_$TodayStr.csv"
 $analysisFile = Join-Path $ExportDir "PSA_AnalysisReport_$Timestamp.csv"
 
@@ -130,11 +131,31 @@ try {
     $extractedOwners = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     $safeDataMap = @{}
 
+    $safeMembersMap = @{}
+    $membersCacheList = [System.Collections.Generic.List[object]]::new()
+    $isMembersCached = Test-Path $cacheMembers
+
+    if ($isMembersCached) {
+        Write-Log -Message "Loading safe members from cache: $cacheMembers" -ScriptName $ScriptName -LogPath $LogPath
+        $cachedData = Import-Csv $cacheMembers
+        if ($null -ne $cachedData) {
+            foreach ($row in $cachedData) {
+                $sName = $row.SafeName.ToUpper()
+                if (-not $safeMembersMap.ContainsKey($sName)) {
+                    $safeMembersMap[$sName] = [System.Collections.Generic.List[string]]::new()
+                }
+                $safeMembersMap[$sName].Add($row.MemberName)
+            }
+        }
+    }
+
     $safeIndex = 0
     foreach ($safe in $personalSafes) {
         $safeIndex++
-        Write-Progress -Id 20 -Activity "Analyzing Personal Safes" -Status "[$safeIndex/$totalSafes] Analyzing safe '$($safe.SafeName)'..." -PercentComplete ([int](($safeIndex / $totalSafes) * 100))
-        Write-Log -Message "[$safeIndex/$totalSafes] Analyzing safe '$($safe.SafeName)'..." -ScriptName $ScriptName -LogPath $LogPath
+        if (-not $isMembersCached) {
+            Write-Progress -Id 20 -Activity "Analyzing Personal Safes" -Status "[$safeIndex/$totalSafes] Querying members for '$($safe.SafeName)'..." -PercentComplete ([int](($safeIndex / $totalSafes) * 100))
+            Write-Log -Message "[$safeIndex/$totalSafes] Analyzing safe '$($safe.SafeName)'..." -ScriptName $ScriptName -LogPath $LogPath
+        }
         
         $ownerUid = ""
         if ($safe.SafeName -match $cfgSafe.OwnerExtractionRegex) {
@@ -143,19 +164,34 @@ try {
         }
 
         # Check members
-        $members = Get-PSASafeMembers -BaseUrl $BaseUrl -SafeName $safe.SafeName -ScriptName $ScriptName -LogPath $LogPath
         $isMember = $false
-        if ($ownerUid) {
+        $safeUpper = $safe.SafeName.ToUpper()
+        
+        if ($isMembersCached) {
+            if ($ownerUid -and $safeMembersMap.ContainsKey($safeUpper)) {
+                foreach ($mName in $safeMembersMap[$safeUpper]) {
+                    if ($mName -eq $ownerUid) {
+                        $isMember = $true
+                        break
+                    }
+                }
+            }
+        } else {
+            # Live query
+            $members = Get-PSASafeMembers -BaseUrl $BaseUrl -SafeName $safe.SafeName -ScriptName $ScriptName -LogPath $LogPath
             foreach ($m in $members) {
-                if ($m.MemberName -eq $ownerUid) {
+                $membersCacheList.Add([PSCustomObject]@{
+                    SafeName   = $safe.SafeName
+                    MemberName = $m.MemberName
+                    MemberType = $m.MemberType
+                })
+                if ($ownerUid -and $m.MemberName -eq $ownerUid) {
                     $isMember = $true
-                    break
                 }
             }
         }
 
         # Account count from local map
-        $safeUpper = $safe.SafeName.ToUpper()
         $acctCount = if ($accountCountMap.ContainsKey($safeUpper)) { $accountCountMap[$safeUpper] } else { 0 }
 
         $safeDataMap[$safe.SafeName] = @{
@@ -168,6 +204,11 @@ try {
         }
     }
     Write-Progress -Id 20 -Activity "Analyzing Personal Safes" -Completed
+
+    if (-not $isMembersCached -and $membersCacheList.Count -gt 0) {
+        $membersCacheList | Export-CsvNoBom -Path $cacheMembers
+        Write-Log -Message "Exported all safe members to cache: $cacheMembers" -ScriptName $ScriptName -LogPath $LogPath
+    }
 
     # 3. Query AD for Primary Accounts
     $adUsers = Get-PSAADUsers `

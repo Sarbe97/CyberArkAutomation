@@ -21,7 +21,8 @@ Add-Type -AssemblyName System.Drawing
 
 $script:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script:ConfigFile = Join-Path $script:ScriptDir "servers.json"
-$script:Credential = $null
+$script:Credentials = @{ "DEV" = $null; "PROD" = $null }
+$script:ActiveEnv = "DEV"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIGURATION FUNCTIONS
@@ -36,10 +37,13 @@ function Load-Servers {
             if ($null -eq $servers) { return @() }
             if ($servers -isnot [System.Array]) { $servers = @($servers) }
             
-            # Ensure Bookmarks property is initialized as an array
+            # Ensure properties are properly initialized
             foreach ($s in $servers) {
                 if ($null -eq $s.Bookmarks) {
                     $s | Add-Member -MemberType NoteProperty -Name Bookmarks -Value @() -Force
+                }
+                if ($null -eq $s.Environment) {
+                    $s | Add-Member -MemberType NoteProperty -Name Environment -Value "DEV" -Force
                 }
             }
             return $servers
@@ -75,8 +79,12 @@ function Save-Servers {
 # ─────────────────────────────────────────────────────────────────────────────
 
 function Get-SessionCredential {
+    param(
+        [string]$Environment = "DEV",
+        [bool]$ExitOnCancel = $false
+    )
     $loginForm = New-Object System.Windows.Forms.Form
-    $loginForm.Text = "Server Navigator - Login"
+    $loginForm.Text = "Server Navigator - Login ($Environment)"
     $loginForm.Size = New-Object System.Drawing.Size(400, 260)
     $loginForm.StartPosition = "CenterScreen"
     $loginForm.FormBorderStyle = "FixedDialog"
@@ -87,7 +95,7 @@ function Get-SessionCredential {
     $loginForm.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
 
     $lblHeader = New-Object System.Windows.Forms.Label
-    $lblHeader.Text = "Enter credentials for server access"
+    $lblHeader.Text = "Enter credentials for $Environment access"
     $lblHeader.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
     $lblHeader.ForeColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
     $lblHeader.Location = New-Object System.Drawing.Point(20, 15)
@@ -151,10 +159,13 @@ function Get-SessionCredential {
     }
 
     $loginForm.Dispose()
-    [System.Windows.Forms.MessageBox]::Show(
-        "Credentials are required to use Server Navigator.",
-        "Authentication Required", "OK", "Warning")
-    exit
+    if ($ExitOnCancel) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Credentials are required to use Server Navigator.",
+            "Authentication Required", "OK", "Warning")
+        exit
+    }
+    return $null
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -852,14 +863,17 @@ function Refresh-ServerList {
     $script:Servers = Load-Servers
     $script:lstServers.Items.Clear()
     foreach ($srv in $script:Servers) {
-        if ([string]::IsNullOrWhiteSpace($Filter) -or
-            $srv.Name -like "*$Filter*") {
-            $script:lstServers.Items.Add($srv.Name)
-            $script:ServerStatus[$srv.Name] = "Checking"
-            Start-PingCheck -ServerName $srv.Name -Address $srv.SharePath
+        if ($srv.Environment -eq $script:ActiveEnv) {
+            if ([string]::IsNullOrWhiteSpace($Filter) -or
+                $srv.Name -like "*$Filter*") {
+                $script:lstServers.Items.Add($srv.Name)
+                $script:ServerStatus[$srv.Name] = "Checking"
+                Start-PingCheck -ServerName $srv.Name -Address $srv.SharePath
+            }
         }
     }
-    Update-StatusBar "Loaded $($script:lstServers.Items.Count) server(s) | User: $($script:Credential.UserName)" "Info"
+    $userStr = if ($script:Credentials[$script:ActiveEnv]) { $script:Credentials[$script:ActiveEnv].UserName } else { "None" }
+    Update-StatusBar "Loaded $($script:lstServers.Items.Count) server(s) | User: $userStr" "Info"
 }
 
 function Get-SelectedServer {
@@ -882,18 +896,19 @@ function Show-ServerDialog {
         [string]$Title = "Add Server",
         [string]$ServerName = "",
         [string]$SharePath = "",
-        [string]$LogPath = ""
+        [string]$LogPath = "",
+        [string]$Environment = ""
     )
 
     $dlg = New-Object System.Windows.Forms.Form
     $dlg.Text = $Title
-    $dlg.Size = New-Object System.Drawing.Size(480, 280)
+    $dlg.Size = New-Object System.Drawing.Size(480, 320)
     $dlg.StartPosition = "CenterParent"
     $dlg.FormBorderStyle = "FixedDialog"
     $dlg.MaximizeBox = $false
     $dlg.MinimizeBox = $false
     $dlg.BackColor = [System.Drawing.Color]::FromArgb(250, 250, 252)
-    $dlg.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $dlg.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
 
     # Server Name
     $lblName = New-Object System.Windows.Forms.Label
@@ -934,11 +949,31 @@ function Show-ServerDialog {
     $txtLog.Size = New-Object System.Drawing.Size(310, 23)
     $dlg.Controls.Add($txtLog)
 
+    # Environment
+    $lblEnv = New-Object System.Windows.Forms.Label
+    $lblEnv.Text = "Environment:"
+    $lblEnv.Location = New-Object System.Drawing.Point(20, 140)
+    $lblEnv.Size = New-Object System.Drawing.Size(100, 23)
+    $dlg.Controls.Add($lblEnv)
+
+    $cmbDialogEnv = New-Object System.Windows.Forms.ComboBox
+    $cmbDialogEnv.DropDownStyle = "DropDownList"
+    $cmbDialogEnv.Items.Add("DEV") | Out-Null
+    $cmbDialogEnv.Items.Add("PROD") | Out-Null
+    $cmbDialogEnv.Location = New-Object System.Drawing.Point(130, 138)
+    $cmbDialogEnv.Size = New-Object System.Drawing.Size(310, 23)
+    if ([string]::IsNullOrWhiteSpace($Environment)) {
+        $cmbDialogEnv.SelectedItem = $script:ActiveEnv
+    } else {
+        $cmbDialogEnv.SelectedItem = $Environment
+    }
+    $dlg.Controls.Add($cmbDialogEnv)
+
     # Hint
     $lblHint = New-Object System.Windows.Forms.Label
     $lblHint.Text = "Use UNC paths, e.g. \\SERVER\D$"
     $lblHint.ForeColor = [System.Drawing.Color]::Gray
-    $lblHint.Location = New-Object System.Drawing.Point(130, 130)
+    $lblHint.Location = New-Object System.Drawing.Point(130, 175)
     $lblHint.Size = New-Object System.Drawing.Size(310, 20)
     $dlg.Controls.Add($lblHint)
 
@@ -946,7 +981,7 @@ function Show-ServerDialog {
     $btnOK = New-Object System.Windows.Forms.Button
     $btnOK.Text = "Save"
     $btnOK.Size = New-Object System.Drawing.Size(90, 32)
-    $btnOK.Location = New-Object System.Drawing.Point(240, 190)
+    $btnOK.Location = New-Object System.Drawing.Point(240, 230)
     $btnOK.BackColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
     $btnOK.ForeColor = [System.Drawing.Color]::White
     $btnOK.FlatStyle = "Flat"
@@ -957,7 +992,7 @@ function Show-ServerDialog {
     $btnCancel = New-Object System.Windows.Forms.Button
     $btnCancel.Text = "Cancel"
     $btnCancel.Size = New-Object System.Drawing.Size(90, 32)
-    $btnCancel.Location = New-Object System.Drawing.Point(340, 190)
+    $btnCancel.Location = New-Object System.Drawing.Point(340, 230)
     $btnCancel.FlatStyle = "Flat"
     $btnCancel.DialogResult = "Cancel"
     $dlg.CancelButton = $btnCancel
@@ -977,9 +1012,10 @@ function Show-ServerDialog {
 
     if ($result -eq "OK") {
         return @{
-            Name      = $txtName.Text.Trim()
-            SharePath = $txtShare.Text.Trim()
-            LogPath   = $txtLog.Text.Trim()
+            Name        = $txtName.Text.Trim()
+            SharePath   = $txtShare.Text.Trim()
+            LogPath     = $txtLog.Text.Trim()
+            Environment = $cmbDialogEnv.SelectedItem
         }
     }
     return $null
@@ -990,7 +1026,7 @@ function Show-ServerDialog {
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Prompt for credentials first
-$script:Credential = Get-SessionCredential
+$script:Credentials[$script:ActiveEnv] = Get-SessionCredential -Environment $script:ActiveEnv -ExitOnCancel $true
 
 # Build main window
 $form = New-Object System.Windows.Forms.Form
@@ -1010,6 +1046,45 @@ $lblTitle.ForeColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
 $lblTitle.Location = New-Object System.Drawing.Point(20, 12)
 $lblTitle.Size = New-Object System.Drawing.Size(250, 30)
 $form.Controls.Add($lblTitle)
+
+# ── Environment Switcher ──
+$lblEnvMain = New-Object System.Windows.Forms.Label
+$lblEnvMain.Text = "Env:"
+$lblEnvMain.Location = New-Object System.Drawing.Point(300, 16)
+$lblEnvMain.Size = New-Object System.Drawing.Size(40, 23)
+$form.Controls.Add($lblEnvMain)
+
+$cmbEnv = New-Object System.Windows.Forms.ComboBox
+$cmbEnv.DropDownStyle = "DropDownList"
+$cmbEnv.Items.Add("DEV") | Out-Null
+$cmbEnv.Items.Add("PROD") | Out-Null
+$cmbEnv.SelectedItem = $script:ActiveEnv
+$cmbEnv.Location = New-Object System.Drawing.Point(345, 14)
+$cmbEnv.Size = New-Object System.Drawing.Size(135, 23)
+
+$script:InEnvSwitch = $false
+$cmbEnv.Add_SelectedIndexChanged({
+    if ($script:InEnvSwitch) { return }
+    $newEnv = $cmbEnv.SelectedItem
+    if ($newEnv -ne $script:ActiveEnv) {
+        if ($null -eq $script:Credentials[$newEnv]) {
+            $cred = Get-SessionCredential -Environment $newEnv -ExitOnCancel $false
+            if ($null -eq $cred) {
+                # Revert selection
+                $script:InEnvSwitch = $true
+                $cmbEnv.SelectedItem = $script:ActiveEnv
+                $script:InEnvSwitch = $false
+                return
+            }
+            $script:Credentials[$newEnv] = $cred
+        }
+        $script:ActiveEnv = $newEnv
+        $script:lstServers.SelectedIndex = -1
+        $script:lstBookmarks.Items.Clear()
+        Refresh-ServerList -Filter $txtSearch.Text
+    }
+})
+$form.Controls.Add($cmbEnv)
 
 # ── Search Box ──
 $lblSearch = New-Object System.Windows.Forms.Label
@@ -1068,7 +1143,8 @@ $script:lstServers.Add_DrawItem({
 
 $script:lstServers.Add_SelectedIndexChanged({
     if ($script:lstServers.SelectedItem) {
-        Update-StatusBar "Selected: $($script:lstServers.SelectedItem) | User: $($script:Credential.UserName)" "Info"
+        $userStr = if ($script:Credentials[$script:ActiveEnv]) { $script:Credentials[$script:ActiveEnv].UserName } else { "None" }
+        Update-StatusBar "Selected: $($script:lstServers.SelectedItem) | User: $userStr" "Info"
         Refresh-BookmarkList
     }
 })
@@ -1076,7 +1152,7 @@ $script:lstServers.Add_DoubleClick({
     # Double-click opens the integrated log viewer
     $server = Get-SelectedServer
     if ($server) {
-        Show-LogViewer -Server $server -Credential $script:Credential
+        Show-LogViewer -Server $server -Credential $script:Credentials[$script:ActiveEnv]
     }
 })
 $form.Controls.Add($script:lstServers)
@@ -1102,7 +1178,7 @@ $btnOpenShare.Cursor = "Hand"
 $btnOpenShare.Add_Click({
     $server = Get-SelectedServer
     if ($server) {
-        Open-ServerPath -UncPath $server.SharePath -Credential $script:Credential -ActionLabel "Share"
+        Open-ServerPath -UncPath $server.SharePath -Credential $script:Credentials[$script:ActiveEnv] -ActionLabel "Share"
     }
 })
 $form.Controls.Add($btnOpenShare)
@@ -1124,8 +1200,8 @@ $btnRDP.Add_Click({
             Update-StatusBar "Initiating RDP connection to $hostName..." "Info"
             
             try {
-                $username = $script:Credential.UserName
-                $password = $script:Credential.GetNetworkCredential().Password
+                $username = $script:Credentials[$script:ActiveEnv].UserName
+                $password = $script:Credentials[$script:ActiveEnv].GetNetworkCredential().Password
                 
                 # Securely pass credentials to Windows Credential Vault temporarily
                 $cmdArgs = @("/generic:TERMSRV/$hostName", "/user:$username", "/pass:$password")
@@ -1182,9 +1258,11 @@ $btnAdd.Add_Click({
             return
         }
         $newServer = [PSCustomObject]@{
-            Name      = $result.Name
-            SharePath = $result.SharePath
-            LogPath   = $result.LogPath
+            Name        = $result.Name
+            SharePath   = $result.SharePath
+            LogPath     = $result.LogPath
+            Environment = $result.Environment
+            Bookmarks   = @()
         }
         $servers.Add($newServer) | Out-Null
         Save-Servers $servers.ToArray()
@@ -1206,7 +1284,8 @@ $btnEdit.Add_Click({
         $result = Show-ServerDialog -Title "Edit Server" `
             -ServerName $server.Name `
             -SharePath $server.SharePath `
-            -LogPath $server.LogPath
+            -LogPath $server.LogPath `
+            -Environment $server.Environment
         if ($result) {
             $servers = [System.Collections.ArrayList]@(Load-Servers)
             $idx = -1
@@ -1215,9 +1294,11 @@ $btnEdit.Add_Click({
             }
             if ($idx -ge 0) {
                 $servers[$idx] = [PSCustomObject]@{
-                    Name      = $result.Name
-                    SharePath = $result.SharePath
-                    LogPath   = $result.LogPath
+                    Name        = $result.Name
+                    SharePath   = $result.SharePath
+                    LogPath     = $result.LogPath
+                    Environment = $result.Environment
+                    Bookmarks   = $server.Bookmarks
                 }
                 Save-Servers $servers.ToArray()
                 Refresh-ServerList -Filter $txtSearch.Text
@@ -1275,7 +1356,7 @@ $script:lstBookmarks.Add_DoubleClick({
             Name = "$($server.Name) - $($bkm.Name)"
             LogPath = $bkm.Path
         }
-        Show-LogViewer -Server $fakeServer -Credential $script:Credential
+        Show-LogViewer -Server $fakeServer -Credential $script:Credentials[$script:ActiveEnv]
     }
 })
 $pnlBookmarks.Controls.Add($script:lstBookmarks)
@@ -1296,7 +1377,7 @@ $btnOpenBkmViewer.Add_Click({
             Name = "$($server.Name) - $($bkm.Name)"
             LogPath = $bkm.Path
         }
-        Show-LogViewer -Server $fakeServer -Credential $script:Credential
+        Show-LogViewer -Server $fakeServer -Credential $script:Credentials[$script:ActiveEnv]
     } else {
         [System.Windows.Forms.MessageBox]::Show("Please select a bookmark.", "No Selection", "OK", "Information")
     }
@@ -1312,7 +1393,7 @@ $btnOpenBkmExplorer.Cursor = "Hand"
 $btnOpenBkmExplorer.Add_Click({
     $bkm = Get-SelectedBookmark
     if ($bkm) {
-        Open-ServerPath -UncPath $bkm.Path -Credential $script:Credential -ActionLabel "Bookmark"
+        Open-ServerPath -UncPath $bkm.Path -Credential $script:Credentials[$script:ActiveEnv] -ActionLabel "Bookmark"
     } else {
         [System.Windows.Forms.MessageBox]::Show("Please select a bookmark.", "No Selection", "OK", "Information")
     }
@@ -1333,7 +1414,7 @@ $btnAddBkm.Add_Click({
     }
 
     Update-StatusBar "Connecting to $($server.SharePath)..." "Info"
-    $connection = Connect-ServerPath -UncPath $server.SharePath -Credential $script:Credential
+    $connection = Connect-ServerPath -UncPath $server.SharePath -Credential $script:Credentials[$script:ActiveEnv]
     if (-not $connection.Success) {
         [System.Windows.Forms.MessageBox]::Show("Connection failed: $($connection.Message)", "Connection Error", "OK", "Error")
         return
@@ -1429,11 +1510,11 @@ $btnSwitchUser.FlatStyle = "Flat"
 $btnSwitchUser.Cursor = "Hand"
 $btnSwitchUser.Font = New-Object System.Drawing.Font("Segoe UI", 8.5)
 $btnSwitchUser.Add_Click({
-    $cred = Get-SessionCredential
+    $cred = Get-SessionCredential -Environment $script:ActiveEnv -ExitOnCancel $false
     if ($null -ne $cred) {
-        $script:Credential = $cred
+        $script:Credentials[$script:ActiveEnv] = $cred
         Refresh-ServerList -Filter $txtSearch.Text
-        Update-StatusBar "Switched user to: $($script:Credential.UserName)" "OK"
+        Update-StatusBar "Switched user to: $($script:Credentials[$script:ActiveEnv].UserName)" "OK"
     }
 })
 $statusPanel.Controls.Add($btnSwitchUser)

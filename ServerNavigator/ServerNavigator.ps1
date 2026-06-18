@@ -1,0 +1,1199 @@
+#Requires -Version 5.1
+<#
+.SYNOPSIS
+    Server Navigator - Quick access to server shares and log folders.
+.DESCRIPTION
+    A lightweight PowerShell GUI tool that reduces the repetitive effort of
+    accessing server shares and log folders from a VDI environment.
+.NOTES
+    - No external dependencies required
+    - Credentials stored in memory only
+    - Configuration stored in servers.json
+#>
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INITIALIZATION
+# ─────────────────────────────────────────────────────────────────────────────
+
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+[System.Windows.Forms.Application]::EnableVisualStyles()
+
+$script:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$script:ConfigFile = Join-Path $script:ScriptDir "servers.json"
+$script:Credential = $null
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONFIGURATION FUNCTIONS
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Load-Servers {
+    if (Test-Path $script:ConfigFile) {
+        try {
+            $content = Get-Content $script:ConfigFile -Raw -ErrorAction Stop
+            if ([string]::IsNullOrWhiteSpace($content)) { return @() }
+            $servers = $content | ConvertFrom-Json
+            if ($null -eq $servers) { return @() }
+            if ($servers -isnot [System.Array]) { $servers = @($servers) }
+            
+            # Ensure Bookmarks property is initialized as an array
+            foreach ($s in $servers) {
+                if ($null -eq $s.Bookmarks) {
+                    $s | Add-Member -MemberType NoteProperty -Name Bookmarks -Value @() -Force
+                }
+            }
+            return $servers
+        }
+        catch {
+            [System.Windows.Forms.MessageBox]::Show(
+                "Error loading servers.json: $($_.Exception.Message)",
+                "Load Error", "OK", "Error")
+            return @()
+        }
+    }
+    else {
+        # Create default config
+        "[]" | Set-Content $script:ConfigFile -Encoding UTF8
+        return @()
+    }
+}
+
+function Save-Servers {
+    param([array]$Servers)
+    try {
+        $Servers | ConvertTo-Json -Depth 3 | Set-Content $script:ConfigFile -Encoding UTF8
+    }
+    catch {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Error saving servers.json: $($_.Exception.Message)",
+            "Save Error", "OK", "Error")
+    }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CREDENTIAL FUNCTIONS
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Get-SessionCredential {
+    $loginForm = New-Object System.Windows.Forms.Form
+    $loginForm.Text = "Server Navigator - Login"
+    $loginForm.Size = New-Object System.Drawing.Size(400, 260)
+    $loginForm.StartPosition = "CenterScreen"
+    $loginForm.FormBorderStyle = "FixedDialog"
+    $loginForm.MaximizeBox = $false
+    $loginForm.MinimizeBox = $false
+    $loginForm.TopMost = $true
+    $loginForm.BackColor = [System.Drawing.Color]::FromArgb(250, 250, 252)
+    $loginForm.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
+
+    $lblHeader = New-Object System.Windows.Forms.Label
+    $lblHeader.Text = "Enter credentials for server access"
+    $lblHeader.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+    $lblHeader.ForeColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
+    $lblHeader.Location = New-Object System.Drawing.Point(20, 15)
+    $lblHeader.Size = New-Object System.Drawing.Size(350, 25)
+    $loginForm.Controls.Add($lblHeader)
+
+    $lblUser = New-Object System.Windows.Forms.Label
+    $lblUser.Text = "Username:"
+    $lblUser.Location = New-Object System.Drawing.Point(20, 55)
+    $lblUser.Size = New-Object System.Drawing.Size(80, 23)
+    $loginForm.Controls.Add($lblUser)
+
+    $txtUser = New-Object System.Windows.Forms.TextBox
+    $txtUser.Text = "S123456"
+    $txtUser.Location = New-Object System.Drawing.Point(110, 53)
+    $txtUser.Size = New-Object System.Drawing.Size(250, 23)
+    $loginForm.Controls.Add($txtUser)
+
+    $lblPass = New-Object System.Windows.Forms.Label
+    $lblPass.Text = "Password:"
+    $lblPass.Location = New-Object System.Drawing.Point(20, 95)
+    $lblPass.Size = New-Object System.Drawing.Size(80, 23)
+    $loginForm.Controls.Add($lblPass)
+
+    $txtPass = New-Object System.Windows.Forms.TextBox
+    $txtPass.Location = New-Object System.Drawing.Point(110, 93)
+    $txtPass.Size = New-Object System.Drawing.Size(250, 23)
+    $txtPass.UseSystemPasswordChar = $true
+    $loginForm.Controls.Add($txtPass)
+
+    $btnLogin = New-Object System.Windows.Forms.Button
+    $btnLogin.Text = "Login"
+    $btnLogin.Size = New-Object System.Drawing.Size(100, 34)
+    $btnLogin.Location = New-Object System.Drawing.Point(150, 150)
+    $btnLogin.BackColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
+    $btnLogin.ForeColor = [System.Drawing.Color]::White
+    $btnLogin.FlatStyle = "Flat"
+    $btnLogin.DialogResult = "OK"
+    $loginForm.AcceptButton = $btnLogin
+    $loginForm.Controls.Add($btnLogin)
+
+    $btnExit = New-Object System.Windows.Forms.Button
+    $btnExit.Text = "Exit"
+    $btnExit.Size = New-Object System.Drawing.Size(100, 34)
+    $btnExit.Location = New-Object System.Drawing.Point(260, 150)
+    $btnExit.FlatStyle = "Flat"
+    $btnExit.DialogResult = "Cancel"
+    $loginForm.CancelButton = $btnExit
+    $loginForm.Controls.Add($btnExit)
+
+    # Focus password field on load
+    $loginForm.Add_Shown({ $txtPass.Focus() })
+
+    $result = $loginForm.ShowDialog()
+
+    if ($result -eq "OK" -and -not [string]::IsNullOrWhiteSpace($txtPass.Text)) {
+        $secPass = ConvertTo-SecureString $txtPass.Text -AsPlainText -Force
+        $cred = New-Object System.Management.Automation.PSCredential($txtUser.Text, $secPass)
+        $loginForm.Dispose()
+        return $cred
+    }
+
+    $loginForm.Dispose()
+    [System.Windows.Forms.MessageBox]::Show(
+        "Credentials are required to use Server Navigator.",
+        "Authentication Required", "OK", "Warning")
+    exit
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CONNECTION FUNCTIONS
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Connect-ServerPath {
+    param(
+        [string]$UncPath,
+        [PSCredential]$Credential
+    )
+
+    # Check if this is a local path (does not start with \\)
+    if ($UncPath -notlike "\\*") {
+        return @{ Success = $true; Message = "Local path" }
+    }
+
+    # Extract the root share (e.g., \\SERVER\D$) from the full path
+    $parts = $UncPath.TrimStart('\').Split('\')
+    if ($parts.Count -lt 2) {
+        return @{ Success = $false; Message = "Invalid UNC path: $UncPath" }
+    }
+    $rootShare = "\\$($parts[0])\$($parts[1])"
+
+    try {
+        # Remove any existing connection to avoid conflicts
+        net use $rootShare /delete /y 2>$null | Out-Null
+
+        # Connect with credentials
+        $username = $Credential.UserName
+        $password = $Credential.GetNetworkCredential().Password
+        $result = net use $rootShare /user:$username $password 2>&1
+
+        if ($LASTEXITCODE -ne 0) {
+            return @{ Success = $false; Message = "Connection failed: $result" }
+        }
+
+        return @{ Success = $true; Message = "Connected" }
+    }
+    catch {
+        return @{ Success = $false; Message = $_.Exception.Message }
+    }
+}
+
+function Open-ServerPath {
+    param(
+        [string]$UncPath,
+        [PSCredential]$Credential,
+        [string]$ActionLabel
+    )
+
+    if ([string]::IsNullOrWhiteSpace($UncPath)) {
+        Update-StatusBar "No path configured for this action" "Warning"
+        [System.Windows.Forms.MessageBox]::Show(
+            "No path is configured for this action.",
+            "Path Not Configured", "OK", "Warning")
+        return
+    }
+
+    Update-StatusBar "Connecting to $UncPath..." "Info"
+
+    $connection = Connect-ServerPath -UncPath $UncPath -Credential $Credential
+
+    if ($connection.Success) {
+        if (Test-Path $UncPath) {
+            explorer.exe $UncPath
+            Update-StatusBar "$ActionLabel opened: $UncPath" "OK"
+        }
+        else {
+            Update-StatusBar "Path not found: $UncPath" "Warning"
+            [System.Windows.Forms.MessageBox]::Show(
+                "The path does not exist:`n`n$UncPath",
+                "Path Not Found", "OK", "Warning")
+        }
+    }
+    else {
+        Update-StatusBar "Connection failed" "Error"
+        [System.Windows.Forms.MessageBox]::Show(
+            "Could not connect to the server.`n`n$($connection.Message)",
+            "Connection Failed", "OK", "Error")
+    }
+}
+
+function Show-LogViewer {
+    param(
+        [PSCustomObject]$Server,
+        [PSCredential]$Credential
+    )
+
+    if ($null -eq $Server -or [string]::IsNullOrWhiteSpace($Server.LogPath)) {
+        [System.Windows.Forms.MessageBox]::Show("Log path is not configured for this server.", "Error", "OK", "Warning")
+        return
+    }
+
+    Update-StatusBar "Connecting to $($Server.LogPath)..." "Info"
+    $connection = Connect-ServerPath -UncPath $Server.LogPath -Credential $Credential
+
+    if (-not $connection.Success) {
+        Update-StatusBar "Connection failed" "Error"
+        [System.Windows.Forms.MessageBox]::Show(
+            "Could not connect to the server log path.`n`n$($connection.Message)",
+            "Connection Failed", "OK", "Error")
+        return
+    }
+
+    if (-not (Test-Path $Server.LogPath)) {
+        Update-StatusBar "Log path not found" "Error"
+        [System.Windows.Forms.MessageBox]::Show(
+            "Connected to the server, but the log path does not exist:`n`n$($Server.LogPath)",
+            "Path Not Found", "OK", "Error")
+        return
+    }
+
+    Update-StatusBar "Logs connection established" "OK"
+
+    # State variables
+    $script:ActiveLogLines = @()
+    $script:TailFilePath = $null
+    $script:TailLastPosition = 0
+    $script:LogFilterText = ""
+
+    # Form setup
+    $dlg = New-Object System.Windows.Forms.Form
+    $dlg.Text = "Log Viewer - $($Server.Name) ($($Server.LogPath))"
+    $dlg.Size = New-Object System.Drawing.Size(1000, 700)
+    $dlg.StartPosition = "CenterParent"
+    $dlg.BackColor = [System.Drawing.Color]::FromArgb(245, 246, 250)
+    $dlg.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
+    
+    # Enable resizing but keep a minimum size
+    $dlg.MinimumSize = New-Object System.Drawing.Size(800, 500)
+
+    # ── SPLIT CONTAINER ──
+    $splitContainer = New-Object System.Windows.Forms.SplitContainer
+    $splitContainer.Size = New-Object System.Drawing.Size(980, 600)
+    $splitContainer.Dock = "Fill"
+    $splitContainer.Panel1MinSize = 150
+    $splitContainer.Panel2MinSize = 400
+    $splitContainer.SplitterDistance = 240
+    $dlg.Controls.Add($splitContainer)
+
+    # ── LEFT PANEL (FILE LIST) ──
+    $leftPanel = New-Object System.Windows.Forms.Panel
+    $leftPanel.Dock = "Fill"
+    $leftPanel.Padding = New-Object System.Windows.Forms.Padding(10)
+    $splitContainer.Panel1.Controls.Add($leftPanel)
+
+    $lblFiles = New-Object System.Windows.Forms.Label
+    $lblFiles.Text = "Log Files (Recent first):"
+    $lblFiles.Font = New-Object System.Drawing.Font("Segoe UI", 9.5, [System.Drawing.FontStyle]::Bold)
+    $lblFiles.Dock = "Top"
+    $lblFiles.Height = 25
+    $leftPanel.Controls.Add($lblFiles)
+
+    $lstFiles = New-Object System.Windows.Forms.ListBox
+    $lstFiles.Dock = "Fill"
+    $lstFiles.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $lstFiles.BorderStyle = "FixedSingle"
+    $leftPanel.Controls.Add($lstFiles)
+
+    $btnRefreshList = New-Object System.Windows.Forms.Button
+    $btnRefreshList.Text = "Refresh File List"
+    $btnRefreshList.Dock = "Bottom"
+    $btnRefreshList.Height = 32
+    $btnRefreshList.FlatStyle = "Flat"
+    $btnRefreshList.Cursor = "Hand"
+    $btnRefreshList.Margin = New-Object System.Windows.Forms.Padding(0, 10, 0, 0)
+    $leftPanel.Controls.Add($btnRefreshList)
+
+    # ── RIGHT PANEL (CONTENT VIEWER) ──
+    $rightPanel = New-Object System.Windows.Forms.Panel
+    $rightPanel.Dock = "Fill"
+    $rightPanel.Padding = New-Object System.Windows.Forms.Padding(10)
+    $splitContainer.Panel2.Controls.Add($rightPanel)
+
+    # Toolbar Panel
+    $toolbar = New-Object System.Windows.Forms.Panel
+    $toolbar.Dock = "Top"
+    $toolbar.Height = 40
+    $rightPanel.Controls.Add($toolbar)
+
+    $lblFilter = New-Object System.Windows.Forms.Label
+    $lblFilter.Text = "Filter:"
+    $lblFilter.Location = New-Object System.Drawing.Point(0, 8)
+    $lblFilter.Size = New-Object System.Drawing.Size(45, 20)
+    $toolbar.Controls.Add($lblFilter)
+
+    $txtFilter = New-Object System.Windows.Forms.TextBox
+    $txtFilter.Location = New-Object System.Drawing.Point(45, 5)
+    $txtFilter.Size = New-Object System.Drawing.Size(220, 23)
+    $toolbar.Controls.Add($txtFilter)
+
+    $chkLive = New-Object System.Windows.Forms.CheckBox
+    $chkLive.Text = "Live Tail"
+    $chkLive.Checked = $true
+    $chkLive.Location = New-Object System.Drawing.Point(280, 7)
+    $chkLive.Size = New-Object System.Drawing.Size(80, 20)
+    $toolbar.Controls.Add($chkLive)
+
+    $chkWrap = New-Object System.Windows.Forms.CheckBox
+    $chkWrap.Text = "Word Wrap"
+    $chkWrap.Checked = $false
+    $chkWrap.Location = New-Object System.Drawing.Point(370, 7)
+    $chkWrap.Size = New-Object System.Drawing.Size(95, 20)
+    $toolbar.Controls.Add($chkWrap)
+
+    $btnClear = New-Object System.Windows.Forms.Button
+    $btnClear.Text = "Clear"
+    $btnClear.Location = New-Object System.Drawing.Point(475, 4)
+    $btnClear.Size = New-Object System.Drawing.Size(70, 26)
+    $btnClear.FlatStyle = "Flat"
+    $toolbar.Controls.Add($btnClear)
+
+    $btnCopy = New-Object System.Windows.Forms.Button
+    $btnCopy.Text = "Copy Logs"
+    $btnCopy.Location = New-Object System.Drawing.Point(555, 4)
+    $btnCopy.Size = New-Object System.Drawing.Size(90, 26)
+    $btnCopy.FlatStyle = "Flat"
+    $toolbar.Controls.Add($btnCopy)
+
+    $btnExplorer = New-Object System.Windows.Forms.Button
+    $btnExplorer.Text = "Open in Explorer"
+    $btnExplorer.Location = New-Object System.Drawing.Point(655, 4)
+    $btnExplorer.Size = New-Object System.Drawing.Size(120, 26)
+    $btnExplorer.FlatStyle = "Flat"
+    $toolbar.Controls.Add($btnExplorer)
+
+    # Container Panel for custom padding and border around the text box
+    $txtContainer = New-Object System.Windows.Forms.Panel
+    $txtContainer.Dock = "Fill"
+    $txtContainer.BorderStyle = "FixedSingle"
+    $txtContainer.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
+    $txtContainer.Padding = New-Object System.Windows.Forms.Padding(12, 12, 12, 12) # Padding on all sides
+    $rightPanel.Controls.Add($txtContainer)
+    $txtContainer.BringToFront()
+
+    # Content TextBox (Dark Mode theme)
+    $txtContent = New-Object System.Windows.Forms.TextBox
+    $txtContent.Multiline = $true
+    $txtContent.ReadOnly = $true
+    $txtContent.Dock = "Fill"
+    $txtContent.ScrollBars = "Both"
+    $txtContent.Font = New-Object System.Drawing.Font("Consolas", 9.5)
+    $txtContent.BackColor = [System.Drawing.Color]::FromArgb(30, 30, 30)
+    $txtContent.ForeColor = [System.Drawing.Color]::FromArgb(220, 220, 220)
+    $txtContent.BorderStyle = "None" # Borderless to prevent vertical clipping of text
+    $txtContent.WordWrap = $false
+    $txtContainer.Controls.Add($txtContent)
+
+    # ── TIMER FOR LIVE TAIL ──
+    $timer = New-Object System.Windows.Forms.Timer
+    $timer.Interval = 1000
+
+    # Timer Tick Handler
+    $timer.Add_Tick({
+        if ([string]::IsNullOrEmpty($script:TailFilePath) -or -not (Test-Path $script:TailFilePath)) { return }
+        try {
+            $fileInfo = New-Object System.IO.FileInfo($script:TailFilePath)
+            $len = $fileInfo.Length
+
+            if ($len -lt $script:TailLastPosition) {
+                # Rotated or cleared file
+                $script:TailLastPosition = 0
+                $script:ActiveLogLines = @()
+                $txtContent.Text = ""
+            }
+
+            if ($len -gt $script:TailLastPosition) {
+                $fs = [System.IO.FileStream]::new($script:TailFilePath, 'Open', 'Read', 'ReadWrite')
+                $fs.Seek($script:TailLastPosition, [System.IO.SeekOrigin]::Begin) | Out-Null
+                $reader = [System.IO.StreamReader]::new($fs)
+                $newText = $reader.ReadToEnd()
+                $script:TailLastPosition = $fs.Position
+                $reader.Close()
+                $fs.Close()
+
+                if (-not [string]::IsNullOrEmpty($newText)) {
+                    $newLines = $newText -split "`r?`n" | Where-Object { $_ -ne "" }
+                    foreach ($line in $newLines) {
+                        $script:ActiveLogLines += $line
+                        # Check filter
+                        if ([string]::IsNullOrEmpty($script:LogFilterText) -or $line -like "*$script:LogFilterText*") {
+                            $txtContent.AppendText($line + "`r`n")
+                        }
+                    }
+                    # Cap in-memory history at 2000 lines
+                    if ($script:ActiveLogLines.Count -gt 2000) {
+                        $script:ActiveLogLines = $script:ActiveLogLines[-2000..-1]
+                    }
+                }
+            }
+        }
+        catch {
+            # Temp read error
+        }
+    })
+
+    # Helper: Refresh file list
+    $refreshFiles = {
+        $lstFiles.Items.Clear()
+        try {
+            $files = Get-ChildItem -Path $Server.LogPath -File | Sort-Object LastWriteTime -Descending
+            foreach ($file in $files) {
+                $lstFiles.Items.Add($file.Name)
+            }
+        }
+        catch {
+            [System.Windows.Forms.MessageBox]::Show("Error reading log folder: $($_.Exception.Message)", "Error", "OK", "Error")
+        }
+    }
+
+    # Helper: Read file tail
+    $loadFileTail = {
+        param([string]$fileName)
+        $timer.Stop()
+        $txtContent.Text = "Loading $fileName..."
+        
+        $filePath = Join-Path $Server.LogPath $fileName
+        $script:TailFilePath = $filePath
+        $script:ActiveLogLines = @()
+        
+        try {
+            $fs = [System.IO.FileStream]::new($filePath, 'Open', 'Read', 'ReadWrite')
+            $script:TailLastPosition = $fs.Length
+
+            # If file is larger than 100KB, read only the end
+            if ($fs.Length -gt 100KB) {
+                $fs.Seek(-100KB, [System.IO.SeekOrigin]::End) | Out-Null
+            }
+            
+            $reader = [System.IO.StreamReader]::new($fs)
+            $content = $reader.ReadToEnd()
+            $reader.Close()
+            $fs.Close()
+
+            $lines = $content -split "`r?`n"
+            # Discard the first line if it's partial due to seeking
+            if ($fs.Length -gt 100KB -and $lines.Count -gt 1) {
+                $lines = $lines[1..($lines.Count - 1)]
+            }
+            # Cap at the last 500 lines for initial view
+            if ($lines.Count -gt 500) {
+                $script:ActiveLogLines = $lines[-500..-1]
+            } else {
+                $script:ActiveLogLines = $lines
+            }
+
+            # Apply current filter and show
+            $filtered = if ([string]::IsNullOrEmpty($script:LogFilterText)) {
+                $script:ActiveLogLines
+            } else {
+                $script:ActiveLogLines | Where-Object { $_ -like "*$script:LogFilterText*" }
+            }
+            
+            $txtContent.Text = ($filtered -join "`r`n") + "`r`n"
+            $txtContent.SelectionStart = 0
+            $txtContent.ScrollToCaret()
+
+            # Start timer if live tail is active
+            if ($chkLive.Checked) {
+                $timer.Start()
+            }
+        }
+        catch {
+            $txtContent.Text = "Error loading file: $($_.Exception.Message)"
+        }
+    }
+
+    # ── EVENT HANDLERS ──
+    $btnRefreshList.Add_Click($refreshFiles)
+    
+    $lstFiles.Add_SelectedIndexChanged({
+        if ($lstFiles.SelectedItem) {
+            $loadFileTail.Invoke($lstFiles.SelectedItem)
+        }
+    })
+
+    $chkLive.Add_CheckedChanged({
+        if ($chkLive.Checked) {
+            if ($script:TailFilePath) { $timer.Start() }
+        } else {
+            $timer.Stop()
+        }
+    })
+
+    $chkWrap.Add_CheckedChanged({
+        $txtContent.WordWrap = $chkWrap.Checked
+    })
+
+    $btnClear.Add_Click({
+        $txtContent.Clear()
+        $script:ActiveLogLines = @()
+    })
+
+    $btnExplorer.Add_Click({
+        explorer.exe $Server.LogPath
+    })
+
+    $btnCopy.Add_Click({
+        if (-not [string]::IsNullOrEmpty($txtContent.Text)) {
+            [System.Windows.Forms.Clipboard]::SetText($txtContent.Text)
+            Update-StatusBar "Copied log content to clipboard" "OK"
+        }
+    })
+
+    $txtFilter.Add_TextChanged({
+        $script:LogFilterText = $txtFilter.Text
+        # Re-apply filter on existing lines
+        if ($script:TailFilePath) {
+            $filtered = if ([string]::IsNullOrEmpty($script:LogFilterText)) {
+                $script:ActiveLogLines
+            } else {
+                $script:ActiveLogLines | Where-Object { $_ -like "*$script:LogFilterText*" }
+            }
+            $txtContent.Text = ($filtered -join "`r`n") + "`r`n"
+            $txtContent.SelectionStart = 0
+            $txtContent.ScrollToCaret()
+        }
+    })
+
+    # Cleanup timer on close
+    $dlg.Add_FormClosing({
+        $timer.Stop()
+        $timer.Dispose()
+    })
+
+    # Initial load
+    $refreshFiles.Invoke()
+    
+    # Auto-select the first log file if any exist
+    if ($lstFiles.Items.Count -gt 0) {
+        $lstFiles.SelectedIndex = 0
+    }
+
+    # Show form
+    $dlg.ShowDialog()
+    $dlg.Dispose()
+}
+
+function Refresh-BookmarkList {
+    $script:lstBookmarks.Items.Clear()
+    $server = Get-SelectedServer
+    if ($null -ne $server -and $null -ne $server.Bookmarks) {
+        foreach ($b in $server.Bookmarks) {
+            $script:lstBookmarks.Items.Add($b.Name)
+        }
+    }
+}
+
+function Get-SelectedBookmark {
+    $server = Get-SelectedServer
+    if ($null -eq $server) { return $null }
+
+    $selectedName = $script:lstBookmarks.SelectedItem
+    if ($null -eq $selectedName) { return $null }
+
+    return $server.Bookmarks | Where-Object { $_.Name -eq $selectedName } | Select-Object -First 1
+}
+
+function Show-BookmarkNamePrompt {
+    param([string]$DefaultName)
+
+    $dlg = New-Object System.Windows.Forms.Form
+    $dlg.Text = "Name Bookmark"
+    $dlg.Size = New-Object System.Drawing.Size(350, 160)
+    $dlg.StartPosition = "CenterParent"
+    $dlg.FormBorderStyle = "FixedDialog"
+    $dlg.MaximizeBox = $false
+    $dlg.MinimizeBox = $false
+    $dlg.BackColor = [System.Drawing.Color]::FromArgb(250, 250, 252)
+    $dlg.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
+
+    $lbl = New-Object System.Windows.Forms.Label
+    $lbl.Text = "Enter a name for this bookmark:"
+    $lbl.Location = New-Object System.Drawing.Point(20, 15)
+    $lbl.Size = New-Object System.Drawing.Size(300, 20)
+    $dlg.Controls.Add($lbl)
+
+    $txt = New-Object System.Windows.Forms.TextBox
+    $txt.Text = $DefaultName
+    $txt.Location = New-Object System.Drawing.Point(20, 40)
+    $txt.Size = New-Object System.Drawing.Size(290, 23)
+    $dlg.Controls.Add($txt)
+
+    $btnOK = New-Object System.Windows.Forms.Button
+    $btnOK.Text = "OK"
+    $btnOK.Location = New-Object System.Drawing.Point(110, 80)
+    $btnOK.Size = New-Object System.Drawing.Size(90, 30)
+    $btnOK.DialogResult = "OK"
+    $dlg.AcceptButton = $btnOK
+    $dlg.Controls.Add($btnOK)
+
+    $btnCancel = New-Object System.Windows.Forms.Button
+    $btnCancel.Text = "Cancel"
+    $btnCancel.Location = New-Object System.Drawing.Point(210, 80)
+    $btnCancel.Size = New-Object System.Drawing.Size(90, 30)
+    $btnCancel.DialogResult = "Cancel"
+    $dlg.CancelButton = $btnCancel
+    $dlg.Controls.Add($btnCancel)
+
+    $dlg.Add_Shown({ $txt.Focus() })
+
+    $result = $dlg.ShowDialog()
+    $name = $txt.Text
+    $dlg.Dispose()
+
+    if ($result -eq "OK") {
+        return $name.Trim()
+    }
+    return $null
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# UI HELPER FUNCTIONS
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Update-StatusBar {
+    param([string]$Message, [string]$Type = "Info")
+    $color = switch ($Type) {
+        "OK"      { [System.Drawing.Color]::FromArgb(46, 125, 50) }
+        "Error"   { [System.Drawing.Color]::FromArgb(198, 40, 40) }
+        "Warning" { [System.Drawing.Color]::FromArgb(230, 126, 34) }
+        default   { [System.Drawing.Color]::FromArgb(55, 71, 79) }
+    }
+    $script:lblStatus.ForeColor = $color
+    $script:lblStatus.Text = $Message
+}
+
+function Refresh-ServerList {
+    param([string]$Filter = "")
+    $script:Servers = Load-Servers
+    $script:lstServers.Items.Clear()
+    foreach ($srv in $script:Servers) {
+        if ([string]::IsNullOrWhiteSpace($Filter) -or
+            $srv.Name -like "*$Filter*") {
+            $script:lstServers.Items.Add($srv.Name)
+        }
+    }
+    Update-StatusBar "Loaded $($script:lstServers.Items.Count) server(s) | User: $($script:Credential.UserName)" "Info"
+}
+
+function Get-SelectedServer {
+    $selected = $script:lstServers.SelectedItem
+    if ($null -eq $selected) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Please select a server from the list.",
+            "No Selection", "OK", "Information")
+        return $null
+    }
+    return $script:Servers | Where-Object { $_.Name -eq $selected }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SERVER MANAGEMENT DIALOGS
+# ─────────────────────────────────────────────────────────────────────────────
+
+function Show-ServerDialog {
+    param(
+        [string]$Title = "Add Server",
+        [string]$ServerName = "",
+        [string]$SharePath = "",
+        [string]$LogPath = ""
+    )
+
+    $dlg = New-Object System.Windows.Forms.Form
+    $dlg.Text = $Title
+    $dlg.Size = New-Object System.Drawing.Size(480, 280)
+    $dlg.StartPosition = "CenterParent"
+    $dlg.FormBorderStyle = "FixedDialog"
+    $dlg.MaximizeBox = $false
+    $dlg.MinimizeBox = $false
+    $dlg.BackColor = [System.Drawing.Color]::FromArgb(250, 250, 252)
+    $dlg.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+
+    # Server Name
+    $lblName = New-Object System.Windows.Forms.Label
+    $lblName.Text = "Server Name:"
+    $lblName.Location = New-Object System.Drawing.Point(20, 20)
+    $lblName.Size = New-Object System.Drawing.Size(100, 23)
+    $dlg.Controls.Add($lblName)
+
+    $txtName = New-Object System.Windows.Forms.TextBox
+    $txtName.Text = $ServerName
+    $txtName.Location = New-Object System.Drawing.Point(130, 18)
+    $txtName.Size = New-Object System.Drawing.Size(310, 23)
+    $dlg.Controls.Add($txtName)
+
+    # Share Path
+    $lblShare = New-Object System.Windows.Forms.Label
+    $lblShare.Text = "Share Path:"
+    $lblShare.Location = New-Object System.Drawing.Point(20, 60)
+    $lblShare.Size = New-Object System.Drawing.Size(100, 23)
+    $dlg.Controls.Add($lblShare)
+
+    $txtShare = New-Object System.Windows.Forms.TextBox
+    $txtShare.Text = $SharePath
+    $txtShare.Location = New-Object System.Drawing.Point(130, 58)
+    $txtShare.Size = New-Object System.Drawing.Size(310, 23)
+    $dlg.Controls.Add($txtShare)
+
+    # Log Path
+    $lblLog = New-Object System.Windows.Forms.Label
+    $lblLog.Text = "Log Path:"
+    $lblLog.Location = New-Object System.Drawing.Point(20, 100)
+    $lblLog.Size = New-Object System.Drawing.Size(100, 23)
+    $dlg.Controls.Add($lblLog)
+
+    $txtLog = New-Object System.Windows.Forms.TextBox
+    $txtLog.Text = $LogPath
+    $txtLog.Location = New-Object System.Drawing.Point(130, 98)
+    $txtLog.Size = New-Object System.Drawing.Size(310, 23)
+    $dlg.Controls.Add($txtLog)
+
+    # Hint
+    $lblHint = New-Object System.Windows.Forms.Label
+    $lblHint.Text = "Use UNC paths, e.g. \\SERVER\D$"
+    $lblHint.ForeColor = [System.Drawing.Color]::Gray
+    $lblHint.Location = New-Object System.Drawing.Point(130, 130)
+    $lblHint.Size = New-Object System.Drawing.Size(310, 20)
+    $dlg.Controls.Add($lblHint)
+
+    # Buttons
+    $btnOK = New-Object System.Windows.Forms.Button
+    $btnOK.Text = "Save"
+    $btnOK.Size = New-Object System.Drawing.Size(90, 32)
+    $btnOK.Location = New-Object System.Drawing.Point(240, 190)
+    $btnOK.BackColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
+    $btnOK.ForeColor = [System.Drawing.Color]::White
+    $btnOK.FlatStyle = "Flat"
+    $btnOK.DialogResult = "OK"
+    $dlg.AcceptButton = $btnOK
+    $dlg.Controls.Add($btnOK)
+
+    $btnCancel = New-Object System.Windows.Forms.Button
+    $btnCancel.Text = "Cancel"
+    $btnCancel.Size = New-Object System.Drawing.Size(90, 32)
+    $btnCancel.Location = New-Object System.Drawing.Point(340, 190)
+    $btnCancel.FlatStyle = "Flat"
+    $btnCancel.DialogResult = "Cancel"
+    $dlg.CancelButton = $btnCancel
+    $dlg.Controls.Add($btnCancel)
+
+    # Validation on OK
+    $btnOK.Add_Click({
+        if ([string]::IsNullOrWhiteSpace($txtName.Text)) {
+            [System.Windows.Forms.MessageBox]::Show("Server name is required.", "Validation", "OK", "Warning")
+            $_.Cancel = $true
+            return
+        }
+    })
+
+    $result = $dlg.ShowDialog()
+    $dlg.Dispose()
+
+    if ($result -eq "OK") {
+        return @{
+            Name      = $txtName.Text.Trim()
+            SharePath = $txtShare.Text.Trim()
+            LogPath   = $txtLog.Text.Trim()
+        }
+    }
+    return $null
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MAIN FORM
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Prompt for credentials first
+$script:Credential = Get-SessionCredential
+
+# Build main window
+$form = New-Object System.Windows.Forms.Form
+$form.Text = "Server Navigator"
+$form.Size = New-Object System.Drawing.Size(800, 530)
+$form.StartPosition = "CenterScreen"
+$form.FormBorderStyle = "FixedSingle"
+$form.MaximizeBox = $false
+$form.BackColor = [System.Drawing.Color]::FromArgb(250, 250, 252)
+$form.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
+
+# ── Title Label ──
+$lblTitle = New-Object System.Windows.Forms.Label
+$lblTitle.Text = "Server Navigator"
+$lblTitle.Font = New-Object System.Drawing.Font("Segoe UI", 14, [System.Drawing.FontStyle]::Bold)
+$lblTitle.ForeColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
+$lblTitle.Location = New-Object System.Drawing.Point(20, 12)
+$lblTitle.Size = New-Object System.Drawing.Size(250, 30)
+$form.Controls.Add($lblTitle)
+
+# ── Search Box ──
+$lblSearch = New-Object System.Windows.Forms.Label
+$lblSearch.Text = "Search:"
+$lblSearch.Location = New-Object System.Drawing.Point(20, 52)
+$lblSearch.Size = New-Object System.Drawing.Size(55, 23)
+$form.Controls.Add($lblSearch)
+
+$txtSearch = New-Object System.Windows.Forms.TextBox
+$txtSearch.Location = New-Object System.Drawing.Point(80, 50)
+$txtSearch.Size = New-Object System.Drawing.Size(400, 23)
+$txtSearch.Add_TextChanged({
+    Refresh-ServerList -Filter $txtSearch.Text
+})
+$form.Controls.Add($txtSearch)
+
+# ── Server List ──
+$script:lstServers = New-Object System.Windows.Forms.ListBox
+$script:lstServers.Location = New-Object System.Drawing.Point(20, 85)
+$script:lstServers.Size = New-Object System.Drawing.Size(460, 240)
+$script:lstServers.Font = New-Object System.Drawing.Font("Consolas", 10.5)
+$script:lstServers.BorderStyle = "FixedSingle"
+$script:lstServers.Add_SelectedIndexChanged({
+    if ($script:lstServers.SelectedItem) {
+        Update-StatusBar "Selected: $($script:lstServers.SelectedItem) | User: $($script:Credential.UserName)" "Info"
+        Refresh-BookmarkList
+    }
+})
+$script:lstServers.Add_DoubleClick({
+    # Double-click opens the integrated log viewer
+    $server = Get-SelectedServer
+    if ($server) {
+        Show-LogViewer -Server $server -Credential $script:Credential
+    }
+})
+$form.Controls.Add($script:lstServers)
+
+# ── Action Buttons ──
+$buttonY = 340
+$buttonW = 145
+$buttonH = 34
+$buttonGap = 10
+$col1 = 20
+$col2 = 175
+$col3 = 330
+
+# Row 1 - Primary Actions
+$btnOpenShare = New-Object System.Windows.Forms.Button
+$btnOpenShare.Text = "Open Share"
+$btnOpenShare.Size = New-Object System.Drawing.Size($buttonW, $buttonH)
+$btnOpenShare.Location = New-Object System.Drawing.Point($col1, $buttonY)
+$btnOpenShare.BackColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
+$btnOpenShare.ForeColor = [System.Drawing.Color]::White
+$btnOpenShare.FlatStyle = "Flat"
+$btnOpenShare.Cursor = "Hand"
+$btnOpenShare.Add_Click({
+    $server = Get-SelectedServer
+    if ($server) {
+        Open-ServerPath -UncPath $server.SharePath -Credential $script:Credential -ActionLabel "Share"
+    }
+})
+$form.Controls.Add($btnOpenShare)
+
+$btnOpenLog = New-Object System.Windows.Forms.Button
+$btnOpenLog.Text = "Open Log Folder"
+$btnOpenLog.Size = New-Object System.Drawing.Size($buttonW, $buttonH)
+$btnOpenLog.Location = New-Object System.Drawing.Point($col2, $buttonY)
+$btnOpenLog.BackColor = [System.Drawing.Color]::FromArgb(46, 125, 50)
+$btnOpenLog.ForeColor = [System.Drawing.Color]::White
+$btnOpenLog.FlatStyle = "Flat"
+$btnOpenLog.Cursor = "Hand"
+$btnOpenLog.Add_Click({
+    $server = Get-SelectedServer
+    if ($server) {
+        Show-LogViewer -Server $server -Credential $script:Credential
+    }
+})
+$form.Controls.Add($btnOpenLog)
+
+$btnRefresh = New-Object System.Windows.Forms.Button
+$btnRefresh.Text = "Refresh"
+$btnRefresh.Size = New-Object System.Drawing.Size($buttonW, $buttonH)
+$btnRefresh.Location = New-Object System.Drawing.Point($col3, $buttonY)
+$btnRefresh.FlatStyle = "Flat"
+$btnRefresh.Cursor = "Hand"
+$btnRefresh.Add_Click({ Refresh-ServerList -Filter $txtSearch.Text })
+$form.Controls.Add($btnRefresh)
+
+# Row 2 - Management Actions
+$row2Y = $buttonY + $buttonH + $buttonGap
+
+$btnAdd = New-Object System.Windows.Forms.Button
+$btnAdd.Text = "Add Server"
+$btnAdd.Size = New-Object System.Drawing.Size($buttonW, $buttonH)
+$btnAdd.Location = New-Object System.Drawing.Point($col1, $row2Y)
+$btnAdd.FlatStyle = "Flat"
+$btnAdd.Cursor = "Hand"
+$btnAdd.Add_Click({
+    $result = Show-ServerDialog -Title "Add Server"
+    if ($result) {
+        $servers = [System.Collections.ArrayList]@(Load-Servers)
+        $existing = $servers | Where-Object { $_.Name -eq $result.Name }
+        if ($existing) {
+            [System.Windows.Forms.MessageBox]::Show(
+                "A server named '$($result.Name)' already exists.",
+                "Duplicate", "OK", "Warning")
+            return
+        }
+        $newServer = [PSCustomObject]@{
+            Name      = $result.Name
+            SharePath = $result.SharePath
+            LogPath   = $result.LogPath
+        }
+        $servers.Add($newServer) | Out-Null
+        Save-Servers $servers.ToArray()
+        Refresh-ServerList -Filter $txtSearch.Text
+        Update-StatusBar "Server '$($result.Name)' added" "OK"
+    }
+})
+$form.Controls.Add($btnAdd)
+
+$btnEdit = New-Object System.Windows.Forms.Button
+$btnEdit.Text = "Edit Server"
+$btnEdit.Size = New-Object System.Drawing.Size($buttonW, $buttonH)
+$btnEdit.Location = New-Object System.Drawing.Point($col2, $row2Y)
+$btnEdit.FlatStyle = "Flat"
+$btnEdit.Cursor = "Hand"
+$btnEdit.Add_Click({
+    $server = Get-SelectedServer
+    if ($server) {
+        $result = Show-ServerDialog -Title "Edit Server" `
+            -ServerName $server.Name `
+            -SharePath $server.SharePath `
+            -LogPath $server.LogPath
+        if ($result) {
+            $servers = [System.Collections.ArrayList]@(Load-Servers)
+            $idx = -1
+            for ($i = 0; $i -lt $servers.Count; $i++) {
+                if ($servers[$i].Name -eq $server.Name) { $idx = $i; break }
+            }
+            if ($idx -ge 0) {
+                $servers[$idx] = [PSCustomObject]@{
+                    Name      = $result.Name
+                    SharePath = $result.SharePath
+                    LogPath   = $result.LogPath
+                }
+                Save-Servers $servers.ToArray()
+                Refresh-ServerList -Filter $txtSearch.Text
+                Update-StatusBar "Server '$($result.Name)' updated" "OK"
+            }
+        }
+    }
+})
+$form.Controls.Add($btnEdit)
+
+$btnDelete = New-Object System.Windows.Forms.Button
+$btnDelete.Text = "Delete Server"
+$btnDelete.Size = New-Object System.Drawing.Size($buttonW, $buttonH)
+$btnDelete.Location = New-Object System.Drawing.Point($col3, $row2Y)
+$btnDelete.FlatStyle = "Flat"
+$btnDelete.ForeColor = [System.Drawing.Color]::FromArgb(198, 40, 40)
+$btnDelete.Cursor = "Hand"
+$btnDelete.Add_Click({
+    $server = Get-SelectedServer
+    if ($server) {
+        $confirm = [System.Windows.Forms.MessageBox]::Show(
+            "Delete server '$($server.Name)'?",
+            "Confirm Delete", "YesNo", "Question")
+        if ($confirm -eq "Yes") {
+            $servers = [System.Collections.ArrayList]@(Load-Servers)
+            $toRemove = $servers | Where-Object { $_.Name -eq $server.Name }
+            if ($toRemove) {
+                $servers.Remove($toRemove) | Out-Null
+                Save-Servers $servers.ToArray()
+                Refresh-ServerList -Filter $txtSearch.Text
+                Update-StatusBar "Server '$($server.Name)' deleted" "OK"
+            }
+        }
+    }
+})
+$form.Controls.Add($btnDelete)
+
+# ── Bookmarks Panel ──
+$pnlBookmarks = New-Object System.Windows.Forms.GroupBox
+$pnlBookmarks.Text = "Directory Bookmarks"
+$pnlBookmarks.Location = New-Object System.Drawing.Point(500, 45)
+$pnlBookmarks.Size = New-Object System.Drawing.Size(270, 383)
+$form.Controls.Add($pnlBookmarks)
+
+$script:lstBookmarks = New-Object System.Windows.Forms.ListBox
+$script:lstBookmarks.Location = New-Object System.Drawing.Point(15, 25)
+$script:lstBookmarks.Size = New-Object System.Drawing.Size(240, 200)
+$script:lstBookmarks.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
+$script:lstBookmarks.BorderStyle = "FixedSingle"
+$script:lstBookmarks.Add_DoubleClick({
+    $bkm = Get-SelectedBookmark
+    $server = Get-SelectedServer
+    if ($bkm -and $server) {
+        $fakeServer = [PSCustomObject]@{
+            Name = "$($server.Name) - $($bkm.Name)"
+            LogPath = $bkm.Path
+        }
+        Show-LogViewer -Server $fakeServer -Credential $script:Credential
+    }
+})
+$pnlBookmarks.Controls.Add($script:lstBookmarks)
+
+$btnOpenBkmViewer = New-Object System.Windows.Forms.Button
+$btnOpenBkmViewer.Text = "View Logs"
+$btnOpenBkmViewer.Location = New-Object System.Drawing.Point(15, 235)
+$btnOpenBkmViewer.Size = New-Object System.Drawing.Size(115, 32)
+$btnOpenBkmViewer.BackColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
+$btnOpenBkmViewer.ForeColor = [System.Drawing.Color]::White
+$btnOpenBkmViewer.FlatStyle = "Flat"
+$btnOpenBkmViewer.Cursor = "Hand"
+$btnOpenBkmViewer.Add_Click({
+    $bkm = Get-SelectedBookmark
+    $server = Get-SelectedServer
+    if ($bkm -and $server) {
+        $fakeServer = [PSCustomObject]@{
+            Name = "$($server.Name) - $($bkm.Name)"
+            LogPath = $bkm.Path
+        }
+        Show-LogViewer -Server $fakeServer -Credential $script:Credential
+    } else {
+        [System.Windows.Forms.MessageBox]::Show("Please select a bookmark.", "No Selection", "OK", "Information")
+    }
+})
+$pnlBookmarks.Controls.Add($btnOpenBkmViewer)
+
+$btnOpenBkmExplorer = New-Object System.Windows.Forms.Button
+$btnOpenBkmExplorer.Text = "Open Folder"
+$btnOpenBkmExplorer.Location = New-Object System.Drawing.Point(140, 235)
+$btnOpenBkmExplorer.Size = New-Object System.Drawing.Size(115, 32)
+$btnOpenBkmExplorer.FlatStyle = "Flat"
+$btnOpenBkmExplorer.Cursor = "Hand"
+$btnOpenBkmExplorer.Add_Click({
+    $bkm = Get-SelectedBookmark
+    if ($bkm) {
+        Open-ServerPath -UncPath $bkm.Path -Credential $script:Credential -ActionLabel "Bookmark"
+    } else {
+        [System.Windows.Forms.MessageBox]::Show("Please select a bookmark.", "No Selection", "OK", "Information")
+    }
+})
+$pnlBookmarks.Controls.Add($btnOpenBkmExplorer)
+
+$btnAddBkm = New-Object System.Windows.Forms.Button
+$btnAddBkm.Text = "Add Bookmark"
+$btnAddBkm.Location = New-Object System.Drawing.Point(15, 280)
+$btnAddBkm.Size = New-Object System.Drawing.Size(240, 32)
+$btnAddBkm.FlatStyle = "Flat"
+$btnAddBkm.Cursor = "Hand"
+$btnAddBkm.Add_Click({
+    $server = Get-SelectedServer
+    if ($null -eq $server) {
+        [System.Windows.Forms.MessageBox]::Show("Please select a server first.", "No Selection", "OK", "Warning")
+        return
+    }
+
+    Update-StatusBar "Connecting to $($server.SharePath)..." "Info"
+    $connection = Connect-ServerPath -UncPath $server.SharePath -Credential $script:Credential
+    if (-not $connection.Success) {
+        [System.Windows.Forms.MessageBox]::Show("Connection failed: $($connection.Message)", "Connection Error", "OK", "Error")
+        return
+    }
+
+    $browser = New-Object System.Windows.Forms.FolderBrowserDialog
+    $browser.Description = "Select a folder to bookmark on $($server.Name)"
+    $browser.SelectedPath = $server.SharePath
+    $browser.ShowNewFolderButton = $true
+
+    if ($browser.ShowDialog() -eq "OK") {
+        $path = $browser.SelectedPath
+        $bookmarkName = Show-BookmarkNamePrompt -DefaultName (Split-Path -Leaf $path)
+        if (-not [string]::IsNullOrWhiteSpace($bookmarkName)) {
+            $existing = $server.Bookmarks | Where-Object { $_.Name -eq $bookmarkName }
+            if ($existing) {
+                [System.Windows.Forms.MessageBox]::Show("A bookmark named '$bookmarkName' already exists.", "Duplicate Bookmark", "OK", "Warning")
+                return
+            }
+
+            $bkm = [PSCustomObject]@{
+                Name = $bookmarkName
+                Path = $path
+            }
+            
+            $bList = [System.Collections.ArrayList]@($server.Bookmarks)
+            $bList.Add($bkm) | Out-Null
+            $server.Bookmarks = $bList.ToArray()
+
+            Save-Servers $script:Servers
+            Refresh-BookmarkList
+            Update-StatusBar "Bookmark '$bookmarkName' added" "OK"
+        }
+    }
+})
+$pnlBookmarks.Controls.Add($btnAddBkm)
+
+$btnDeleteBkm = New-Object System.Windows.Forms.Button
+$btnDeleteBkm.Text = "Delete Bookmark"
+$btnDeleteBkm.Location = New-Object System.Drawing.Point(15, 325)
+$btnDeleteBkm.Size = New-Object System.Drawing.Size(240, 32)
+$btnDeleteBkm.FlatStyle = "Flat"
+$btnDeleteBkm.ForeColor = [System.Drawing.Color]::FromArgb(198, 40, 40)
+$btnDeleteBkm.Cursor = "Hand"
+$btnDeleteBkm.Add_Click({
+    $server = Get-SelectedServer
+    if ($null -eq $server) { return }
+
+    $selectedName = $script:lstBookmarks.SelectedItem
+    if ($null -eq $selectedName) {
+        [System.Windows.Forms.MessageBox]::Show("Please select a bookmark to delete.", "No Selection", "OK", "Information")
+        return
+    }
+
+    $confirm = [System.Windows.Forms.MessageBox]::Show(
+        "Delete bookmark '$selectedName'?",
+        "Confirm Delete", "YesNo", "Question")
+    
+    if ($confirm -eq "Yes") {
+        $bList = [System.Collections.ArrayList]@()
+        foreach ($b in $server.Bookmarks) {
+            if ($b.Name -ne $selectedName) {
+                $bList.Add($b) | Out-Null
+            }
+        }
+        $server.Bookmarks = $bList.ToArray()
+
+        Save-Servers $script:Servers
+        Refresh-BookmarkList
+        Update-StatusBar "Bookmark '$selectedName' deleted" "OK"
+    }
+})
+$pnlBookmarks.Controls.Add($btnDeleteBkm)
+
+# ── Status Bar ──
+$statusPanel = New-Object System.Windows.Forms.Panel
+$statusPanel.Location = New-Object System.Drawing.Point(0, 440)
+$statusPanel.Size = New-Object System.Drawing.Size(800, 30)
+$statusPanel.BackColor = [System.Drawing.Color]::FromArgb(236, 239, 241)
+$form.Controls.Add($statusPanel)
+
+$script:lblStatus = New-Object System.Windows.Forms.Label
+$script:lblStatus.Location = New-Object System.Drawing.Point(10, 6)
+$script:lblStatus.Size = New-Object System.Drawing.Size(770, 18)
+$script:lblStatus.ForeColor = [System.Drawing.Color]::FromArgb(55, 71, 79)
+$statusPanel.Controls.Add($script:lblStatus)
+
+# ── Load and Show ──
+Refresh-ServerList
+$form.Add_Shown({ $form.Activate() })
+[void]$form.ShowDialog()
+$form.Dispose()

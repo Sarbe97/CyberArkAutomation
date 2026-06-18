@@ -1,0 +1,12 @@
+[
+  {
+    "Name": "PVWA01",
+    "SharePath": "\\\\PVWA01\\D$",
+    "LogPath": "\\\\PVWA01\\D$\\CyberArk\\PVWA\\Logs"
+  },
+  {
+    "Name": "Local",
+    "SharePath": "C:\\Ss_Folder\\WS\\cyberark\\CyberArkAutomation\\Scheduler\\Logs",
+    "LogPath": "C:\\Ss_Folder\\WS\\cyberark\\CyberArkAutomation\\Scheduler\\Logs"
+  }
+]

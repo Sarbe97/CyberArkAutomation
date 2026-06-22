@@ -995,13 +995,6 @@ $script:lstServers.Add_SelectedIndexChanged({
             Refresh-BookmarkList
         }
     })
-$script:lstServers.Add_DoubleClick({
-        # Double-click opens the server share
-        $server = Get-SelectedServer
-        if ($server) {
-            Open-ServerPath -UncPath $server.SharePath -Credential $script:Credentials[$script:ActiveEnv] -ActionLabel "Share"
-        }
-    })
 $form.Controls.Add($script:lstServers)
 
 # â”€â”€ Action Buttons â”€â”€
@@ -1014,26 +1007,10 @@ $col2 = 175
 $col3 = 330
 
 # Row 1 - Primary Actions
-$btnOpenShare = New-Object System.Windows.Forms.Button
-$btnOpenShare.Text = "Open Share"
-$btnOpenShare.Size = New-Object System.Drawing.Size(145, 34)
-$btnOpenShare.Location = New-Object System.Drawing.Point(20, 340)
-$btnOpenShare.BackColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
-$btnOpenShare.ForeColor = [System.Drawing.Color]::White
-$btnOpenShare.FlatStyle = "Flat"
-$btnOpenShare.Cursor = "Hand"
-$btnOpenShare.Add_Click({
-        $server = Get-SelectedServer
-        if ($server) {
-            Open-ServerPath -UncPath $server.SharePath -Credential $script:Credentials[$script:ActiveEnv] -ActionLabel "Share"
-        }
-    })
-$form.Controls.Add($btnOpenShare)
-
 $btnRDP = New-Object System.Windows.Forms.Button
 $btnRDP.Text = "RDP Connect"
 $btnRDP.Size = New-Object System.Drawing.Size(145, 34)
-$btnRDP.Location = New-Object System.Drawing.Point(175, 340)
+$btnRDP.Location = New-Object System.Drawing.Point(20, 340)
 $btnRDP.BackColor = [System.Drawing.Color]::FromArgb(52, 73, 94)
 $btnRDP.ForeColor = [System.Drawing.Color]::White
 $btnRDP.FlatStyle = "Flat"
@@ -1086,7 +1063,7 @@ $form.Controls.Add($btnRDP)
 $btnRefresh = New-Object System.Windows.Forms.Button
 $btnRefresh.Text = "Refresh"
 $btnRefresh.Size = New-Object System.Drawing.Size(145, 34)
-$btnRefresh.Location = New-Object System.Drawing.Point(330, 340)
+$btnRefresh.Location = New-Object System.Drawing.Point(175, 340)
 $btnRefresh.FlatStyle = "Flat"
 $btnRefresh.Cursor = "Hand"
 $btnRefresh.Add_Click({ Refresh-ServerList -Filter $txtSearch.Text })
@@ -1418,15 +1395,6 @@ $form.Add_KeyDown({
             }
         }
         $e.Handled = $true
-    }
-    # Enter — Open share for selected server (when server list is focused)
-    if ($e.KeyCode -eq "Return" -and $script:lstServers.Focused) {
-        $server = Get-SelectedServer
-        if ($server) {
-            Open-ServerPath -UncPath $server.SharePath -Credential $script:Credentials[$script:ActiveEnv] -ActionLabel "Share"
-        }
-        $e.Handled = $true
-        $e.SuppressKeyPress = $true
     }
 })
 

@@ -1106,6 +1106,17 @@ $btnAdd.Location = New-Object System.Drawing.Point($col1, $row2Y)
 $btnAdd.FlatStyle = "Flat"
 $btnAdd.Cursor = "Hand"
 $btnAdd.Add_Click({
+        $result = Show-ServerDialog -Title "Add Server" -DetectDrives
+        if ($result) {
+            $servers = [System.Collections.ArrayList]@(Load-Servers)
+            $existing = $servers | Where-Object { $_.Name -eq $result.Name -and $_.Environment -eq $result.Environment }
+            if ($existing) {
+                [System.Windows.Forms.MessageBox]::Show(
+                    "A server named '$($result.Name)' already exists.",
+                    "Duplicate", "OK", "Warning")
+                return
+            }
+
             $bookmarks = @()
             if ($null -ne $script:TempDetectedDrives) {
                 foreach ($drive in $script:TempDetectedDrives) {

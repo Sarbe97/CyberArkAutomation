@@ -20,7 +20,7 @@ Add-Type -AssemblyName System.Drawing
 $script:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script:ConfigFile = Join-Path $script:ScriptDir "servers.json"
 $script:Credentials = @{ "DEV" = $null; "PROD" = $null }
-$script:ActiveEnv = "DEV"
+$script:ActiveEnv = "PROD"
 
 # CONFIGURATION FUNCTIONS
 
@@ -110,7 +110,7 @@ function Save-Servers {
 
 function Get-SessionCredential {
     param(
-        [string]$Environment = "DEV",
+        [string]$Environment = "PROD",
         [bool]$ExitOnCancel = $false
     )
     $loginForm = New-Object System.Windows.Forms.Form
@@ -139,7 +139,8 @@ function Get-SessionCredential {
     $loginForm.Controls.Add($lblUser)
 
     $txtUser = New-Object System.Windows.Forms.TextBox
-    $txtUser.Text = "S123456"
+    $expectedDomain = if ($Environment -eq "PROD") { "NA" } else { "nadev" }
+    $txtUser.Text = "$expectedDomain\$env:USERNAME"
     $txtUser.Location = New-Object System.Drawing.Point(110, 53)
     $txtUser.Size = New-Object System.Drawing.Size(250, 23)
     $loginForm.Controls.Add($txtUser)
@@ -163,9 +164,37 @@ function Get-SessionCredential {
     $btnLogin.BackColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
     $btnLogin.ForeColor = [System.Drawing.Color]::White
     $btnLogin.FlatStyle = "Flat"
-    $btnLogin.DialogResult = "OK"
     $loginForm.AcceptButton = $btnLogin
     $loginForm.Controls.Add($btnLogin)
+
+    $btnLogin.Add_Click({
+        $user = $txtUser.Text.Trim()
+        if ([string]::IsNullOrWhiteSpace($user)) {
+            [System.Windows.Forms.MessageBox]::Show("Username cannot be empty.", "Validation Error", "OK", "Warning")
+            return
+        }
+        if ([string]::IsNullOrWhiteSpace($txtPass.Text)) {
+            [System.Windows.Forms.MessageBox]::Show("Password cannot be empty.", "Validation Error", "OK", "Warning")
+            return
+        }
+        
+        $domain = if ($Environment -eq "PROD") { "NA" } else { "nadev" }
+        
+        if ($user -notlike "*\*") {
+            $user = "$domain\$user"
+            $txtUser.Text = $user
+        } 
+        elseif ($user -notmatch "^(?i)$domain\\") {
+            $confirm = [System.Windows.Forms.MessageBox]::Show(
+                "You entered a domain that doesn't match the expected domain for $Environment ($domain\).`n`nAre you sure you want to continue?",
+                "Domain Mismatch", "YesNo", "Warning")
+            if ($confirm -ne "Yes") {
+                return
+            }
+        }
+
+        $loginForm.DialogResult = "OK"
+    })
 
     $btnExit = New-Object System.Windows.Forms.Button
     $btnExit.Text = "Exit"

@@ -339,10 +339,16 @@ function Connect-ServerPath {
 
     # Extract the root share (e.g., \\SERVER\D$) from the full path
     $parts = $UncPath.TrimStart('\').Split('\')
-    if ($parts.Count -lt 2) {
+    if ($parts.Count -eq 0 -or [string]::IsNullOrWhiteSpace($parts[0])) {
         return @{ Success = $false; Message = "Invalid UNC path: $UncPath" }
     }
-    $rootShare = "\\$($parts[0])\$($parts[1])"
+    
+    # If only the server name is provided, connect to the IPC$ administrative share
+    $rootShare = if ($parts.Count -eq 1) {
+        "\\$($parts[0])\IPC`$"
+    } else {
+        "\\$($parts[0])\$($parts[1])"
+    }
 
     try {
         # Remove any existing connection to avoid conflicts
@@ -384,7 +390,8 @@ function Open-ServerPath {
     $connection = Connect-ServerPath -UncPath $UncPath -Credential $Credential
 
     if ($connection.Success) {
-        if (Test-Path $UncPath) {
+        $isServerRoot = ($UncPath -like "\\*" -and $UncPath.TrimStart('\').Split('\').Count -eq 1)
+        if ($isServerRoot -or (Test-Path $UncPath)) {
             explorer.exe $UncPath
             Update-StatusBar "$ActionLabel opened: $UncPath" "OK"
         }

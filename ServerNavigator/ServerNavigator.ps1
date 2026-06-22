@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Server Navigator - Quick access to server shares and log folders.
@@ -11,9 +11,9 @@
     - Configuration stored in servers.json
 #>
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # INITIALIZATION
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -24,29 +24,42 @@ $script:ConfigFile = Join-Path $script:ScriptDir "servers.json"
 $script:Credentials = @{ "DEV" = $null; "PROD" = $null }
 $script:ActiveEnv = "DEV"
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # CONFIGURATION FUNCTIONS
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function Load-Servers {
     if (Test-Path $script:ConfigFile) {
         try {
             $content = Get-Content $script:ConfigFile -Raw -ErrorAction Stop
             if ([string]::IsNullOrWhiteSpace($content)) { return @() }
-            $servers = $content | ConvertFrom-Json
-            if ($null -eq $servers) { return @() }
-            if ($servers -isnot [System.Array]) { $servers = @($servers) }
+            $data = $content | ConvertFrom-Json
+            if ($null -eq $data) { return @() }
             
-            # Ensure properties are properly initialized
-            foreach ($s in $servers) {
-                if ($null -eq $s.Bookmarks) {
-                    $s | Add-Member -MemberType NoteProperty -Name Bookmarks -Value @() -Force
+            $flatServers = [System.Collections.ArrayList]::new()
+            
+            if ($data -is [System.Array] -or ($data -isnot [System.Management.Automation.PSCustomObject])) {
+                # Legacy format: Array of objects
+                $servers = if ($data -is [System.Array]) { $data } else { @($data) }
+                foreach ($s in $servers) {
+                    if ($null -eq $s.Environment) { $s | Add-Member -MemberType NoteProperty -Name Environment -Value "DEV" -Force }
+                    if ($null -eq $s.Bookmarks) { $s | Add-Member -MemberType NoteProperty -Name Bookmarks -Value @() -Force }
+                    $flatServers.Add($s) | Out-Null
                 }
-                if ($null -eq $s.Environment) {
-                    $s | Add-Member -MemberType NoteProperty -Name Environment -Value "DEV" -Force
+            } else {
+                # New format: { "DEV": [...], "PROD": [...] }
+                foreach ($env in $data.PSObject.Properties.Name) {
+                    $envServers = $data.$env
+                    if ($null -eq $envServers) { continue }
+                    if ($envServers -isnot [System.Array]) { $envServers = @($envServers) }
+                    foreach ($s in $envServers) {
+                        $s | Add-Member -MemberType NoteProperty -Name Environment -Value $env -Force
+                        if ($null -eq $s.Bookmarks) { $s | Add-Member -MemberType NoteProperty -Name Bookmarks -Value @() -Force }
+                        $flatServers.Add($s) | Out-Null
+                    }
                 }
             }
-            return $servers
+            return $flatServers.ToArray()
         }
         catch {
             [System.Windows.Forms.MessageBox]::Show(
@@ -57,7 +70,7 @@ function Load-Servers {
     }
     else {
         # Create default config
-        "[]" | Set-Content $script:ConfigFile -Encoding UTF8
+        "{ `"DEV`": [], `"PROD`": [] }" | Set-Content $script:ConfigFile -Encoding UTF8
         return @()
     }
 }
@@ -65,7 +78,28 @@ function Load-Servers {
 function Save-Servers {
     param([array]$Servers)
     try {
-        $Servers | ConvertTo-Json -Depth 3 | Set-Content $script:ConfigFile -Encoding UTF8
+        $grouped = [PSCustomObject]@{}
+        $envs = @($Servers | Select-Object -ExpandProperty Environment -Unique)
+        foreach ($e in @("DEV", "PROD")) { if ($envs -notcontains $e) { $envs += $e } }
+        
+        foreach ($env in $envs) {
+            $envServers = $Servers | Where-Object { $_.Environment -eq $env }
+            if ($envServers) {
+                $cleanServers = @()
+                foreach ($s in $envServers) {
+                    $cleanObj = [PSCustomObject]@{
+                        Name = $s.Name
+                        SharePath = $s.SharePath
+                        Bookmarks = $s.Bookmarks
+                    }
+                    $cleanServers += $cleanObj
+                }
+                $grouped | Add-Member -MemberType NoteProperty -Name $env -Value $cleanServers
+            } else {
+                $grouped | Add-Member -MemberType NoteProperty -Name $env -Value @()
+            }
+        }
+        $grouped | ConvertTo-Json -Depth 4 | Set-Content $script:ConfigFile -Encoding UTF8
     }
     catch {
         [System.Windows.Forms.MessageBox]::Show(
@@ -74,9 +108,9 @@ function Save-Servers {
     }
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # CREDENTIAL FUNCTIONS
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function Get-SessionCredential {
     param(
@@ -168,9 +202,9 @@ function Get-SessionCredential {
     return $null
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # CONNECTION FUNCTIONS
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function Connect-ServerPath {
     param(
@@ -255,13 +289,13 @@ function Show-LogViewer {
         [PSCredential]$Credential
     )
 
-    if ($null -eq $Server -or [string]::IsNullOrWhiteSpace($Server.LogPath)) {
+    if ($null -eq $Server -or [string]::IsNullOrWhiteSpace($Server.Path)) {
         [System.Windows.Forms.MessageBox]::Show("Log path is not configured for this server.", "Error", "OK", "Warning")
         return
     }
 
-    Update-StatusBar "Connecting to $($Server.LogPath)..." "Info"
-    $connection = Connect-ServerPath -UncPath $Server.LogPath -Credential $Credential
+    Update-StatusBar "Connecting to $($Server.Path)..." "Info"
+    $connection = Connect-ServerPath -UncPath $Server.Path -Credential $Credential
 
     if (-not $connection.Success) {
         Update-StatusBar "Connection failed" "Error"
@@ -271,10 +305,10 @@ function Show-LogViewer {
         return
     }
 
-    if (-not (Test-Path $Server.LogPath)) {
+    if (-not (Test-Path $Server.Path)) {
         Update-StatusBar "Log path not found" "Error"
         [System.Windows.Forms.MessageBox]::Show(
-            "Connected to the server, but the log path does not exist:`n`n$($Server.LogPath)",
+            "Connected to the server, but the log path does not exist:`n`n$($Server.Path)",
             "Path Not Found", "OK", "Error")
         return
     }
@@ -289,7 +323,7 @@ function Show-LogViewer {
 
     # Form setup
     $dlg = New-Object System.Windows.Forms.Form
-    $dlg.Text = "Log Viewer - $($Server.Name) ($($Server.LogPath))"
+    $dlg.Text = "Log Viewer - $($Server.Name) ($($Server.Path))"
     $dlg.Size = New-Object System.Drawing.Size(1000, 700)
     $dlg.StartPosition = "CenterParent"
     $dlg.BackColor = [System.Drawing.Color]::FromArgb(245, 246, 250)
@@ -298,7 +332,7 @@ function Show-LogViewer {
     # Enable resizing but keep a minimum size
     $dlg.MinimumSize = New-Object System.Drawing.Size(800, 500)
 
-    # ── SPLIT CONTAINER ──
+    # â”€â”€ SPLIT CONTAINER â”€â”€
     $splitContainer = New-Object System.Windows.Forms.SplitContainer
     $splitContainer.Size = New-Object System.Drawing.Size(980, 600)
     $splitContainer.Dock = "Fill"
@@ -307,7 +341,7 @@ function Show-LogViewer {
     $splitContainer.SplitterDistance = 240
     $dlg.Controls.Add($splitContainer)
 
-    # ── LEFT PANEL (FILE LIST) ──
+    # â”€â”€ LEFT PANEL (FILE LIST) â”€â”€
     $leftPanel = New-Object System.Windows.Forms.Panel
     $leftPanel.Dock = "Fill"
     $leftPanel.Padding = New-Object System.Windows.Forms.Padding(10)
@@ -344,7 +378,7 @@ function Show-LogViewer {
     $btnSearchAll.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 10)
     $leftPanel.Controls.Add($btnSearchAll)
 
-    # ── RIGHT PANEL (CONTENT VIEWER) ──
+    # â”€â”€ RIGHT PANEL (CONTENT VIEWER) â”€â”€
     $rightPanel = New-Object System.Windows.Forms.Panel
     $rightPanel.Dock = "Fill"
     $rightPanel.Padding = New-Object System.Windows.Forms.Padding(10)
@@ -424,7 +458,7 @@ function Show-LogViewer {
     $txtContent.WordWrap = $false
     $txtContainer.Controls.Add($txtContent)
 
-    # ── TIMER FOR LIVE TAIL ──
+    # â”€â”€ TIMER FOR LIVE TAIL â”€â”€
     $timer = New-Object System.Windows.Forms.Timer
     $timer.Interval = 1000
 
@@ -476,7 +510,7 @@ function Show-LogViewer {
     $refreshFiles = {
         $lstFiles.Items.Clear()
         try {
-            $files = Get-ChildItem -Path $Server.LogPath -File | Sort-Object LastWriteTime -Descending
+            $files = Get-ChildItem -Path $Server.Path -File | Sort-Object LastWriteTime -Descending
             foreach ($file in $files) {
                 $lstFiles.Items.Add($file.Name)
             }
@@ -492,7 +526,7 @@ function Show-LogViewer {
         $timer.Stop()
         $txtContent.Text = "Loading $fileName..."
         
-        $filePath = Join-Path $Server.LogPath $fileName
+        $filePath = Join-Path $Server.Path $fileName
         $script:TailFilePath = $filePath
         $script:ActiveLogLines = @()
         
@@ -543,7 +577,7 @@ function Show-LogViewer {
         }
     }
 
-    # ── EVENT HANDLERS ──
+    # â”€â”€ EVENT HANDLERS â”€â”€
     $btnRefreshList.Add_Click($refreshFiles)
     
     $lstFiles.Add_SelectedIndexChanged({
@@ -570,7 +604,7 @@ function Show-LogViewer {
     })
 
     $btnExplorer.Add_Click({
-        explorer.exe $Server.LogPath
+        explorer.exe $Server.Path
     })
 
     $btnCopy.Add_Click({
@@ -637,7 +671,7 @@ function Show-LogViewer {
         $lstFiles.SelectedIndex = -1
         
         try {
-            $files = Get-ChildItem -Path $Server.LogPath -File | Sort-Object LastWriteTime -Descending
+            $files = Get-ChildItem -Path $Server.Path -File | Sort-Object LastWriteTime -Descending
             $results = [System.Collections.Generic.List[string]]::new()
             $results.Add("=== MULTI-FILE SEARCH RESULTS FOR: '$query' ===")
             $results.Add("Search performed on: $(Get-Date)")
@@ -798,9 +832,9 @@ function Show-BookmarkNamePrompt {
     return $null
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # UI HELPER FUNCTIONS
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function Update-StatusBar {
     param([string]$Message, [string]$Type = "Info")
@@ -884,19 +918,18 @@ function Get-SelectedServer {
             "No Selection", "OK", "Information")
         return $null
     }
-    return $script:Servers | Where-Object { $_.Name -eq $selected }
+    return $script:Servers | Where-Object { $_.Name -eq $selected -and $_.Environment -eq $script:ActiveEnv }
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # SERVER MANAGEMENT DIALOGS
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function Show-ServerDialog {
     param(
         [string]$Title = "Add Server",
         [string]$ServerName = "",
         [string]$SharePath = "",
-        [string]$LogPath = "",
         [string]$Environment = ""
     )
 
@@ -936,23 +969,10 @@ function Show-ServerDialog {
     $txtShare.Size = New-Object System.Drawing.Size(310, 23)
     $dlg.Controls.Add($txtShare)
 
-    # Log Path
-    $lblLog = New-Object System.Windows.Forms.Label
-    $lblLog.Text = "Log Path:"
-    $lblLog.Location = New-Object System.Drawing.Point(20, 100)
-    $lblLog.Size = New-Object System.Drawing.Size(100, 23)
-    $dlg.Controls.Add($lblLog)
-
-    $txtLog = New-Object System.Windows.Forms.TextBox
-    $txtLog.Text = $LogPath
-    $txtLog.Location = New-Object System.Drawing.Point(130, 98)
-    $txtLog.Size = New-Object System.Drawing.Size(310, 23)
-    $dlg.Controls.Add($txtLog)
-
     # Environment
     $lblEnv = New-Object System.Windows.Forms.Label
     $lblEnv.Text = "Environment:"
-    $lblEnv.Location = New-Object System.Drawing.Point(20, 140)
+    $lblEnv.Location = New-Object System.Drawing.Point(20, 100)
     $lblEnv.Size = New-Object System.Drawing.Size(100, 23)
     $dlg.Controls.Add($lblEnv)
 
@@ -960,7 +980,7 @@ function Show-ServerDialog {
     $cmbDialogEnv.DropDownStyle = "DropDownList"
     $cmbDialogEnv.Items.Add("DEV") | Out-Null
     $cmbDialogEnv.Items.Add("PROD") | Out-Null
-    $cmbDialogEnv.Location = New-Object System.Drawing.Point(130, 138)
+    $cmbDialogEnv.Location = New-Object System.Drawing.Point(130, 98)
     $cmbDialogEnv.Size = New-Object System.Drawing.Size(310, 23)
     if ([string]::IsNullOrWhiteSpace($Environment)) {
         $cmbDialogEnv.SelectedItem = $script:ActiveEnv
@@ -973,7 +993,7 @@ function Show-ServerDialog {
     $lblHint = New-Object System.Windows.Forms.Label
     $lblHint.Text = "Use UNC paths, e.g. \\SERVER\D$"
     $lblHint.ForeColor = [System.Drawing.Color]::Gray
-    $lblHint.Location = New-Object System.Drawing.Point(130, 175)
+    $lblHint.Location = New-Object System.Drawing.Point(130, 135)
     $lblHint.Size = New-Object System.Drawing.Size(310, 20)
     $dlg.Controls.Add($lblHint)
 
@@ -981,7 +1001,7 @@ function Show-ServerDialog {
     $btnOK = New-Object System.Windows.Forms.Button
     $btnOK.Text = "Save"
     $btnOK.Size = New-Object System.Drawing.Size(90, 32)
-    $btnOK.Location = New-Object System.Drawing.Point(240, 230)
+    $btnOK.Location = New-Object System.Drawing.Point(240, 190)
     $btnOK.BackColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
     $btnOK.ForeColor = [System.Drawing.Color]::White
     $btnOK.FlatStyle = "Flat"
@@ -992,7 +1012,7 @@ function Show-ServerDialog {
     $btnCancel = New-Object System.Windows.Forms.Button
     $btnCancel.Text = "Cancel"
     $btnCancel.Size = New-Object System.Drawing.Size(90, 32)
-    $btnCancel.Location = New-Object System.Drawing.Point(340, 230)
+    $btnCancel.Location = New-Object System.Drawing.Point(340, 190)
     $btnCancel.FlatStyle = "Flat"
     $btnCancel.DialogResult = "Cancel"
     $dlg.CancelButton = $btnCancel
@@ -1014,16 +1034,15 @@ function Show-ServerDialog {
         return @{
             Name        = $txtName.Text.Trim()
             SharePath   = $txtShare.Text.Trim()
-            LogPath     = $txtLog.Text.Trim()
             Environment = $cmbDialogEnv.SelectedItem
         }
     }
     return $null
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # MAIN FORM
-# ─────────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 # Prompt for credentials first
 $script:Credentials[$script:ActiveEnv] = Get-SessionCredential -Environment $script:ActiveEnv -ExitOnCancel $true
@@ -1038,7 +1057,7 @@ $form.MaximizeBox = $false
 $form.BackColor = [System.Drawing.Color]::FromArgb(250, 250, 252)
 $form.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
 
-# ── Title Label ──
+# â”€â”€ Title Label â”€â”€
 $lblTitle = New-Object System.Windows.Forms.Label
 $lblTitle.Text = "Server Navigator"
 $lblTitle.Font = New-Object System.Drawing.Font("Segoe UI", 14, [System.Drawing.FontStyle]::Bold)
@@ -1047,7 +1066,7 @@ $lblTitle.Location = New-Object System.Drawing.Point(20, 12)
 $lblTitle.Size = New-Object System.Drawing.Size(250, 30)
 $form.Controls.Add($lblTitle)
 
-# ── Environment Switcher ──
+# â”€â”€ Environment Switcher â”€â”€
 $lblEnvMain = New-Object System.Windows.Forms.Label
 $lblEnvMain.Text = "Env:"
 $lblEnvMain.Location = New-Object System.Drawing.Point(300, 16)
@@ -1086,7 +1105,7 @@ $cmbEnv.Add_SelectedIndexChanged({
 })
 $form.Controls.Add($cmbEnv)
 
-# ── Search Box ──
+# â”€â”€ Search Box â”€â”€
 $lblSearch = New-Object System.Windows.Forms.Label
 $lblSearch.Text = "Search:"
 $lblSearch.Location = New-Object System.Drawing.Point(20, 52)
@@ -1101,7 +1120,7 @@ $txtSearch.Add_TextChanged({
 })
 $form.Controls.Add($txtSearch)
 
-# ── Server List ──
+# â”€â”€ Server List â”€â”€
 $script:lstServers = New-Object System.Windows.Forms.ListBox
 $script:lstServers.Location = New-Object System.Drawing.Point(20, 85)
 $script:lstServers.Size = New-Object System.Drawing.Size(460, 240)
@@ -1149,15 +1168,15 @@ $script:lstServers.Add_SelectedIndexChanged({
     }
 })
 $script:lstServers.Add_DoubleClick({
-    # Double-click opens the integrated log viewer
+    # Double-click opens the server share
     $server = Get-SelectedServer
     if ($server) {
-        Show-LogViewer -Server $server -Credential $script:Credentials[$script:ActiveEnv]
+        Open-ServerPath -UncPath $server.SharePath -Credential $script:Credentials[$script:ActiveEnv] -ActionLabel "Share"
     }
 })
 $form.Controls.Add($script:lstServers)
 
-# ── Action Buttons ──
+# â”€â”€ Action Buttons â”€â”€
 $buttonY = 340
 $buttonW = 145
 $buttonH = 34
@@ -1257,7 +1276,7 @@ $btnAdd.Add_Click({
     $result = Show-ServerDialog -Title "Add Server"
     if ($result) {
         $servers = [System.Collections.ArrayList]@(Load-Servers)
-        $existing = $servers | Where-Object { $_.Name -eq $result.Name }
+        $existing = $servers | Where-Object { $_.Name -eq $result.Name -and $_.Environment -eq $result.Environment }
         if ($existing) {
             [System.Windows.Forms.MessageBox]::Show(
                 "A server named '$($result.Name)' already exists.",
@@ -1267,7 +1286,6 @@ $btnAdd.Add_Click({
         $newServer = [PSCustomObject]@{
             Name        = $result.Name
             SharePath   = $result.SharePath
-            LogPath     = $result.LogPath
             Environment = $result.Environment
             Bookmarks   = @()
         }
@@ -1291,19 +1309,17 @@ $btnEdit.Add_Click({
         $result = Show-ServerDialog -Title "Edit Server" `
             -ServerName $server.Name `
             -SharePath $server.SharePath `
-            -LogPath $server.LogPath `
             -Environment $server.Environment
         if ($result) {
             $servers = [System.Collections.ArrayList]@(Load-Servers)
             $idx = -1
             for ($i = 0; $i -lt $servers.Count; $i++) {
-                if ($servers[$i].Name -eq $server.Name) { $idx = $i; break }
+                if ($servers[$i].Name -eq $server.Name -and $servers[$i].Environment -eq $server.Environment) { $idx = $i; break }
             }
             if ($idx -ge 0) {
                 $servers[$idx] = [PSCustomObject]@{
                     Name        = $result.Name
                     SharePath   = $result.SharePath
-                    LogPath     = $result.LogPath
                     Environment = $result.Environment
                     Bookmarks   = $server.Bookmarks
                 }
@@ -1331,7 +1347,7 @@ $btnDelete.Add_Click({
             "Confirm Delete", "YesNo", "Question")
         if ($confirm -eq "Yes") {
             $servers = [System.Collections.ArrayList]@(Load-Servers)
-            $toRemove = $servers | Where-Object { $_.Name -eq $server.Name }
+            $toRemove = $servers | Where-Object { $_.Name -eq $server.Name -and $_.Environment -eq $server.Environment }
             if ($toRemove) {
                 $servers.Remove($toRemove) | Out-Null
                 Save-Servers $servers.ToArray()
@@ -1343,7 +1359,7 @@ $btnDelete.Add_Click({
 })
 $form.Controls.Add($btnDelete)
 
-# ── Bookmarks Panel ──
+# â”€â”€ Bookmarks Panel â”€â”€
 $pnlBookmarks = New-Object System.Windows.Forms.GroupBox
 $pnlBookmarks.Text = "Directory Bookmarks"
 $pnlBookmarks.Location = New-Object System.Drawing.Point(500, 45)
@@ -1361,7 +1377,7 @@ $script:lstBookmarks.Add_DoubleClick({
     if ($bkm -and $server) {
         $fakeServer = [PSCustomObject]@{
             Name = "$($server.Name) - $($bkm.Name)"
-            LogPath = $bkm.Path
+            Path = $bkm.Path
         }
         Show-LogViewer -Server $fakeServer -Credential $script:Credentials[$script:ActiveEnv]
     }
@@ -1382,7 +1398,7 @@ $btnOpenBkmViewer.Add_Click({
     if ($bkm -and $server) {
         $fakeServer = [PSCustomObject]@{
             Name = "$($server.Name) - $($bkm.Name)"
-            LogPath = $bkm.Path
+            Path = $bkm.Path
         }
         Show-LogViewer -Server $fakeServer -Credential $script:Credentials[$script:ActiveEnv]
     } else {
@@ -1496,7 +1512,7 @@ $btnDeleteBkm.Add_Click({
 })
 $pnlBookmarks.Controls.Add($btnDeleteBkm)
 
-# ── Status Bar ──
+# â”€â”€ Status Bar â”€â”€
 $statusPanel = New-Object System.Windows.Forms.Panel
 $statusPanel.Location = New-Object System.Drawing.Point(0, 440)
 $statusPanel.Size = New-Object System.Drawing.Size(800, 30)
@@ -1526,8 +1542,9 @@ $btnSwitchUser.Add_Click({
 })
 $statusPanel.Controls.Add($btnSwitchUser)
 
-# ── Load and Show ──
+# â”€â”€ Load and Show â”€â”€
 Refresh-ServerList
 $form.Add_Shown({ $form.Activate() })
 [void]$form.ShowDialog()
 $form.Dispose()
+

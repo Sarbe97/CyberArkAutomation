@@ -1,4 +1,4 @@
-﻿function Show-LogViewer {
+function Show-LogViewer {
     param(
         [PSCustomObject]$Server,
         [PSCredential]$Credential
@@ -645,13 +645,12 @@ function Show-ServerDialog {
     param(
         [string]$Title = "Add Server",
         [string]$ServerName = "",
-        [string]$SharePath = "",
-        [string]$Environment = ""
+        [string]$Hostname = ""
     )
 
     $dlg = New-Object System.Windows.Forms.Form
-    $dlg.Text = $Title
-    $dlg.Size = New-Object System.Drawing.Size(480, 320)
+    $dlg.Text = "$Title ($($script:ActiveEnv))"
+    $dlg.Size = New-Object System.Drawing.Size(480, 210)
     $dlg.StartPosition = "CenterParent"
     $dlg.FormBorderStyle = "FixedDialog"
     $dlg.MaximizeBox = $false
@@ -672,45 +671,24 @@ function Show-ServerDialog {
     $txtName.Size = New-Object System.Drawing.Size(310, 23)
     $dlg.Controls.Add($txtName)
 
-    # Share Path
-    $lblShare = New-Object System.Windows.Forms.Label
-    $lblShare.Text = "Share Path:"
-    $lblShare.Location = New-Object System.Drawing.Point(20, 60)
-    $lblShare.Size = New-Object System.Drawing.Size(100, 23)
-    $dlg.Controls.Add($lblShare)
+    # Hostname
+    $lblHost = New-Object System.Windows.Forms.Label
+    $lblHost.Text = "Hostname:"
+    $lblHost.Location = New-Object System.Drawing.Point(20, 60)
+    $lblHost.Size = New-Object System.Drawing.Size(100, 23)
+    $dlg.Controls.Add($lblHost)
 
-    $txtShare = New-Object System.Windows.Forms.TextBox
-    $txtShare.Text = $SharePath
-    $txtShare.Location = New-Object System.Drawing.Point(130, 58)
-    $txtShare.Size = New-Object System.Drawing.Size(310, 23)
-    $dlg.Controls.Add($txtShare)
-
-    # Environment
-    $lblEnv = New-Object System.Windows.Forms.Label
-    $lblEnv.Text = "Environment:"
-    $lblEnv.Location = New-Object System.Drawing.Point(20, 100)
-    $lblEnv.Size = New-Object System.Drawing.Size(100, 23)
-    $dlg.Controls.Add($lblEnv)
-
-    $cmbDialogEnv = New-Object System.Windows.Forms.ComboBox
-    $cmbDialogEnv.DropDownStyle = "DropDownList"
-    $cmbDialogEnv.Items.Add("DEV") | Out-Null
-    $cmbDialogEnv.Items.Add("PROD") | Out-Null
-    $cmbDialogEnv.Location = New-Object System.Drawing.Point(130, 98)
-    $cmbDialogEnv.Size = New-Object System.Drawing.Size(310, 23)
-    if ([string]::IsNullOrWhiteSpace($Environment)) {
-        $cmbDialogEnv.SelectedItem = $script:ActiveEnv
-    }
-    else {
-        $cmbDialogEnv.SelectedItem = $Environment
-    }
-    $dlg.Controls.Add($cmbDialogEnv)
+    $txtHost = New-Object System.Windows.Forms.TextBox
+    $txtHost.Text = $Hostname
+    $txtHost.Location = New-Object System.Drawing.Point(130, 58)
+    $txtHost.Size = New-Object System.Drawing.Size(310, 23)
+    $dlg.Controls.Add($txtHost)
 
     # Hint
     $lblHint = New-Object System.Windows.Forms.Label
-    $lblHint.Text = "Use UNC paths, e.g. \\SERVER\D$"
+    $lblHint.Text = "Enter hostname only, e.g. CYBERARK-PRD01"
     $lblHint.ForeColor = [System.Drawing.Color]::Gray
-    $lblHint.Location = New-Object System.Drawing.Point(130, 135)
+    $lblHint.Location = New-Object System.Drawing.Point(130, 90)
     $lblHint.Size = New-Object System.Drawing.Size(310, 20)
     $dlg.Controls.Add($lblHint)
 
@@ -718,7 +696,7 @@ function Show-ServerDialog {
     $btnOK = New-Object System.Windows.Forms.Button
     $btnOK.Text = "Save"
     $btnOK.Size = New-Object System.Drawing.Size(90, 32)
-    $btnOK.Location = New-Object System.Drawing.Point(240, 190)
+    $btnOK.Location = New-Object System.Drawing.Point(240, 125)
     $btnOK.BackColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
     $btnOK.ForeColor = [System.Drawing.Color]::White
     $btnOK.FlatStyle = "Flat"
@@ -729,7 +707,7 @@ function Show-ServerDialog {
     $btnCancel = New-Object System.Windows.Forms.Button
     $btnCancel.Text = "Cancel"
     $btnCancel.Size = New-Object System.Drawing.Size(90, 32)
-    $btnCancel.Location = New-Object System.Drawing.Point(340, 190)
+    $btnCancel.Location = New-Object System.Drawing.Point(340, 125)
     $btnCancel.FlatStyle = "Flat"
     $btnCancel.DialogResult = "Cancel"
     $dlg.CancelButton = $btnCancel
@@ -742,19 +720,154 @@ function Show-ServerDialog {
                 $_.Cancel = $true
                 return
             }
+            if ([string]::IsNullOrWhiteSpace($txtHost.Text)) {
+                [System.Windows.Forms.MessageBox]::Show("Hostname is required.", "Validation", "OK", "Warning")
+                $_.Cancel = $true
+                return
+            }
         })
 
     $result = $dlg.ShowDialog()
     $dlg.Dispose()
 
     if ($result -eq "OK") {
+        $hostValue = $txtHost.Text.Trim().TrimStart('\')
         return @{
             Name        = $txtName.Text.Trim()
-            SharePath   = $txtShare.Text.Trim()
-            Environment = $cmbDialogEnv.SelectedItem
+            Hostname    = $hostValue
+            SharePath   = "\\$hostValue"
+            Environment = $script:ActiveEnv
         }
     }
     return $null
+}
+
+function Show-DriveSelector {
+    param(
+        [string]$Hostname,
+        [PSCredential]$Credential
+    )
+
+    $dlg = New-Object System.Windows.Forms.Form
+    $dlg.Text = "Select Drives - $Hostname"
+    $dlg.Size = New-Object System.Drawing.Size(400, 380)
+    $dlg.StartPosition = "CenterParent"
+    $dlg.FormBorderStyle = "FixedDialog"
+    $dlg.MaximizeBox = $false
+    $dlg.MinimizeBox = $false
+    $dlg.BackColor = [System.Drawing.Color]::FromArgb(250, 250, 252)
+    $dlg.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
+
+    $lblInfo = New-Object System.Windows.Forms.Label
+    $lblInfo.Text = "Detecting shared drives on $Hostname..."
+    $lblInfo.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+    $lblInfo.ForeColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
+    $lblInfo.Location = New-Object System.Drawing.Point(20, 15)
+    $lblInfo.Size = New-Object System.Drawing.Size(350, 25)
+    $dlg.Controls.Add($lblInfo)
+
+    $lblHint = New-Object System.Windows.Forms.Label
+    $lblHint.Text = "Select drives to create as bookmarks:"
+    $lblHint.ForeColor = [System.Drawing.Color]::FromArgb(80, 80, 80)
+    $lblHint.Location = New-Object System.Drawing.Point(20, 45)
+    $lblHint.Size = New-Object System.Drawing.Size(350, 20)
+    $dlg.Controls.Add($lblHint)
+
+    $checkedList = New-Object System.Windows.Forms.CheckedListBox
+    $checkedList.Location = New-Object System.Drawing.Point(20, 70)
+    $checkedList.Size = New-Object System.Drawing.Size(340, 180)
+    $checkedList.Font = New-Object System.Drawing.Font("Consolas", 10.5)
+    $checkedList.BorderStyle = "FixedSingle"
+    $checkedList.CheckOnClick = $true
+    $dlg.Controls.Add($checkedList)
+
+    # Probe drives C, D, E
+    $driveLetters = @("C", "D", "E")
+    $detectedDrives = @()
+
+    foreach ($letter in $driveLetters) {
+        $uncPath = "\\$Hostname\${letter}`$"
+        try {
+            if (Test-Path $uncPath -ErrorAction SilentlyContinue) {
+                $detectedDrives += $letter
+                $idx = $checkedList.Items.Add("${letter}`$ Drive  ($uncPath)")
+                $checkedList.SetItemChecked($idx, $true)
+            }
+        }
+        catch {
+            # Drive not accessible, skip
+        }
+    }
+
+    if ($detectedDrives.Count -eq 0) {
+        $lblInfo.Text = "No drives detected on $Hostname"
+        $lblInfo.ForeColor = [System.Drawing.Color]::FromArgb(198, 40, 40)
+        $lblHint.Text = "The server may be offline or you may not have permission."
+    }
+    else {
+        $lblInfo.Text = "Found $($detectedDrives.Count) drive(s) on $Hostname"
+        $lblInfo.ForeColor = [System.Drawing.Color]::FromArgb(46, 125, 50)
+    }
+
+    # Select All / Deselect All
+    $btnSelectAll = New-Object System.Windows.Forms.Button
+    $btnSelectAll.Text = "Select All"
+    $btnSelectAll.Location = New-Object System.Drawing.Point(20, 260)
+    $btnSelectAll.Size = New-Object System.Drawing.Size(100, 28)
+    $btnSelectAll.FlatStyle = "Flat"
+    $btnSelectAll.Add_Click({
+            for ($i = 0; $i -lt $checkedList.Items.Count; $i++) {
+                $checkedList.SetItemChecked($i, $true)
+            }
+        })
+    $dlg.Controls.Add($btnSelectAll)
+
+    $btnDeselectAll = New-Object System.Windows.Forms.Button
+    $btnDeselectAll.Text = "Deselect All"
+    $btnDeselectAll.Location = New-Object System.Drawing.Point(130, 260)
+    $btnDeselectAll.Size = New-Object System.Drawing.Size(100, 28)
+    $btnDeselectAll.FlatStyle = "Flat"
+    $btnDeselectAll.Add_Click({
+            for ($i = 0; $i -lt $checkedList.Items.Count; $i++) {
+                $checkedList.SetItemChecked($i, $false)
+            }
+        })
+    $dlg.Controls.Add($btnDeselectAll)
+
+    # OK / Skip buttons
+    $btnOK = New-Object System.Windows.Forms.Button
+    $btnOK.Text = "Create Bookmarks"
+    $btnOK.Size = New-Object System.Drawing.Size(140, 32)
+    $btnOK.Location = New-Object System.Drawing.Point(100, 300)
+    $btnOK.BackColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
+    $btnOK.ForeColor = [System.Drawing.Color]::White
+    $btnOK.FlatStyle = "Flat"
+    $btnOK.DialogResult = "OK"
+    $dlg.AcceptButton = $btnOK
+    $dlg.Controls.Add($btnOK)
+
+    $btnSkip = New-Object System.Windows.Forms.Button
+    $btnSkip.Text = "Skip"
+    $btnSkip.Size = New-Object System.Drawing.Size(90, 32)
+    $btnSkip.Location = New-Object System.Drawing.Point(250, 300)
+    $btnSkip.FlatStyle = "Flat"
+    $btnSkip.DialogResult = "Cancel"
+    $dlg.CancelButton = $btnSkip
+    $dlg.Controls.Add($btnSkip)
+
+    $dialogResult = $dlg.ShowDialog()
+
+    $selectedDrives = @()
+    if ($dialogResult -eq "OK") {
+        for ($i = 0; $i -lt $checkedList.Items.Count; $i++) {
+            if ($checkedList.GetItemChecked($i)) {
+                $selectedDrives += $detectedDrives[$i]
+            }
+        }
+    }
+
+    $dlg.Dispose()
+    return $selectedDrives
 }
 
 # MAIN FORM
@@ -950,8 +1063,8 @@ $btnRDP.Add_Click({
                     $cleanupTimer = New-Object System.Windows.Forms.Timer
                     $cleanupTimer.Interval = 10000
                     $cleanupTimer.Add_Tick({
-                            $cleanupTimer.Stop()
-                            $cleanupTimer.Dispose()
+                            $this.Stop()
+                            $this.Dispose()
                             Start-Process -FilePath "cmdkey.exe" -ArgumentList "/delete:TERMSRV/$hostName" -WindowStyle Hidden -Wait
                         })
                     $cleanupTimer.Start()
@@ -999,16 +1112,37 @@ $btnAdd.Add_Click({
                     "Duplicate", "OK", "Warning")
                 return
             }
+
+            # Connect to server and detect drives
+            $bookmarks = @()
+            Update-StatusBar "Connecting to $($result.Hostname) to detect drives..." "Info"
+            $connection = Connect-ServerPath -UncPath $result.SharePath -Credential $script:Credentials[$script:ActiveEnv]
+            
+            if ($connection.Success) {
+                $selectedDrives = Show-DriveSelector -Hostname $result.Hostname -Credential $script:Credentials[$script:ActiveEnv]
+                foreach ($drive in $selectedDrives) {
+                    $bookmarks += [PSCustomObject]@{
+                        Name = "${drive}`$ Drive"
+                        Path = "\\$($result.Hostname)\${drive}`$"
+                    }
+                }
+            }
+            else {
+                [System.Windows.Forms.MessageBox]::Show(
+                    "Could not connect to detect drives. You can add bookmarks manually later.`n`n$($connection.Message)",
+                    "Connection Info", "OK", "Information")
+            }
+
             $newServer = [PSCustomObject]@{
                 Name        = $result.Name
                 SharePath   = $result.SharePath
                 Environment = $result.Environment
-                Bookmarks   = @()
+                Bookmarks   = $bookmarks
             }
             $servers.Add($newServer) | Out-Null
             Save-Servers $servers.ToArray()
             Refresh-ServerList -Filter $txtSearch.Text
-            Update-StatusBar "Server '$($result.Name)' added" "OK"
+            Update-StatusBar "Server '$($result.Name)' added with $($bookmarks.Count) bookmark(s)" "OK"
         }
     })
 $form.Controls.Add($btnAdd)
@@ -1022,10 +1156,11 @@ $btnEdit.Cursor = "Hand"
 $btnEdit.Add_Click({
         $server = Get-SelectedServer
         if ($server) {
+            # Extract hostname from SharePath for the dialog
+            $currentHost = $server.SharePath.TrimStart('\')
             $result = Show-ServerDialog -Title "Edit Server" `
                 -ServerName $server.Name `
-                -SharePath $server.SharePath `
-                -Environment $server.Environment
+                -Hostname $currentHost
             if ($result) {
                 $servers = [System.Collections.ArrayList]@(Load-Servers)
                 $idx = -1

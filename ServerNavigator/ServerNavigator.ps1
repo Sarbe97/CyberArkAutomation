@@ -21,6 +21,8 @@ $script:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script:ConfigFile = Join-Path $script:ScriptDir "servers.json"
 $script:Credentials = @{ "DEV" = $null; "PROD" = $null }
 $script:ActiveEnv = "PROD"
+$script:Servers = @()
+$script:SavedUsers = @{}
 
 # CONFIGURATION FUNCTIONS
 
@@ -46,6 +48,14 @@ function Load-Servers {
             else {
                 # New format: { "DEV": [...], "PROD": [...] }
                 foreach ($env in $data.PSObject.Properties.Name) {
+                    if ($env -eq "Settings") {
+                        if ($null -ne $data.Settings) {
+                            foreach ($prop in $data.Settings.PSObject.Properties) {
+                                $script:SavedUsers[$prop.Name] = $prop.Value
+                            }
+                        }
+                        continue
+                    }
                     $envServers = $data.$env
                     if ($null -eq $envServers) { continue }
                     if ($envServers -isnot [System.Array]) { $envServers = @($envServers) }
@@ -75,7 +85,16 @@ function Load-Servers {
 function Save-Servers {
     param([array]$Servers)
     try {
-        $grouped = [PSCustomObject]@{}
+        $settingsObj = [PSCustomObject]@{}
+        if ($script:SavedUsers) {
+            foreach ($key in $script:SavedUsers.Keys) {
+                $settingsObj | Add-Member -MemberType NoteProperty -Name $key -Value $script:SavedUsers[$key]
+            }
+        }
+        $grouped = [PSCustomObject]@{
+            Settings = $settingsObj
+        }
+        
         $envs = @($Servers | Select-Object -ExpandProperty Environment -Unique)
         foreach ($e in @("DEV", "PROD")) { if ($envs -notcontains $e) { $envs += $e } }
         
@@ -140,7 +159,14 @@ function Get-SessionCredential {
 
     $txtUser = New-Object System.Windows.Forms.TextBox
     $expectedDomain = if ($Environment -eq "PROD") { "NA" } else { "nadev" }
-    $txtUser.Text = "$expectedDomain\$env:USERNAME"
+    
+    $savedUser = $script:SavedUsers["${Environment}_User"]
+    if (-not [string]::IsNullOrWhiteSpace($savedUser)) {
+        $txtUser.Text = $savedUser
+    } else {
+        $txtUser.Text = "$expectedDomain\$env:USERNAME"
+    }
+    
     $txtUser.Location = New-Object System.Drawing.Point(110, 53)
     $txtUser.Size = New-Object System.Drawing.Size(250, 23)
     $loginForm.Controls.Add($txtUser)
@@ -210,9 +236,22 @@ function Get-SessionCredential {
 
     $result = $loginForm.ShowDialog()
 
-    if ($result -eq "OK" -and -not [string]::IsNullOrWhiteSpace($txtPass.Text)) {
+        if ($result -eq "OK" -and -not [string]::IsNullOrWhiteSpace($txtPass.Text)) {
         $secPass = ConvertTo-SecureString $txtPass.Text -AsPlainText -Force
         $cred = New-Object System.Management.Automation.PSCredential($txtUser.Text, $secPass)
+        
+        # Save username for next time
+        if ($script:SavedUsers["${Environment}_User"] -ne $txtUser.Text) {
+            $script:SavedUsers["${Environment}_User"] = $txtUser.Text
+            if ($script:Servers) {
+                Save-Servers $script:Servers
+            } else {
+                # Load them if not loaded yet so we don't wipe them
+                $tmpServers = Load-Servers
+                Save-Servers $tmpServers
+            }
+        }
+        
         $loginForm.Dispose()
         return $cred
     }
@@ -306,5 +345,7 @@ function Open-ServerPath {
     }
 }
 
+# Pre-load to populate SavedUsers before credential prompt
+$script:Servers = Load-Servers
 
 . "$PSScriptRoot\ServerNavigator-UI.ps1"

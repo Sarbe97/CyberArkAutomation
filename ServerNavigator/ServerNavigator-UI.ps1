@@ -1223,6 +1223,9 @@ $script:lstBookmarks.Add_DoubleClick({
             Open-ServerPath -UncPath $bkm.Path -Credential $script:Credentials[$script:ActiveEnv] -ActionLabel "Bookmark"
         }
     })
+$script:lstBookmarks.Add_SelectedIndexChanged({
+        $btnAddBkm.Enabled = ($null -ne $script:lstBookmarks.SelectedItem)
+    })
 $pnlBookmarks.Controls.Add($script:lstBookmarks)
 
 $btnOpenBkmViewer = New-Object System.Windows.Forms.Button
@@ -1266,123 +1269,56 @@ $btnOpenBkmExplorer.Add_Click({
     })
 $pnlBookmarks.Controls.Add($btnOpenBkmExplorer)
 
-function Show-AddBookmarkDialog {
-    param([string]$DefaultPath)
-
-    $dlg = New-Object System.Windows.Forms.Form
-    $dlg.Text = "Add Bookmark"
-    $dlg.Size = New-Object System.Drawing.Size(400, 210)
-    $dlg.StartPosition = "CenterParent"
-    $dlg.FormBorderStyle = "FixedDialog"
-    $dlg.MaximizeBox = $false
-    $dlg.MinimizeBox = $false
-    $dlg.BackColor = [System.Drawing.Color]::FromArgb(250, 250, 252)
-    $dlg.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
-
-    $lblName = New-Object System.Windows.Forms.Label
-    $lblName.Text = "Bookmark Name:"
-    $lblName.Location = New-Object System.Drawing.Point(20, 20)
-    $lblName.Size = New-Object System.Drawing.Size(120, 23)
-    $dlg.Controls.Add($lblName)
-
-    $txtName = New-Object System.Windows.Forms.TextBox
-    $txtName.Location = New-Object System.Drawing.Point(140, 18)
-    $txtName.Size = New-Object System.Drawing.Size(220, 23)
-    $dlg.Controls.Add($txtName)
-
-    $lblPath = New-Object System.Windows.Forms.Label
-    $lblPath.Text = "Path (UNC):"
-    $lblPath.Location = New-Object System.Drawing.Point(20, 60)
-    $lblPath.Size = New-Object System.Drawing.Size(120, 23)
-    $dlg.Controls.Add($lblPath)
-
-    $txtPath = New-Object System.Windows.Forms.TextBox
-    $txtPath.Text = $DefaultPath
-    $txtPath.Location = New-Object System.Drawing.Point(140, 58)
-    $txtPath.Size = New-Object System.Drawing.Size(220, 23)
-    $dlg.Controls.Add($txtPath)
-
-    $btnOK = New-Object System.Windows.Forms.Button
-    $btnOK.Text = "Save"
-    $btnOK.Size = New-Object System.Drawing.Size(90, 32)
-    $btnOK.Location = New-Object System.Drawing.Point(170, 110)
-    $btnOK.BackColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
-    $btnOK.ForeColor = [System.Drawing.Color]::White
-    $btnOK.FlatStyle = "Flat"
-    $btnOK.DialogResult = "OK"
-    $dlg.AcceptButton = $btnOK
-    $dlg.Controls.Add($btnOK)
-
-    $btnCancel = New-Object System.Windows.Forms.Button
-    $btnCancel.Text = "Cancel"
-    $btnCancel.Size = New-Object System.Drawing.Size(90, 32)
-    $btnCancel.Location = New-Object System.Drawing.Point(270, 110)
-    $btnCancel.FlatStyle = "Flat"
-    $btnCancel.DialogResult = "Cancel"
-    $dlg.CancelButton = $btnCancel
-    $dlg.Controls.Add($btnCancel)
-
-    $btnOK.Add_Click({
-        if ([string]::IsNullOrWhiteSpace($txtName.Text)) {
-            [System.Windows.Forms.MessageBox]::Show("Name is required.", "Validation", "OK", "Warning")
-            $_.Cancel = $true
-        }
-        elseif ([string]::IsNullOrWhiteSpace($txtPath.Text)) {
-            [System.Windows.Forms.MessageBox]::Show("Path is required.", "Validation", "OK", "Warning")
-            $_.Cancel = $true
-        }
-    })
-
-    $dlg.Add_Shown({ $txtName.Focus() })
-
-    $result = $dlg.ShowDialog()
-    $dlg.Dispose()
-
-    if ($result -eq "OK") {
-        return @{
-            Name = $txtName.Text.Trim()
-            Path = $txtPath.Text.Trim()
-        }
-    }
-    return $null
-}
-
 $btnAddBkm = New-Object System.Windows.Forms.Button
-$btnAddBkm.Text = "Add Bookmark"
+$btnAddBkm.Text = "Browse & Bookmark"
 $btnAddBkm.Location = New-Object System.Drawing.Point(15, 280)
 $btnAddBkm.Size = New-Object System.Drawing.Size(240, 32)
 $btnAddBkm.FlatStyle = "Flat"
 $btnAddBkm.Cursor = "Hand"
+$btnAddBkm.Enabled = $false
 $btnAddBkm.Add_Click({
         $server = Get-SelectedServer
-        if ($null -eq $server) {
-            [System.Windows.Forms.MessageBox]::Show("Please select a server first.", "No Selection", "OK", "Warning")
+        $bkm = Get-SelectedBookmark
+        
+        if ($null -eq $server -or $null -eq $bkm) {
             return
         }
 
-        $bkm = Get-SelectedBookmark
-        $basePath = if ($bkm) { $bkm.Path } else { $server.SharePath }
+        Update-StatusBar "Connecting to $($bkm.Path)..." "Info"
+        $connection = Connect-ServerPath -UncPath $bkm.Path -Credential $script:Credentials[$script:ActiveEnv]
+        if (-not $connection.Success) {
+            [System.Windows.Forms.MessageBox]::Show("Connection failed: $($connection.Message)", "Connection Error", "OK", "Error")
+            return
+        }
 
-        $result = Show-AddBookmarkDialog -DefaultPath $basePath
-        if ($result) {
-            $existing = $server.Bookmarks | Where-Object { $_.Name -eq $result.Name }
-            if ($existing) {
-                [System.Windows.Forms.MessageBox]::Show("A bookmark named '$($result.Name)' already exists.", "Duplicate Bookmark", "OK", "Warning")
-                return
+        $browser = New-Object System.Windows.Forms.FolderBrowserDialog
+        $browser.Description = "Select a folder to bookmark inside $($bkm.Path)"
+        $browser.SelectedPath = $bkm.Path
+        $browser.ShowNewFolderButton = $true
+
+        if ($browser.ShowDialog() -eq "OK") {
+            $path = $browser.SelectedPath
+            $bookmarkName = Show-BookmarkNamePrompt -DefaultName (Split-Path -Leaf $path)
+            if (-not [string]::IsNullOrWhiteSpace($bookmarkName)) {
+                $existing = $server.Bookmarks | Where-Object { $_.Name -eq $bookmarkName }
+                if ($existing) {
+                    [System.Windows.Forms.MessageBox]::Show("A bookmark named '$bookmarkName' already exists.", "Duplicate Bookmark", "OK", "Warning")
+                    return
+                }
+
+                $newBkm = [PSCustomObject]@{
+                    Name = $bookmarkName
+                    Path = $path
+                }
+            
+                $bList = [System.Collections.ArrayList]@($server.Bookmarks)
+                $bList.Add($newBkm) | Out-Null
+                $server.Bookmarks = $bList.ToArray()
+
+                Save-Servers $script:Servers
+                Refresh-BookmarkList
+                Update-StatusBar "Bookmark '$bookmarkName' added" "OK"
             }
-
-            $newBkm = [PSCustomObject]@{
-                Name = $result.Name
-                Path = $result.Path
-            }
-        
-            $bList = [System.Collections.ArrayList]@($server.Bookmarks)
-            $bList.Add($newBkm) | Out-Null
-            $server.Bookmarks = $bList.ToArray()
-
-            Save-Servers $script:Servers
-            Refresh-BookmarkList
-            Update-StatusBar "Bookmark '$($result.Name)' added" "OK"
         }
     })
 $pnlBookmarks.Controls.Add($btnAddBkm)

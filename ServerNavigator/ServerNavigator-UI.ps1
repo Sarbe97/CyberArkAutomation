@@ -781,8 +781,8 @@ function Show-DriveSelector {
     $checkedList.CheckOnClick = $true
     $dlg.Controls.Add($checkedList)
 
-    # Probe drives C, D, E
-    $driveLetters = @("C", "D", "E")
+    # Probe drives C through G
+    $driveLetters = @("C", "D", "E", "F", "G")
     $detectedDrives = @()
 
     foreach ($letter in $driveLetters) {
@@ -1224,13 +1224,8 @@ $script:lstBookmarks.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
 $script:lstBookmarks.BorderStyle = "FixedSingle"
 $script:lstBookmarks.Add_DoubleClick({
         $bkm = Get-SelectedBookmark
-        $server = Get-SelectedServer
-        if ($bkm -and $server) {
-            $fakeServer = [PSCustomObject]@{
-                Name = "$($server.Name) - $($bkm.Name)"
-                Path = $bkm.Path
-            }
-            Show-LogViewer -Server $fakeServer -Credential $script:Credentials[$script:ActiveEnv]
+        if ($bkm) {
+            Open-ServerPath -UncPath $bkm.Path -Credential $script:Credentials[$script:ActiveEnv] -ActionLabel "Bookmark"
         }
     })
 $pnlBookmarks.Controls.Add($script:lstBookmarks)
@@ -1395,10 +1390,50 @@ $btnSwitchUser.Add_Click({
     })
 $statusPanel.Controls.Add($btnSwitchUser)
 
-# â”€â”€ Load and Show â”€â”€
+# ———— Keyboard Shortcuts ————
+$form.KeyPreview = $true
+$form.Add_KeyDown({
+    param($sender, $e)
+    # F5 — Refresh server list
+    if ($e.KeyCode -eq "F5") {
+        Refresh-ServerList -Filter $txtSearch.Text
+        $e.Handled = $true
+    }
+    # Delete — Delete selected server (with confirmation)
+    if ($e.KeyCode -eq "Delete" -and $script:lstServers.Focused) {
+        $server = Get-SelectedServer
+        if ($server) {
+            $confirm = [System.Windows.Forms.MessageBox]::Show(
+                "Delete server '$($server.Name)'?",
+                "Confirm Delete", "YesNo", "Question")
+            if ($confirm -eq "Yes") {
+                $servers = [System.Collections.ArrayList]@(Load-Servers)
+                $toRemove = $servers | Where-Object { $_.Name -eq $server.Name -and $_.Environment -eq $server.Environment }
+                if ($toRemove) {
+                    $servers.Remove($toRemove) | Out-Null
+                    Save-Servers $servers.ToArray()
+                    Refresh-ServerList -Filter $txtSearch.Text
+                    Update-StatusBar "Server '$($server.Name)' deleted" "OK"
+                }
+            }
+        }
+        $e.Handled = $true
+    }
+    # Enter — Open share for selected server (when server list is focused)
+    if ($e.KeyCode -eq "Return" -and $script:lstServers.Focused) {
+        $server = Get-SelectedServer
+        if ($server) {
+            Open-ServerPath -UncPath $server.SharePath -Credential $script:Credentials[$script:ActiveEnv] -ActionLabel "Share"
+        }
+        $e.Handled = $true
+        $e.SuppressKeyPress = $true
+    }
+})
+
+# ———— Load and Show ————
+$userStr = if ($script:Credentials[$script:ActiveEnv]) { $script:Credentials[$script:ActiveEnv].UserName } else { "None" }
 Refresh-ServerList
+Update-StatusBar "$([char]0x2713) Authenticated as $userStr | $($script:lstServers.Items.Count) server(s) loaded" "OK"
 $form.Add_Shown({ $form.Activate() })
 [void]$form.ShowDialog()
 $form.Dispose()
-
-

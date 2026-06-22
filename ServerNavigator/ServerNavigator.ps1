@@ -15,6 +15,7 @@
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.DirectoryServices.AccountManagement
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $script:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -134,7 +135,7 @@ function Get-SessionCredential {
     )
     $loginForm = New-Object System.Windows.Forms.Form
     $loginForm.Text = "Server Navigator - Login ($Environment)"
-    $loginForm.Size = New-Object System.Drawing.Size(400, 260)
+    $loginForm.Size = New-Object System.Drawing.Size(400, 290)
     $loginForm.StartPosition = "CenterScreen"
     $loginForm.FormBorderStyle = "FixedDialog"
     $loginForm.MaximizeBox = $false
@@ -183,10 +184,18 @@ function Get-SessionCredential {
     $txtPass.UseSystemPasswordChar = $true
     $loginForm.Controls.Add($txtPass)
 
+    # Validation status label (below password field)
+    $lblStatus = New-Object System.Windows.Forms.Label
+    $lblStatus.Text = ""
+    $lblStatus.Location = New-Object System.Drawing.Point(110, 122)
+    $lblStatus.Size = New-Object System.Drawing.Size(250, 20)
+    $lblStatus.Font = New-Object System.Drawing.Font("Segoe UI", 8.5)
+    $loginForm.Controls.Add($lblStatus)
+
     $btnLogin = New-Object System.Windows.Forms.Button
     $btnLogin.Text = "Login"
     $btnLogin.Size = New-Object System.Drawing.Size(100, 34)
-    $btnLogin.Location = New-Object System.Drawing.Point(150, 150)
+    $btnLogin.Location = New-Object System.Drawing.Point(150, 175)
     $btnLogin.BackColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
     $btnLogin.ForeColor = [System.Drawing.Color]::White
     $btnLogin.FlatStyle = "Flat"
@@ -219,13 +228,62 @@ function Get-SessionCredential {
             }
         }
 
-        $loginForm.DialogResult = "OK"
+        # --- Credential Validation against Active Directory ---
+        $btnLogin.Enabled = $false
+        $btnLogin.Text = "Validating..."
+        $lblStatus.Text = "Verifying credentials..."
+        $lblStatus.ForeColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
+        $loginForm.Refresh()
+
+        $parts = $user -split '\\', 2
+        $authDomain = $parts[0]
+        $authUser = $parts[1]
+
+        try {
+            $context = New-Object System.DirectoryServices.AccountManagement.PrincipalContext(
+                [System.DirectoryServices.AccountManagement.ContextType]::Domain, $authDomain)
+            $valid = $context.ValidateCredentials($authUser, $txtPass.Text)
+            $context.Dispose()
+
+            if ($valid) {
+                $lblStatus.Text = [char]0x2713 + " Credentials verified"
+                $lblStatus.ForeColor = [System.Drawing.Color]::FromArgb(46, 125, 50)
+                $loginForm.Refresh()
+                $loginForm.DialogResult = "OK"
+            }
+            else {
+                $lblStatus.Text = "Invalid username or password"
+                $lblStatus.ForeColor = [System.Drawing.Color]::FromArgb(198, 40, 40)
+                $btnLogin.Text = "Login"
+                $btnLogin.Enabled = $true
+                $txtPass.Focus()
+                return
+            }
+        }
+        catch {
+            # AD unreachable — offer fallback
+            $lblStatus.Text = "Could not reach domain controller"
+            $lblStatus.ForeColor = [System.Drawing.Color]::FromArgb(230, 126, 34)
+            $btnLogin.Text = "Login"
+            $btnLogin.Enabled = $true
+
+            $fallback = [System.Windows.Forms.MessageBox]::Show(
+                "Could not validate credentials against the domain ($authDomain).`n`n$($_.Exception.Message)`n`nDo you want to continue without verification?",
+                "Domain Unreachable", "YesNo", "Warning")
+            if ($fallback -eq "Yes") {
+                $lblStatus.Text = "Proceeding without verification"
+                $lblStatus.ForeColor = [System.Drawing.Color]::FromArgb(230, 126, 34)
+                $loginForm.Refresh()
+                $loginForm.DialogResult = "OK"
+            }
+            return
+        }
     })
 
     $btnExit = New-Object System.Windows.Forms.Button
     $btnExit.Text = "Exit"
     $btnExit.Size = New-Object System.Drawing.Size(100, 34)
-    $btnExit.Location = New-Object System.Drawing.Point(260, 150)
+    $btnExit.Location = New-Object System.Drawing.Point(260, 175)
     $btnExit.FlatStyle = "Flat"
     $btnExit.DialogResult = "Cancel"
     $loginForm.CancelButton = $btnExit

@@ -153,7 +153,7 @@ try {
     Write-Log -Message "========== PHASE 1: AD DATA COLLECTION ==========" -ScriptName $ScriptName -LogPath $LogPath
     $phaseStart = Get-Date
 
-    $serviceAccounts = Get-SVCADAccounts `
+    $serviceAccounts = @(Get-SVCADAccounts `
         -Domains                $cfgDomains `
         -PersonalAccountPattern $cfgPersonalAccount.Pattern `
         -EmployeeFilter         $cfgEmployeeFilter `
@@ -162,7 +162,7 @@ try {
         -ScriptName             $ScriptName `
         -LogPath                $LogPath `
         -GlobalCCPUrl           $config.CCP.Url `
-        -ManualLogin            $ManualLogin
+        -ManualLogin            $ManualLogin)
 
     Write-Log -Message "AD service accounts collected: $($serviceAccounts.Count)" -ScriptName $ScriptName -LogPath $LogPath
 

@@ -22,7 +22,7 @@
       },
 
       "EmployeeFilter": {
-        "_Comment": "Accounts with nlEMPTYPE matching any EmployeeTypes AND having a non-empty EmployeeID are treated as employee accounts and excluded.",
+        "_Comment": "Accounts with nIEMPTYPE matching any EmployeeTypes AND having a non-empty EmployeeID are treated as employee accounts and excluded.",
         "Enabled": true,
         "EmployeeTypes": ["E", "C"],
         "RequireEmployeeID": true

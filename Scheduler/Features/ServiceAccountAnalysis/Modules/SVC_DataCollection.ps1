@@ -116,10 +116,14 @@ function Get-SVCADAccounts {
                 "LastLogonDate",
                 "wwwHomePage",
                 "Manager",
-                "info",
-                "nlEMPTYPE",
-                "EmployeeID"
+                "info"
             )
+
+            # Add employee filter attributes only when the filter is active
+            if ($null -ne $EmployeeFilter -and $EmployeeFilter.Enabled) {
+                $adProps += "nIEMPTYPE"
+                $adProps += "EmployeeID"
+            }
 
             $adParams = @{
                 Filter      = "*"
@@ -134,7 +138,7 @@ function Get-SVCADAccounts {
             Write-Log -Message "[$domainIndex/$totalDomains] Sending AD query to server '$($domain.Server)'..." -ScriptName $ScriptName -LogPath $LogPath
             Write-Progress -Id 21 -ParentId 20 -Activity "AD Query" -Status "Querying '$($domain.Server)'... (this may take a moment)" -PercentComplete -1
 
-            $adUsers = @(Get-ADUser @adParams | Select-Object SamAccountName, DistinguishedName, Enabled, Mail, Description, PasswordExpired, PasswordLastSet, PasswordNeverExpires, LastLogonDate, wwwHomePage, Manager, info, nlEMPTYPE, EmployeeID)
+            $adUsers = @(Get-ADUser @adParams | Select-Object ($adProps))
             $rawCount = if ($adUsers) { $adUsers.Count } else { 0 }
 
             Write-Log -Message "[$domainIndex/$totalDomains] AD query completed. Received $rawCount raw user records from server '$($domain.Server)'. Applying filters..." -ScriptName $ScriptName -LogPath $LogPath
@@ -169,7 +173,7 @@ function Get-SVCADAccounts {
 
                 # Employee-type exclusion — skip accounts that are real employees
                 if ($null -ne $EmployeeFilter -and $EmployeeFilter.Enabled) {
-                    $empType = if ($user.nlEMPTYPE) { [string]$user.nlEMPTYPE } else { "" }
+                    $empType = if ($user.nIEMPTYPE) { [string]$user.nIEMPTYPE } else { "" }
                     $hasEmpId = -not [string]::IsNullOrWhiteSpace([string]$user.EmployeeID)
 
                     if ($empType -in $EmployeeFilter.EmployeeTypes -and
@@ -207,7 +211,7 @@ function Get-SVCADAccounts {
                     wwwHomePage          = if ($user.wwwHomePage)  { $user.wwwHomePage }  else { "" }
                     Manager              = $managerCN
                     Info                 = if ($user.info)         { $user.info }         else { "" }
-                    EmployeeType         = if ($user.nlEMPTYPE)   { $user.nlEMPTYPE }   else { "" }
+                    EmployeeType         = if ($user.nIEMPTYPE)   { $user.nIEMPTYPE }   else { "" }
                     EmployeeID           = if ($user.EmployeeID)  { $user.EmployeeID }   else { "" }
                 }
                 $domainResult.Add($row)

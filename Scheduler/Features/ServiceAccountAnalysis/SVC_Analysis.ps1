@@ -270,6 +270,17 @@ try {
             "<i>None configured</i>"
         }
 
+        # Build employee filter display string
+        $employeeFilterHtml = if ($cfgEmployeeFilter -and $cfgEmployeeFilter.Enabled) {
+            $parts = "nIEMPTYPE in (<strong>" + ($cfgEmployeeFilter.EmployeeTypes -join ", ") + "</strong>)"
+            if ($cfgEmployeeFilter.RequireEmployeeID) {
+                $parts += " AND EmployeeID is not empty"
+            }
+            $parts
+        } else {
+            "<i>Disabled</i>"
+        }
+
         $summaryTokens = @{
             EffectiveMode           = $effectiveMode
             ModeTitle               = "Execution Run Complete"
@@ -284,6 +295,8 @@ try {
             DisabledInCyberArk      = $disabledInCyberArk.Count
             DisabledNotInCyberArk   = $disabledNotCyberArk.Count
             ExcludedOUsHtml         = $excludedOUsHtml
+            PersonalAccountPattern  = if ($cfgPersonalAccount.Pattern) { $cfgPersonalAccount.Pattern } else { "<i>None</i>" }
+            EmployeeFilterHtml      = $employeeFilterHtml
             CyberArkAuthStatus      = if ($cyberArkAuthAvailable) { "Connected" } else { "Unavailable" }
             CyberArkAuthStatusColor = if ($cyberArkAuthAvailable) { "4caf7d" } else { "e05252" }
         }

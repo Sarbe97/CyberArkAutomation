@@ -37,6 +37,7 @@ function Get-SVCADAccounts {
     param (
         [Parameter(Mandatory=$true)] [array]  $Domains,
         [Parameter(Mandatory=$true)] [string] $PersonalAccountPattern,
+        [Parameter(Mandatory=$false)] [object] $EmployeeFilter = $null,
         [Parameter(Mandatory=$true)] [string] $CacheDir,
         [Parameter(Mandatory=$true)] [string] $TodayStr,
         [Parameter(Mandatory=$true)] [string] $ScriptName,
@@ -115,7 +116,9 @@ function Get-SVCADAccounts {
                 "LastLogonDate",
                 "wwwHomePage",
                 "Manager",
-                "info"
+                "info",
+                "nlEMPTYPE",
+                "EmployeeID"
             )
 
             $adParams = @{
@@ -131,13 +134,14 @@ function Get-SVCADAccounts {
             Write-Log -Message "[$domainIndex/$totalDomains] Sending AD query to server '$($domain.Server)'..." -ScriptName $ScriptName -LogPath $LogPath
             Write-Progress -Id 21 -ParentId 20 -Activity "AD Query" -Status "Querying '$($domain.Server)'... (this may take a moment)" -PercentComplete -1
 
-            $adUsers = @(Get-ADUser @adParams | Select-Object SamAccountName, DistinguishedName, Enabled, Mail, Description, PasswordExpired, PasswordLastSet, PasswordNeverExpires, LastLogonDate, wwwHomePage, Manager, info)
+            $adUsers = @(Get-ADUser @adParams | Select-Object SamAccountName, DistinguishedName, Enabled, Mail, Description, PasswordExpired, PasswordLastSet, PasswordNeverExpires, LastLogonDate, wwwHomePage, Manager, info, nlEMPTYPE, EmployeeID)
             $rawCount = if ($adUsers) { $adUsers.Count } else { 0 }
 
             Write-Log -Message "[$domainIndex/$totalDomains] AD query completed. Received $rawCount raw user records from server '$($domain.Server)'. Applying filters..." -ScriptName $ScriptName -LogPath $LogPath
             Write-Progress -Id 21 -Activity "AD Query" -Status "Processing $rawCount records from '$($domain.Server)'..." -PercentComplete -1
 
             $ouSkipCount = 0
+            $employeeSkipCount = 0
 
             foreach ($user in $adUsers) {
                 if (-not $user.SamAccountName) { continue }
@@ -161,6 +165,18 @@ function Get-SVCADAccounts {
                         }
                     }
                     if ($inExcludedOU) { $ouSkipCount++; continue }
+                }
+
+                # Employee-type exclusion — skip accounts that are real employees
+                if ($null -ne $EmployeeFilter -and $EmployeeFilter.Enabled) {
+                    $empType = if ($user.nlEMPTYPE) { [string]$user.nlEMPTYPE } else { "" }
+                    $hasEmpId = -not [string]::IsNullOrWhiteSpace([string]$user.EmployeeID)
+
+                    if ($empType -in $EmployeeFilter.EmployeeTypes -and
+                        (-not $EmployeeFilter.RequireEmployeeID -or $hasEmpId)) {
+                        $employeeSkipCount++
+                        continue
+                    }
                 }
 
                 # Extract immediate parent OU from DN
@@ -191,6 +207,8 @@ function Get-SVCADAccounts {
                     wwwHomePage          = if ($user.wwwHomePage)  { $user.wwwHomePage }  else { "" }
                     Manager              = $managerCN
                     Info                 = if ($user.info)         { $user.info }         else { "" }
+                    EmployeeType         = if ($user.nlEMPTYPE)   { $user.nlEMPTYPE }   else { "" }
+                    EmployeeID           = if ($user.EmployeeID)  { $user.EmployeeID }   else { "" }
                 }
                 $domainResult.Add($row)
                 $allAccounts.Add($row)
@@ -198,6 +216,9 @@ function Get-SVCADAccounts {
 
             if ($ouSkipCount -gt 0) {
                 Write-Log -Message "[$domainIndex/$totalDomains] Skipped $ouSkipCount user(s) in excluded OUs for '$($domain.Name)'." -ScriptName $ScriptName -LogPath $LogPath
+            }
+            if ($employeeSkipCount -gt 0) {
+                Write-Log -Message "[$domainIndex/$totalDomains] Skipped $employeeSkipCount user(s) matching employee filter for '$($domain.Name)'." -ScriptName $ScriptName -LogPath $LogPath
             }
 
             Write-Progress -Id 21 -Activity "AD Query" -Completed
@@ -456,6 +477,8 @@ function Resolve-SVCCyberArkOnboarding {
             wwwHomePage          = $ad.wwwHomePage
             Manager              = $ad.Manager
             Info                 = $ad.Info
+            EmployeeType         = $ad.EmployeeType
+            EmployeeID           = $ad.EmployeeID
             InCyberArk           = $matched
             CyberArkSafe         = $matchedSafe
             CyberArkPlatform     = $matchedPlat

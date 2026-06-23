@@ -78,6 +78,7 @@ Write-Log -Message "Effective execution mode: $effectiveMode" -ScriptName $Scrip
 $cfgPersonalAccount = $featureConfig.PersonalAccount
 $cfgDomains         = $featureConfig.Domains
 $cfgNotif           = $featureConfig.Notifications
+$cfgEmployeeFilter  = $featureConfig.EmployeeFilter
 $templatesPath      = Join-Path $FeatureRoot "Templates"
 
 # Personal safe regex - read from this feature's own config.
@@ -94,6 +95,7 @@ if ($cfgPersonalSafeRegex) {
 }
 
 Write-Log -Message "Personal Account pattern (to exclude from AD): $($cfgPersonalAccount.Pattern)" -ScriptName $ScriptName -LogPath $LogPath
+Write-Log -Message "Employee filter enabled: $(if ($cfgEmployeeFilter -and $cfgEmployeeFilter.Enabled) { 'Yes - Types: ' + ($cfgEmployeeFilter.EmployeeTypes -join ', ') + ', RequireEmployeeID: ' + $cfgEmployeeFilter.RequireEmployeeID } else { 'No' })" -ScriptName $ScriptName -LogPath $LogPath
 Write-Log -Message "Domains configured: $($cfgDomains.Count)" -ScriptName $ScriptName -LogPath $LogPath
 
 # ============================================================
@@ -154,6 +156,7 @@ try {
     $serviceAccounts = Get-SVCADAccounts `
         -Domains                $cfgDomains `
         -PersonalAccountPattern $cfgPersonalAccount.Pattern `
+        -EmployeeFilter         $cfgEmployeeFilter `
         -CacheDir               $ExportDir `
         -TodayStr               $TodayStr `
         -ScriptName             $ScriptName `
@@ -215,6 +218,8 @@ try {
                 wwwHomePage          = $sa.wwwHomePage
                 Manager              = $sa.Manager
                 Info                 = $sa.Info
+                EmployeeType         = $sa.EmployeeType
+                EmployeeID           = $sa.EmployeeID
                 InCyberArk           = "Unknown"
                 CyberArkSafe         = ""
                 CyberArkPlatform     = ""

@@ -13,12 +13,19 @@
 
       "PersonalAccount": {
         "_Comment": "Regex matching personal/human accounts to exclude from the AD service account list.",
-        "Pattern": "^[A-Za-z]\\d{6}$"
+        "Pattern": "^[AIMSWaimsw]\\d{6}$"
       },
 
       "PersonalSafe": {
         "_Comment": "Regex matching personal safe names in CyberArk. Accounts stored in these safes are excluded from the CyberArk service-account count and cross-reference.",
         "NamingPatternRegex": "^S-A-PR-WI-U\\d{6}$"
+      },
+
+      "EmployeeFilter": {
+        "_Comment": "Accounts with nlEMPTYPE matching any EmployeeTypes AND having a non-empty EmployeeID are treated as employee accounts and excluded.",
+        "Enabled": true,
+        "EmployeeTypes": ["E", "C"],
+        "RequireEmployeeID": true
       },
 
       "_Comment_Domains": "List of domains to scan for Service Accounts. ExcludeOUs: list of OU distinguished names to skip during AD query (e.g. 'OU=ServiceAccounts_Disabled,DC=na,DC=company,DC=com').",
@@ -34,7 +41,7 @@
             "Safe": "PAM-AD-NA",
             "Object": "AD-NA-ScanAccount"
           },
-          "ExcludeOUs": []
+          "ExcludeOUs": ["OU=MailInDatabase,DC=na,DC=company,DC=com"]
         },
         {
           "Name": "NADEV",
@@ -47,7 +54,7 @@
             "Safe": "PAM-AD-NADEV",
             "Object": "AD-NADEV-ScanAccount"
           },
-          "ExcludeOUs": []
+          "ExcludeOUs": ["OU=MailInDatabase,DC=nadev,DC=company,DC=com"]
         }
       ],
 

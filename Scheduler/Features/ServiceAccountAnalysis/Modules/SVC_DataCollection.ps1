@@ -22,16 +22,21 @@ function Export-CsvNoBom {
 
 # ---------------------------------------------------------------------------
 # Get-SVCADAccounts
-# Queries ALL configured domains for all AD user accounts, filters OUT those
-# matching the PersonalAccount regex, and returns the rest (Service Accounts).
+# Queries ALL configured domains for all AD user accounts in two phases:
 #
-# Per-domain OU exclusions are handled via the domain's ExcludeOUs array.
-# Each entry is a full Distinguished Name (e.g. "OU=Tier0,DC=na,DC=company,DC=com").
-# All users are fetched with Filter="*" and then users whose DistinguishedName
-# falls under an excluded OU are silently dropped.
+# PHASE A — Raw Data Collection (cached):
+#   Fetches all users from AD with extended attributes and saves the
+#   unfiltered result to RawCache_ADAccounts_<Domain>_<date>.csv.
+#   If the raw cache already exists, it is loaded instead of re-querying AD.
 #
-# Includes extended attributes: PasswordExpired, PasswordLastSet,
-# PasswordNeverExpires, LastLogonDate, wwwHomePage.
+# PHASE B — Filtering (always re-applied):
+#   1. Personal Account Pattern — removes accounts matching regex (e.g. A/I/M/S/W + 6 digits)
+#   2. SmartIDs / Employee Filter — removes employees (nIEMPTYPE + EmployeeID check),
+#      exports them to SmartIDs_<Domain>_<date>.csv for audit
+#   3. ExcludeOUs — removes users whose DN falls under excluded OUs
+#
+# The filtered service accounts are saved to Filtered_ADServiceAccounts_<Domain>_<date>.csv
+# and returned to the caller for CyberArk cross-referencing.
 # ---------------------------------------------------------------------------
 function Get-SVCADAccounts {
     param (
@@ -52,188 +57,241 @@ function Get-SVCADAccounts {
 
     foreach ($domain in $Domains) {
         $domainIndex++
-        $CachePath = Join-Path $CacheDir "RawCache_ADAccounts_$($domain.Name)_$TodayStr.csv"
+        $RawCachePath      = Join-Path $CacheDir "RawCache_ADAccounts_$($domain.Name)_$TodayStr.csv"
+        $SmartIdPath       = Join-Path $CacheDir "SmartIDs_$($domain.Name)_$TodayStr.csv"
+        $FilteredCachePath = Join-Path $CacheDir "Filtered_ADServiceAccounts_$($domain.Name)_$TodayStr.csv"
 
-        if (Test-Path $CachePath) {
-            Write-Log -Message "[$domainIndex/$totalDomains] Loading AD accounts for '$($domain.Name)' from cache: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
-            $cached = @(Import-Csv $CachePath)
-            foreach ($row in $cached) { $allAccounts.Add($row) }
-            continue
+        Write-Progress -Id 20 -Activity "Service Accounts" -Status "[$domainIndex/$totalDomains] Processing domain: $($domain.Name)" -PercentComplete ([int](($domainIndex / $totalDomains) * 100))
+
+        # ==============================================================
+        # PHASE A: RAW DATA COLLECTION (query AD or load from cache)
+        # The raw cache contains ALL accounts — no filters applied.
+        # ==============================================================
+        $rawRows = [System.Collections.Generic.List[object]]::new()
+
+        if (Test-Path $RawCachePath) {
+            Write-Log -Message "[$domainIndex/$totalDomains] Loading raw AD accounts for '$($domain.Name)' from cache: $RawCachePath" -ScriptName $ScriptName -LogPath $LogPath
+            $cached = @(Import-Csv $RawCachePath)
+            foreach ($row in $cached) { $rawRows.Add($row) }
+            Write-Log -Message "[$domainIndex/$totalDomains] Loaded $($rawRows.Count) raw accounts from cache." -ScriptName $ScriptName -LogPath $LogPath
+        }
+        else {
+            Write-Log -Message "[$domainIndex/$totalDomains] Querying domain '$($domain.Name)' ($($domain.FQDN)) for all user accounts..." -ScriptName $ScriptName -LogPath $LogPath
+
+            # Resolve credentials
+            $credentialObj = $null
+            $hasDirectCredentials = (-not [string]::IsNullOrWhiteSpace($domain.Username)) -and
+                                    (-not [string]::IsNullOrWhiteSpace($domain.Password))
+
+            if ($hasDirectCredentials) {
+                $secPass       = ConvertTo-SecureString $domain.Password -AsPlainText -Force
+                $credentialObj = New-Object System.Management.Automation.PSCredential($domain.Username, $secPass)
+                Write-Log -Message "[$domainIndex/$totalDomains] Using direct credentials for domain '$($domain.Name)' (Username: $($domain.Username))" -ScriptName $ScriptName -LogPath $LogPath
+            } elseif ($domain.CCP) {
+                Write-Log -Message "[$domainIndex/$totalDomains] Retrieving credentials from CCP for domain '$($domain.Name)'..." -ScriptName $ScriptName -LogPath $LogPath
+                try {
+                    $domainCCP = [PSCustomObject]@{
+                        Url    = $GlobalCCPUrl
+                        AppId  = $domain.CCP.AppId
+                        Safe   = $domain.CCP.Safe
+                        Object = $domain.CCP.Object
+                    }
+                    $creds = Get-SchedulerCredential -CCPConfig $domainCCP -ManualLogin:$ManualLogin -ScriptName $ScriptName -LogPath $LogPath
+                    Write-Log -Message "[$domainIndex/$totalDomains] Successfully retrieved credentials from CCP for domain '$($domain.Name)' (Username: $($creds.Username))." -ScriptName $ScriptName -LogPath $LogPath
+                    $secPass       = ConvertTo-SecureString $creds.Password -AsPlainText -Force
+                    $credentialObj = New-Object System.Management.Automation.PSCredential($creds.Username, $secPass)
+                }
+                catch {
+                    Write-Log -Message "[$domainIndex/$totalDomains] Failed to fetch CCP credentials for domain '$($domain.Name)': $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+                    continue
+                }
+            } else {
+                Write-Log -Message "[$domainIndex/$totalDomains] No credentials configured for domain '$($domain.Name)'. Querying AD using current execution context." -ScriptName $ScriptName -LogPath $LogPath
+            }
+
+            try {
+                $adProps = @(
+                    "SamAccountName",
+                    "DistinguishedName",
+                    "Enabled",
+                    "Mail",
+                    "Description",
+                    "PasswordExpired",
+                    "PasswordLastSet",
+                    "PasswordNeverExpires",
+                    "LastLogonDate",
+                    "wwwHomePage",
+                    "Manager",
+                    "info",
+                    "nIEMPTYPE",
+                    "EmployeeID"
+                )
+
+                $adParams = @{
+                    Filter      = "*"
+                    Server      = $domain.Server
+                    Properties  = $adProps
+                    ErrorAction = "Stop"
+                }
+                if ($null -ne $credentialObj) {
+                    $adParams["Credential"] = $credentialObj
+                }
+
+                Write-Log -Message "[$domainIndex/$totalDomains] Sending AD query to server '$($domain.Server)'..." -ScriptName $ScriptName -LogPath $LogPath
+                Write-Progress -Id 21 -ParentId 20 -Activity "AD Query" -Status "Querying '$($domain.Server)'... (this may take a moment)" -PercentComplete -1
+
+                $adUsers = @(Get-ADUser @adParams | Select-Object ($adProps))
+                $rawCount = if ($adUsers) { $adUsers.Count } else { 0 }
+
+                Write-Log -Message "[$domainIndex/$totalDomains] AD query completed. Received $rawCount raw user records from server '$($domain.Server)'." -ScriptName $ScriptName -LogPath $LogPath
+                Write-Progress -Id 21 -Activity "AD Query" -Status "Building $rawCount records from '$($domain.Server)'..." -PercentComplete -1
+
+                foreach ($user in $adUsers) {
+                    if (-not $user.SamAccountName) { continue }
+
+                    # Extract immediate parent OU from DN
+                    $ouMatch = [regex]::Match($user.DistinguishedName, '(?i)OU=([^,]+)')
+                    $ouName  = if ($ouMatch.Success) { $ouMatch.Groups[1].Value } else { "" }
+
+                    # Extract manager display name (CN) from manager DN
+                    $managerCN = ""
+                    if ($user.Manager) {
+                        $mgMatch = [regex]::Match($user.Manager, '^CN=([^,]+)')
+                        $managerCN = if ($mgMatch.Success) { $mgMatch.Groups[1].Value } else { $user.Manager }
+                    }
+
+                    $row = [PSCustomObject]@{
+                        Username             = $user.SamAccountName
+                        Domain               = $domain.Name
+                        DomainFQDN           = $domain.FQDN
+                        DistinguishedName    = $user.DistinguishedName
+                        OU                   = $ouName
+                        Enabled              = $user.Enabled
+                        PasswordExpired      = if ($null -ne $user.PasswordExpired)      { $user.PasswordExpired }      else { "" }
+                        PasswordLastSet      = if ($null -ne $user.PasswordLastSet)      { $user.PasswordLastSet.ToString("yyyy-MM-dd HH:mm:ss") } else { "" }
+                        PasswordNeverExpires = if ($null -ne $user.PasswordNeverExpires) { $user.PasswordNeverExpires } else { "" }
+                        LastLogonDate        = if ($null -ne $user.LastLogonDate)        { $user.LastLogonDate.ToString("yyyy-MM-dd HH:mm:ss") }   else { "" }
+                        Mail                 = if ($user.Mail)        { $user.Mail }        else { "" }
+                        Description          = if ($user.Description) { $user.Description } else { "" }
+                        wwwHomePage          = if ($user.wwwHomePage)  { $user.wwwHomePage }  else { "" }
+                        Manager              = $managerCN
+                        Info                 = if ($user.info)         { $user.info }         else { "" }
+                        EmployeeType         = if ($user.nIEMPTYPE)   { $user.nIEMPTYPE }   else { "" }
+                        EmployeeID           = if ($user.EmployeeID)  { $user.EmployeeID }   else { "" }
+                    }
+                    $rawRows.Add($row)
+                }
+
+                Write-Progress -Id 21 -Activity "AD Query" -Completed
+
+                # Save raw cache (ALL accounts, unfiltered)
+                if ($rawRows.Count -gt 0) {
+                    $rawRows | Export-CsvNoBom -Path $RawCachePath
+                    Write-Log -Message "[$domainIndex/$totalDomains] Raw AD accounts cached ($($rawRows.Count) records): $RawCachePath" -ScriptName $ScriptName -LogPath $LogPath
+                } else {
+                    Write-Log -Message "[$domainIndex/$totalDomains] No AD accounts returned from '$($domain.Name)'." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+                }
+            }
+            catch {
+                Write-Progress -Id 21 -Activity "AD Query" -Completed
+                Write-Log -Message "Error querying domain '$($domain.Name)': $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+                continue
+            }
         }
 
-        Write-Progress -Id 20 -Activity "Service Accounts" -Status "[$domainIndex/$totalDomains] Querying domain: $($domain.Name)" -PercentComplete ([int](($domainIndex / $totalDomains) * 100))
-        Write-Log -Message "[$domainIndex/$totalDomains] Querying domain '$($domain.Name)' ($($domain.FQDN)) for all user accounts..." -ScriptName $ScriptName -LogPath $LogPath
+        # ==============================================================
+        # PHASE B: APPLY FILTERS (always runs, even on cached data)
+        # Order: 1) Personal Account  2) SmartIDs/Employee  3) ExcludeOUs
+        # ==============================================================
+        Write-Log -Message "[$domainIndex/$totalDomains] Applying filters to $($rawRows.Count) raw accounts for '$($domain.Name)'..." -ScriptName $ScriptName -LogPath $LogPath
 
-        # Resolve excluded OUs for this domain (array of lowercase DN strings)
+        # --- Filter 1: Personal Account Pattern ---
+        $personalSkipCount = 0
+        $afterPersonal = [System.Collections.Generic.List[object]]::new()
+
+        foreach ($row in $rawRows) {
+            if ($PersonalAccountPattern -and ($row.Username -match $PersonalAccountPattern)) {
+                $personalSkipCount++
+            } else {
+                $afterPersonal.Add($row)
+            }
+        }
+
+        if ($personalSkipCount -gt 0) {
+            Write-Log -Message "[$domainIndex/$totalDomains] Filter 1 (Personal Accounts): removed $personalSkipCount account(s). Remaining: $($afterPersonal.Count)" -ScriptName $ScriptName -LogPath $LogPath
+        }
+
+        # --- Filter 2: SmartIDs / Employee Filter ---
+        $employeeSkipCount = 0
+        $smartIds    = [System.Collections.Generic.List[object]]::new()
+        $afterSmartId = [System.Collections.Generic.List[object]]::new()
+
+        if ($null -ne $EmployeeFilter -and $EmployeeFilter.Enabled) {
+            foreach ($row in $afterPersonal) {
+                $empType  = if ($row.EmployeeType) { [string]$row.EmployeeType } else { "" }
+                $hasEmpId = -not [string]::IsNullOrWhiteSpace([string]$row.EmployeeID)
+
+                if ($empType -in $EmployeeFilter.EmployeeTypes -and
+                    (-not $EmployeeFilter.RequireEmployeeID -or $hasEmpId)) {
+                    $employeeSkipCount++
+                    $smartIds.Add($row)
+                } else {
+                    $afterSmartId.Add($row)
+                }
+            }
+        } else {
+            foreach ($row in $afterPersonal) { $afterSmartId.Add($row) }
+        }
+
+        if ($employeeSkipCount -gt 0) {
+            Write-Log -Message "[$domainIndex/$totalDomains] Filter 2 (SmartIDs/Employee): removed $employeeSkipCount account(s). Remaining: $($afterSmartId.Count)" -ScriptName $ScriptName -LogPath $LogPath
+        }
+
+        # Export SmartIDs to a separate file for audit
+        if ($smartIds.Count -gt 0) {
+            $smartIds | Export-CsvNoBom -Path $SmartIdPath
+            Write-Log -Message "[$domainIndex/$totalDomains] SmartIDs exported ($($smartIds.Count) accounts): $SmartIdPath" -ScriptName $ScriptName -LogPath $LogPath
+        }
+
+        # --- Filter 3: OU Exclusion ---
+        $ouSkipCount = 0
+        $afterOU = [System.Collections.Generic.List[object]]::new()
+
         $excludedOUs = @()
         if ($domain.ExcludeOUs -and $domain.ExcludeOUs.Count -gt 0) {
             $excludedOUs = @($domain.ExcludeOUs | Where-Object { $_ } | ForEach-Object { $_.ToLower() })
-            Write-Log -Message "[$domainIndex/$totalDomains] Will exclude $($excludedOUs.Count) OU(s) from '$($domain.Name)'." -ScriptName $ScriptName -LogPath $LogPath
         }
 
-        $credentialObj = $null
-        $hasDirectCredentials = (-not [string]::IsNullOrWhiteSpace($domain.Username)) -and
-                                (-not [string]::IsNullOrWhiteSpace($domain.Password))
-
-        if ($hasDirectCredentials) {
-            $secPass       = ConvertTo-SecureString $domain.Password -AsPlainText -Force
-            $credentialObj = New-Object System.Management.Automation.PSCredential($domain.Username, $secPass)
-            Write-Log -Message "[$domainIndex/$totalDomains] Using direct credentials for domain '$($domain.Name)' (Username: $($domain.Username))" -ScriptName $ScriptName -LogPath $LogPath
-        } elseif ($domain.CCP) {
-            Write-Log -Message "[$domainIndex/$totalDomains] Retrieving credentials from CCP for domain '$($domain.Name)'..." -ScriptName $ScriptName -LogPath $LogPath
-            try {
-                $domainCCP = [PSCustomObject]@{
-                    Url    = $GlobalCCPUrl
-                    AppId  = $domain.CCP.AppId
-                    Safe   = $domain.CCP.Safe
-                    Object = $domain.CCP.Object
+        if ($excludedOUs.Count -gt 0) {
+            foreach ($row in $afterSmartId) {
+                $userDN = $row.DistinguishedName.ToLower() -replace ',\s*', ','
+                $inExcludedOU = $false
+                foreach ($ouDN in $excludedOUs) {
+                    $cleanOuDN = $ouDN -replace ',\s*', ','
+                    if ($userDN.EndsWith(",$cleanOuDN") -or $userDN -eq $cleanOuDN) {
+                        $inExcludedOU = $true
+                        break
+                    }
                 }
-                $creds = Get-SchedulerCredential -CCPConfig $domainCCP -ManualLogin:$ManualLogin -ScriptName $ScriptName -LogPath $LogPath
-                Write-Log -Message "[$domainIndex/$totalDomains] Successfully retrieved credentials from CCP for domain '$($domain.Name)' (Username: $($creds.Username))." -ScriptName $ScriptName -LogPath $LogPath
-                $secPass       = ConvertTo-SecureString $creds.Password -AsPlainText -Force
-                $credentialObj = New-Object System.Management.Automation.PSCredential($creds.Username, $secPass)
-            }
-            catch {
-                Write-Log -Message "[$domainIndex/$totalDomains] Failed to fetch CCP credentials for domain '$($domain.Name)': $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
-                continue
+                if ($inExcludedOU) { $ouSkipCount++ } else { $afterOU.Add($row) }
             }
         } else {
-            Write-Log -Message "[$domainIndex/$totalDomains] No credentials configured for domain '$($domain.Name)'. Querying AD using current execution context." -ScriptName $ScriptName -LogPath $LogPath
+            foreach ($row in $afterSmartId) { $afterOU.Add($row) }
         }
 
-        $domainResult = [System.Collections.Generic.List[object]]::new()
-
-        try {
-            $adProps = @(
-                "SamAccountName",
-                "DistinguishedName",
-                "Enabled",
-                "Mail",
-                "Description",
-                "PasswordExpired",
-                "PasswordLastSet",
-                "PasswordNeverExpires",
-                "LastLogonDate",
-                "wwwHomePage",
-                "Manager",
-                "info"
-            )
-
-            # Add employee filter attributes only when the filter is active
-            if ($null -ne $EmployeeFilter -and $EmployeeFilter.Enabled) {
-                $adProps += "nIEMPTYPE"
-                $adProps += "EmployeeID"
-            }
-
-            $adParams = @{
-                Filter      = "*"
-                Server      = $domain.Server
-                Properties  = $adProps
-                ErrorAction = "Stop"
-            }
-            if ($null -ne $credentialObj) {
-                $adParams["Credential"] = $credentialObj
-            }
-
-            Write-Log -Message "[$domainIndex/$totalDomains] Sending AD query to server '$($domain.Server)'..." -ScriptName $ScriptName -LogPath $LogPath
-            Write-Progress -Id 21 -ParentId 20 -Activity "AD Query" -Status "Querying '$($domain.Server)'... (this may take a moment)" -PercentComplete -1
-
-            $adUsers = @(Get-ADUser @adParams | Select-Object ($adProps))
-            $rawCount = if ($adUsers) { $adUsers.Count } else { 0 }
-
-            Write-Log -Message "[$domainIndex/$totalDomains] AD query completed. Received $rawCount raw user records from server '$($domain.Server)'. Applying filters..." -ScriptName $ScriptName -LogPath $LogPath
-            Write-Progress -Id 21 -Activity "AD Query" -Status "Processing $rawCount records from '$($domain.Server)'..." -PercentComplete -1
-
-            $ouSkipCount = 0
-            $employeeSkipCount = 0
-
-            foreach ($user in $adUsers) {
-                if (-not $user.SamAccountName) { continue }
-
-                # Check if it matches the Personal Account regex — skip personal accounts
-                if ($PersonalAccountPattern -and ($user.SamAccountName -match $PersonalAccountPattern)) {
-                    continue
-                }
-
-                # OU exclusion check — skip users whose DN falls under any excluded OU
-                if ($excludedOUs.Count -gt 0) {
-                    # Strip spaces after commas to handle AD formatting inconsistencies
-                    $userDN = $user.DistinguishedName.ToLower() -replace ',\s*', ','
-                    $inExcludedOU = $false
-                    foreach ($ouDN in $excludedOUs) {
-                        $cleanOuDN = $ouDN -replace ',\s*', ','
-                        # Check if the user's DN ends with the excluded OU DN
-                        if ($userDN.EndsWith(",$cleanOuDN") -or $userDN -eq $cleanOuDN) {
-                            $inExcludedOU = $true
-                            break
-                        }
-                    }
-                    if ($inExcludedOU) { $ouSkipCount++; continue }
-                }
-
-                # Employee-type exclusion — skip accounts that are real employees
-                if ($null -ne $EmployeeFilter -and $EmployeeFilter.Enabled) {
-                    $empType = if ($user.nIEMPTYPE) { [string]$user.nIEMPTYPE } else { "" }
-                    $hasEmpId = -not [string]::IsNullOrWhiteSpace([string]$user.EmployeeID)
-
-                    if ($empType -in $EmployeeFilter.EmployeeTypes -and
-                        (-not $EmployeeFilter.RequireEmployeeID -or $hasEmpId)) {
-                        $employeeSkipCount++
-                        continue
-                    }
-                }
-
-                # Extract immediate parent OU from DN
-                # DN example: CN=svc_app,OU=AppAccounts,OU=Services,DC=na,DC=company,DC=com
-                $ouMatch = [regex]::Match($user.DistinguishedName, '(?i)OU=([^,]+)')
-                $ouName  = if ($ouMatch.Success) { $ouMatch.Groups[1].Value } else { "" }
-
-                # Extract manager display name (CN) from manager DN
-                $managerCN = ""
-                if ($user.Manager) {
-                    $mgMatch = [regex]::Match($user.Manager, '^CN=([^,]+)')
-                    $managerCN = if ($mgMatch.Success) { $mgMatch.Groups[1].Value } else { $user.Manager }
-                }
-
-                $row = [PSCustomObject]@{
-                    Username             = $user.SamAccountName
-                    Domain               = $domain.Name
-                    DomainFQDN           = $domain.FQDN
-                    DistinguishedName    = $user.DistinguishedName
-                    OU                   = $ouName
-                    Enabled              = $user.Enabled
-                    PasswordExpired      = if ($null -ne $user.PasswordExpired)      { $user.PasswordExpired }      else { "" }
-                    PasswordLastSet      = if ($null -ne $user.PasswordLastSet)      { $user.PasswordLastSet.ToString("yyyy-MM-dd HH:mm:ss") } else { "" }
-                    PasswordNeverExpires = if ($null -ne $user.PasswordNeverExpires) { $user.PasswordNeverExpires } else { "" }
-                    LastLogonDate        = if ($null -ne $user.LastLogonDate)        { $user.LastLogonDate.ToString("yyyy-MM-dd HH:mm:ss") }   else { "" }
-                    Mail                 = if ($user.Mail)        { $user.Mail }        else { "" }
-                    Description          = if ($user.Description) { $user.Description } else { "" }
-                    wwwHomePage          = if ($user.wwwHomePage)  { $user.wwwHomePage }  else { "" }
-                    Manager              = $managerCN
-                    Info                 = if ($user.info)         { $user.info }         else { "" }
-                    EmployeeType         = if ($user.nIEMPTYPE)   { $user.nIEMPTYPE }   else { "" }
-                    EmployeeID           = if ($user.EmployeeID)  { $user.EmployeeID }   else { "" }
-                }
-                $domainResult.Add($row)
-                $allAccounts.Add($row)
-            }
-
-            if ($ouSkipCount -gt 0) {
-                Write-Log -Message "[$domainIndex/$totalDomains] Skipped $ouSkipCount user(s) in excluded OUs for '$($domain.Name)'." -ScriptName $ScriptName -LogPath $LogPath
-            }
-            if ($employeeSkipCount -gt 0) {
-                Write-Log -Message "[$domainIndex/$totalDomains] Skipped $employeeSkipCount user(s) matching employee filter for '$($domain.Name)'." -ScriptName $ScriptName -LogPath $LogPath
-            }
-
-            Write-Progress -Id 21 -Activity "AD Query" -Completed
-            Write-Log -Message "Found $($domainResult.Count) service accounts in '$($domain.Name)'" -ScriptName $ScriptName -LogPath $LogPath
-            $domainResult | Export-CsvNoBom -Path $CachePath
-            Write-Log -Message "AD accounts for '$($domain.Name)' cached: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
+        if ($ouSkipCount -gt 0) {
+            Write-Log -Message "[$domainIndex/$totalDomains] Filter 3 (Excluded OUs): removed $ouSkipCount account(s). Remaining: $($afterOU.Count)" -ScriptName $ScriptName -LogPath $LogPath
         }
-        catch {
-            Write-Progress -Id 21 -Activity "AD Query" -Completed
-            Write-Log -Message "Error querying domain '$($domain.Name)': $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+
+        # Save filtered service accounts
+        if ($afterOU.Count -gt 0) {
+            $afterOU | Export-CsvNoBom -Path $FilteredCachePath
+            Write-Log -Message "[$domainIndex/$totalDomains] Filtered service accounts ($($afterOU.Count)) cached: $FilteredCachePath" -ScriptName $ScriptName -LogPath $LogPath
         }
+
+        Write-Log -Message "[$domainIndex/$totalDomains] '$($domain.Name)' summary: Raw=$($rawRows.Count), Personal=-$personalSkipCount, SmartIDs=-$employeeSkipCount, OUs=-$ouSkipCount, Final=$($afterOU.Count)" -ScriptName $ScriptName -LogPath $LogPath
+
+        foreach ($row in $afterOU) { $allAccounts.Add($row) }
     }
 
     Write-Progress -Id 20 -Activity "Service Accounts" -Completed

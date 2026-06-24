@@ -649,6 +649,23 @@ function Invoke-CACBatchSafeRename {
         }
 
         # --- 3. GROUPS: RENAME or CREATE (Self-Healing) ---
+        $skipGroupCreation = $false
+        if ($null -ne $row.PSObject.Properties['SkipGroupCreation']) {
+            $val = $row.SkipGroupCreation.Trim()
+            if ($val -ieq 'true' -or $val -ieq 'yes' -or $val -eq '1') {
+                $skipGroupCreation = $true
+            }
+        }
+
+        if ($skipGroupCreation) {
+            Write-Host " -> Skipping Group Management (SkipGroupCreation=True)" -ForegroundColor Gray
+            Log "SkipGroupCreation is true. Skipping R/RW group rename and creation." "INFO"
+            $result.GroupStatus = "Skipped"
+            $result.OverallStatus = "SUCCESS"
+            [void]$results.Add([pscustomobject]$result)
+            continue
+        }
+
         $groupLog = @()
         $groupPatterns = @(
             @{ Old = "KA_${oldSafeName}_R"; New = "KA_${newSafeName}_R"; Perms = $permsR },
@@ -1145,6 +1162,7 @@ function New-CACSafeRenameTemplate {
         ManagingCPM               = "PasswordManager"
         NumberOfDaysRetention     = "7"
         NumberOfVersionsRetention = ""
+        SkipGroupCreation         = "FALSE"
     }
 
     @([pscustomobject]$template) | Export-Csv -Path $Path -NoTypeInformation -Encoding UTF8

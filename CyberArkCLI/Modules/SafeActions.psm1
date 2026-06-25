@@ -125,7 +125,7 @@ function Invoke-CACBatchSafeCreation {
         Write-Host " -> Checking Safe..." -NoNewline
         Log "Checking if safe exists: $safeName" "DEBUG"
         try {
-            $safe = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))" -ErrorAction SilentlyContinue
+            $safe = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))" -ErrorAction SilentlyContinue -LogLevelOnError "DEBUG"
             if ($safe) {
                 $safeReady = $true
                 $result.SafeStatus = "Exists"
@@ -344,7 +344,7 @@ function Invoke-CACBatchSafeCreation {
             }
             Log "POST /API/Safes/$safeName/Members - Body: $($safeMemberBody | ConvertTo-Json -Compress -Depth 3)" "DEBUG"
             
-            Invoke-CACAPIRequest -Method POST -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members" -Body $safeMemberBody | Out-Null
+            Invoke-CACAPIRequest -Method POST -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members" -Body $safeMemberBody -LogLevelOnError "DEBUG" | Out-Null
             Write-Host " [ADDED]" -ForegroundColor Green
             $result.OverallStatus = "SUCCESS"
             Log "Member added to safe successfully" "SUCCESS"
@@ -503,7 +503,7 @@ function Invoke-CACBatchSafeRename {
         # --- 0. CHECK IF OLD SAFE EXISTS ---
         Write-Host " -> Checking Source Safe..." -NoNewline
         try {
-            $oldSafe = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($oldSafeName))" -ErrorAction SilentlyContinue
+            $oldSafe = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($oldSafeName))" -ErrorAction SilentlyContinue -LogLevelOnError "DEBUG"
             if (-not $oldSafe) {
                 $result.RenameStatus = "SourceNotFound"
                 $result.Message = "Source safe not found"
@@ -533,7 +533,7 @@ function Invoke-CACBatchSafeRename {
             # Check Target
             Write-Host " -> Checking Target Safe..." -NoNewline
             try {
-                $existingSafe = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($newSafeName))" -ErrorAction SilentlyContinue
+                $existingSafe = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($newSafeName))" -ErrorAction SilentlyContinue -LogLevelOnError "DEBUG"
                 if ($existingSafe) {
                     $result.RenameStatus = "TargetExists"
                     $result.Message = "Target safe already exists"
@@ -630,7 +630,7 @@ function Invoke-CACBatchSafeRename {
                             $safeMemberBody["searchIn"] = $memberSource
                         }
                         Log "Adding default member $memberName (Source: $memberSource)" "DEBUG"
-                        Invoke-CACAPIRequest -Method POST -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($newSafeName))/Members" -Body $safeMemberBody -ErrorAction Stop | Out-Null
+                        Invoke-CACAPIRequest -Method POST -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($newSafeName))/Members" -Body $safeMemberBody -LogLevelOnError "DEBUG" -ErrorAction Stop | Out-Null
                         $syncLog += "$memberName(Added)"
                     }
                     catch {
@@ -835,7 +835,7 @@ function Invoke-CACBatchSafeMember {
 
         # 1. Check Safe
         try {
-            $safe = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))" -ErrorAction SilentlyContinue
+            $safe = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))" -ErrorAction SilentlyContinue -LogLevelOnError "DEBUG"
             if (-not $safe) {
                 $result.SafeStatus = "NotFound"
                 $result.Message = "Safe does not exist"
@@ -923,7 +923,7 @@ function Invoke-CACBatchSafeMember {
                 $safeMemberBody["searchIn"] = $memberSource
             }
             Log "POST Body: $($safeMemberBody | ConvertTo-Json -Compress -Depth 3)" "DEBUG"
-            Invoke-CACAPIRequest -Method POST -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members" -Body $safeMemberBody -ErrorAction Stop | Out-Null
+            Invoke-CACAPIRequest -Method POST -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members" -Body $safeMemberBody -LogLevelOnError "DEBUG" -ErrorAction Stop | Out-Null
             $result.ActionStatus = "Added"
             Write-Host " [ADDED]" -ForegroundColor Green
         }

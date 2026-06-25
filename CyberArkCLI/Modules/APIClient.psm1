@@ -190,7 +190,10 @@ function Invoke-CACAPIRequest {
         [object]$Body,
 
         [Parameter(Mandatory = $false)]
-        [string]$ContentType = "application/json"
+        [string]$ContentType = "application/json",
+
+        [Parameter(Mandatory = $false)]
+        [string]$LogLevelOnError = "ERROR"
     )
 
     Write-Log "API Request: $Method $Endpoint" "DEBUG"
@@ -270,13 +273,13 @@ function Invoke-CACAPIRequest {
 
         # Log the most descriptive message available
         if ($apiErrorCode -or $apiErrorMessage) {
-            Write-Log "API Error: [$apiErrorCode] $apiErrorMessage" "ERROR"
+            Write-Log "API Error: [$apiErrorCode] $apiErrorMessage" $LogLevelOnError
         }
         elseif ($responseBody) {
-            Write-Log "API Error: $responseBody" "ERROR"
+            Write-Log "API Error: $responseBody" $LogLevelOnError
         }
         else {
-            Write-Log "API Error: $errorMessage" "ERROR"
+            Write-Log "API Error: $errorMessage" $LogLevelOnError
         }
 
         # Throw with full detail appended to original exception message

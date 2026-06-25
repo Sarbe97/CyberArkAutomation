@@ -234,7 +234,7 @@ function Invoke-CACBatchSafeCreation {
                         }
                         
                         Log "POST /API/UserGroups/$groupId/Members - Body: $($addMemberBody | ConvertTo-Json -Compress)" "DEBUG"
-                        Invoke-CACAPIRequest -Method POST -Endpoint "/API/UserGroups/$groupId/Members" -Body $addMemberBody | Out-Null
+                        Invoke-CACAPIRequest -Method POST -Endpoint "/API/UserGroups/$groupId/Members" -Body $addMemberBody -LogLevelOnError "INFO" | Out-Null
                         $addedMembers += $member
                         Write-Host " [ADDED]" -ForegroundColor Green
                         Log "User added to group: $member" "SUCCESS"
@@ -344,7 +344,7 @@ function Invoke-CACBatchSafeCreation {
             }
             Log "POST /API/Safes/$safeName/Members - Body: $($safeMemberBody | ConvertTo-Json -Compress -Depth 3)" "DEBUG"
             
-            Invoke-CACAPIRequest -Method POST -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members" -Body $safeMemberBody -LogLevelOnError "DEBUG" | Out-Null
+            Invoke-CACAPIRequest -Method POST -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members" -Body $safeMemberBody -LogLevelOnError "INFO" | Out-Null
             Write-Host " [ADDED]" -ForegroundColor Green
             $result.OverallStatus = "SUCCESS"
             Log "Member added to safe successfully" "SUCCESS"
@@ -630,7 +630,7 @@ function Invoke-CACBatchSafeRename {
                             $safeMemberBody["searchIn"] = $memberSource
                         }
                         Log "Adding default member $memberName (Source: $memberSource)" "DEBUG"
-                        Invoke-CACAPIRequest -Method POST -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($newSafeName))/Members" -Body $safeMemberBody -LogLevelOnError "DEBUG" -ErrorAction Stop | Out-Null
+                        Invoke-CACAPIRequest -Method POST -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($newSafeName))/Members" -Body $safeMemberBody -LogLevelOnError "INFO" -ErrorAction Stop | Out-Null
                         $syncLog += "$memberName(Added)"
                     }
                     catch {
@@ -923,7 +923,7 @@ function Invoke-CACBatchSafeMember {
                 $safeMemberBody["searchIn"] = $memberSource
             }
             Log "POST Body: $($safeMemberBody | ConvertTo-Json -Compress -Depth 3)" "DEBUG"
-            Invoke-CACAPIRequest -Method POST -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members" -Body $safeMemberBody -LogLevelOnError "DEBUG" -ErrorAction Stop | Out-Null
+            Invoke-CACAPIRequest -Method POST -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members" -Body $safeMemberBody -LogLevelOnError "INFO" -ErrorAction Stop | Out-Null
             $result.ActionStatus = "Added"
             Write-Host " [ADDED]" -ForegroundColor Green
         }

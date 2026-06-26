@@ -104,13 +104,12 @@
         ]
       },
 
-      "_Comment_Domains": "IsPrimary=true identifies the primary domain (U-prefix accounts). All domains are queried for secondary accounts. PlatformId is per-domain for onboarding. Username/Password are optional: if Password is provided and non-blank, it overrides CCP; if Password is blank, it falls back to CCP.",
+      "_Comment_Domains": "IsPrimary=true identifies the primary domain (U-prefix accounts). All domains are queried for secondary accounts. PersonalPlatformId is per-domain for onboarding. Username/Password are optional: if Password is provided and non-blank, it overrides CCP; if Password is blank, it falls back to CCP.",
       "Domains": [
         {
           "Name": "NA",
           "FQDN": "na.company.com",
           "Server": "na-dc.company.com",
-          "PlatformId": "WinDomain-NA",
           "PersonalPlatformId": "Personal-WinDomain-NA",
           "IsPrimary": true,
           "Username": "",
@@ -125,7 +124,6 @@
           "Name": "NADEV",
           "FQDN": "nadev.company.com",
           "Server": "nadev-dc.company.com",
-          "PlatformId": "WinDomain-NADEV",
           "PersonalPlatformId": "Personal-WinDomain-NADEV",
           "IsPrimary": false,
           "Username": "nadev_scan",
@@ -140,7 +138,6 @@
           "Name": "CAP",
           "FQDN": "cap.company.com",
           "Server": "cap-dc.company.com",
-          "PlatformId": "WinDomain-CAP",
           "PersonalPlatformId": "Personal-WinDomain-CAP",
           "IsPrimary": false,
           "Username": "cap_scan",
@@ -155,7 +152,6 @@
           "Name": "NI",
           "FQDN": "ni.company.com",
           "Server": "ni-dc.company.com",
-          "PlatformId": "WinDomain-NI",
           "PersonalPlatformId": "Personal-WinDomain-NI",
           "IsPrimary": false,
           "Username": "",

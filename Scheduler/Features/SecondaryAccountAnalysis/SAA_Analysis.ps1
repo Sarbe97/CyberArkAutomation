@@ -271,7 +271,7 @@ try {
 
         $domainPlatformMap = @{}
         foreach ($d in $cfgDomains) {
-            $domainPlatformMap[$d.Name] = if (-not [string]::IsNullOrWhiteSpace($d.PersonalPlatformId)) { $d.PersonalPlatformId } else { $d.PlatformId }
+            $domainPlatformMap[$d.Name] = $d.PersonalPlatformId
         }
 
         $analysisReport        = [System.Collections.Generic.List[object]]::new()

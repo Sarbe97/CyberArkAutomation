@@ -469,7 +469,7 @@ function Get-CACAccountActivity {
 function Invoke-CACAccountReconcile {
     <#
     .SYNOPSIS
-        Trigger CPM reconcile for an account.
+        Trigger CPM reconcile for accounts (single, multiple comma-separated, or CSV batch).
     #>
     [CmdletBinding()]
     param(
@@ -479,57 +479,138 @@ function Invoke-CACAccountReconcile {
     Write-Log "Started Invoke-CACAccountReconcile()" "DEBUG"
 
     try {
-        if ([string]::IsNullOrWhiteSpace($AccountID)) {
-            $AccountID = Read-Host "Enter Account ID to reconcile"
-            if ([string]::IsNullOrWhiteSpace($AccountID)) {
-                Write-Log "Account ID is empty" "WARN"
-                Write-Host "Account ID cannot be empty." -ForegroundColor Yellow
+        $itemsToProcess = @()
+
+        if (-not [string]::IsNullOrWhiteSpace($AccountID)) {
+            $ids = $AccountID -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+            foreach ($id in $ids) {
+                $itemsToProcess += [PSCustomObject]@{
+                    AccountID     = $id
+                    ProcessSource = "Parameter"
+                }
+            }
+        }
+        else {
+            Write-Host "Select Reconcile Mode:" -ForegroundColor Cyan
+            Write-Host "1. Manual Input (Single or multiple comma-separated Account IDs)"
+            Write-Host "2. Batch CSV File"
+
+            $mode = Read-Host "Mode (1/2)"
+            if ($mode -eq '1') {
+                $val = Read-Host "Enter Account ID(s) to reconcile (comma-separated)"
+                if (-not [string]::IsNullOrWhiteSpace($val)) {
+                    $ids = $val -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+                    foreach ($id in $ids) {
+                        $itemsToProcess += [PSCustomObject]@{
+                            AccountID     = $id
+                            ProcessSource = "ManualInput"
+                        }
+                    }
+                }
+            }
+            elseif ($mode -eq '2') {
+                $CsvPath = Get-CACFilePath -Title "Select Account Reconcile CSV" -Filter "CSV Files (*.csv)|*.csv"
+                if ([string]::IsNullOrWhiteSpace($CsvPath) -or -not (Test-Path $CsvPath)) {
+                    Write-Host "CSV file not found." -ForegroundColor Red
+                    return
+                }
+                Write-Log "Processing CSV: $CsvPath" "INFO"
+                $itemsToProcess = @(Import-Csv $CsvPath)
+            }
+            else {
+                Write-Warning "Invalid selection."
                 return
             }
         }
 
-        Write-Log "Preparing to reconcile account: $AccountID" "INFO"
-
-        # Get account details for confirmation
-        try {
-            $account = Invoke-CACAPIRequest -Method GET -Endpoint "/api/Accounts/$AccountID"
-            if (-not $account) {
-                Write-Log "Account not found for ID: $AccountID" "WARN"
-                Write-Host "Account not found." -ForegroundColor Yellow
-                return
-            }
-        }
-        catch {
-            Write-Log "Error retrieving account details: $($_.Exception.Message)" "ERROR"
-            Write-Host "Error retrieving account: $($_.Exception.Message)" -ForegroundColor Red
+        if ($itemsToProcess.Count -eq 0) {
+            Write-Warning "No account IDs provided or found to process."
             return
         }
 
-        Write-Host "===== Reconcile Confirmation =====" -ForegroundColor Yellow
-        Write-Host "Account ID: $AccountID"
-        Write-Host "Account Name: $($account.name)"
-        Write-Host "User Name: $($account.userName)"
-        Write-Host "Address: $($account.address)"
+        # --- SUMMARY CONFIRMATION ---
         Write-Host ""
+        Write-Host "===== RECONCILE SUMMARY =====" -ForegroundColor Cyan
+        Write-Host "Total Accounts to Reconcile: $($itemsToProcess.Count)"
+        if ($itemsToProcess.Count -lt 11) {
+            $itemsToProcess | ForEach-Object {
+                $disp = if ($_.PSObject.Properties['AccountID'] -and $_.AccountID) { $_.AccountID } elseif ($_.PSObject.Properties['id'] -and $_.id) { $_.id } else { "Unknown" }
+                Write-Host " - ID: $disp" -ForegroundColor DarkGray
+            }
+        }
+        else {
+            $firstItem = $itemsToProcess[0]
+            $dispFirst = if ($firstItem.PSObject.Properties['AccountID'] -and $firstItem.AccountID) { $firstItem.AccountID } elseif ($firstItem.PSObject.Properties['id'] -and $firstItem.id) { $firstItem.id } else { "Unknown" }
+            Write-Host " - ID: $dispFirst" -ForegroundColor DarkGray
+            Write-Host " - ..." -ForegroundColor DarkGray
+            Write-Host " ... and $(($itemsToProcess.Count - 1)) more." -ForegroundColor DarkGray
+        }
+        Write-Host "=============================" -ForegroundColor Cyan
 
         $confirm = Read-Host "Proceed with reconcile? (Y/N)"
-
         if ($confirm -ne 'Y' -and $confirm -ne 'y') {
             Write-Log "Reconcile cancelled by user" "INFO"
             Write-Host "Reconcile cancelled." -ForegroundColor Yellow
             return
         }
 
-        Write-Log "User confirmed; initiating reconcile for account: $AccountID" "DEBUG"
-        Write-Host "Initiating reconcile..." -ForegroundColor Cyan
+        $outputDir = Get-CACOutputDir
+        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+        $OutputCsvPath = "$outputDir/AccountReconcile_Result_$timestamp.csv"
 
-        # Call reconcile API
-        $result = Invoke-CACAPIRequest -Method POST -Endpoint "/api/Accounts/$AccountID/Reconcile"
+        $results = @()
+        $i = 0
+        $total = $itemsToProcess.Count
+        $successCount = 0
+        $failCount = 0
 
-        Write-Log "Reconcile initiated successfully" "SUCCESS"
-        Write-Host "Reconcile initiated successfully!" -ForegroundColor Green
+        foreach ($item in $itemsToProcess) {
+            $i++
+            $accId = if ($item.PSObject.Properties['AccountID'] -and $item.AccountID) { $item.AccountID.Trim() } elseif ($item.PSObject.Properties['id'] -and $item.id) { $item.id.Trim() } else { $null }
 
-        Write-Log "Completed Invoke-CACAccountReconcile()" "DEBUG"
+            if (-not $accId) {
+                Write-Warning "Row $i missing 'AccountID' or 'id'"
+                continue
+            }
+
+            $percentComplete = [math]::Round(($i / $total) * 100)
+            Write-Progress -Activity "Reconciling Accounts" -Status "[$i/$total] $accId" -PercentComplete $percentComplete
+            Write-Host "[$i/$total] Reconciling Account: $accId ... " -NoNewline
+
+            $resObj = $item | Select-Object *
+
+            try {
+                Invoke-CACAPIRequest -Method POST -Endpoint "/api/Accounts/$accId/Reconcile" | Out-Null
+                Write-Host "Success" -ForegroundColor Green
+                $resObj | Add-Member -MemberType NoteProperty -Name "ReconcileStatus" -Value "Success" -Force
+                $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value "Reconcile initiated successfully" -Force
+                $successCount++
+            }
+            catch {
+                $errMsg = $_.Exception.Message
+                Write-Host "Failed ($errMsg)" -ForegroundColor Red
+                $resObj | Add-Member -MemberType NoteProperty -Name "ReconcileStatus" -Value "Failed" -Force
+                $resObj | Add-Member -MemberType NoteProperty -Name "Message" -Value $errMsg -Force
+                Write-Log "Failed to reconcile account $accId : $errMsg" "ERROR"
+                $failCount++
+            }
+
+            $results += $resObj
+        }
+
+        Write-Progress -Activity "Reconciling Accounts" -Completed
+
+        # Export results
+        $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
+
+        Write-Host ""
+        Write-Host "===== Summary =====" -ForegroundColor Cyan
+        Write-Host "  Total:     $total"
+        Write-Host "  Success:   $successCount" -ForegroundColor Green
+        Write-Host "  Failed:    $failCount" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "White" })
+        Write-Host ""
+        Write-Host "Results exported to: $OutputCsvPath" -ForegroundColor Green
+        Write-Log "Account Reconcile Complete. Success: $successCount, Failed: $failCount. Results saved to $OutputCsvPath" "INFO"
     }
     catch {
         Write-Log "Error in Invoke-CACAccountReconcile(): $($_.Exception.Message)" "ERROR"

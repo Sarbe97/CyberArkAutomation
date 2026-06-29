@@ -15,20 +15,24 @@ function Get-CACAccounts {
     param(
         [string]$Search,
         [string]$SafeName,
+        [switch]$All,
         [int]$LimitPerPage = 1000
     )
 
     Write-Log "Started Get-CACAccounts()" "DEBUG"
-    Write-Log "Search='$Search', Safe='$SafeName', Limit=$LimitPerPage" "INFO"
+    Write-Log "Search='$Search', Safe='$SafeName', All=$All, Limit=$LimitPerPage" "INFO"
 
     try {
         $searchQueries = @()
 
         # ---------- 1. BUILD QUERY LIST ----------
-        if ($Search) {
+        if ($All) {
+            $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $null }
+        }
+        elseif ($Search) {
             $searchQueries += [PSCustomObject]@{ Search = $Search; Safe = $null }
         }
-        if ($SafeName) {
+        elseif ($SafeName) {
             $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $SafeName }
         }
 
@@ -38,6 +42,7 @@ function Get-CACAccounts {
             Write-Host "1 = Search by keyword"
             Write-Host "2 = Search by safe name"
             Write-Host "3 = Batch search from CSV"
+            Write-Host "4 = Fetch all accounts (no search criteria)"
 
             switch (Read-Host "Enter choice") {
                 '1' {
@@ -66,8 +71,11 @@ function Get-CACAccounts {
                         }
                     }
                 }
+                '4' {
+                    $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $null }
+                }
                 default {
-                    Write-Host "Invalid option. Please select 1, 2, or 3." -ForegroundColor Yellow
+                    Write-Host "Invalid option. Please select 1, 2, 3, or 4." -ForegroundColor Yellow
                     return
                 }
             }
@@ -308,7 +316,7 @@ function Get-CACAccounts {
         Write-Host ""
         Write-Host "Exported $($allResults.Count) rows" -ForegroundColor Cyan
 
-        return $formatted
+        return
     }
     catch {
         Write-Log "Fatal error in Get-CACAccounts: $($_.Exception.Message)" "ERROR"

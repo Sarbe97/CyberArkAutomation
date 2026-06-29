@@ -301,9 +301,12 @@ try {
             CyberArkAuthStatusColor = if ($cyberArkAuthAvailable) { "4caf7d" } else { "e05252" }
         }
 
+        $smartIdFiles = @(Get-ChildItem -Path $ExportDir -Filter "SmartIDs_*_$TodayStr.csv" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
+
         Send-SVCRunSummary `
             -Tokens             $summaryTokens `
             -AnalysisReportFile $analysisFile `
+            -SmartIdFiles       $smartIdFiles `
             -GlobalEmailConfig  $config.Email `
             -AdminTo            $cfgNotif.AdminTo `
             -AdminCC            $cfgNotif.AdminCC `

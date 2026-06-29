@@ -29,6 +29,7 @@ function Send-SVCRunSummary {
     param(
         [Parameter(Mandatory=$true)] [hashtable]     $Tokens,
         [Parameter(Mandatory=$true)] [string]        $AnalysisReportFile,
+        [Parameter(Mandatory=$false)][array]         $SmartIdFiles = @(),
         [Parameter(Mandatory=$true)] [PSCustomObject] $GlobalEmailConfig,
         [Parameter(Mandatory=$true)] [array]         $AdminTo,
         [Parameter(Mandatory=$false)][array]         $AdminCC = @(),
@@ -58,6 +59,13 @@ function Send-SVCRunSummary {
 
     $attachments = @()
     if (Test-Path $AnalysisReportFile) { $attachments += $AnalysisReportFile }
+    if ($SmartIdFiles) {
+        foreach ($file in $SmartIdFiles) {
+            if ($file -and (Test-Path $file)) {
+                $attachments += $file
+            }
+        }
+    }
 
     $mailParams = @{
         SmtpServer = $GlobalEmailConfig.SmtpServer

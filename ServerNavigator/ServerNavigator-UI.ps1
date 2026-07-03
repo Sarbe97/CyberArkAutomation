@@ -1,3 +1,67 @@
+function Test-IsTextFile {
+    param(
+        [System.IO.FileInfo]$FileInfo
+    )
+    
+    # Get configured text extensions
+    $textExts = @('.log')
+    if ($null -ne $script:SavedUsers -and $script:SavedUsers.ContainsKey("LogExtensions")) {
+        $val = $script:SavedUsers["LogExtensions"]
+        $rawExts = @()
+        if ($val -is [System.Array]) {
+            $rawExts = @($val | ForEach-Object { $_.ToString().ToLower().Trim() })
+        } elseif ($val -is [string] -and -not [string]::IsNullOrWhiteSpace($val)) {
+            $rawExts = @($val.ToLower() -split ',' | ForEach-Object { $_.Trim() })
+        }
+        
+        $textExts = @()
+        foreach ($raw in $rawExts) {
+            if (-not [string]::IsNullOrWhiteSpace($raw)) {
+                if (-not $raw.StartsWith(".")) { $raw = "." + $raw }
+                $textExts += $raw
+            }
+        }
+    }
+    
+    # 1. Quick extension check using whitelist match (including rotated logs like .log.1)
+    $matchedWhitelist = $false
+    foreach ($pat in $textExts) {
+        if ($FileInfo.Name -like "*$pat" -or $FileInfo.Name -like "*$pat.*") {
+            $matchedWhitelist = $true
+            break
+        }
+    }
+    if (-not $matchedWhitelist) { return $false }
+    
+    # 2. Blacklist check to reject binary extensions matching the whitelist pattern (e.g. app.log.zip)
+    $ext = $FileInfo.Extension.ToLower()
+    $binaryExts = @('.exe', '.dll', '.zip', '.tar', '.gz', '.tgz', '.7z', '.rar', '.bin', '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.ico', '.mp3', '.mp4', '.avi', '.mov', '.xlsx', '.xls', '.docx', '.doc', '.pptx', '.ppt', '.msi', '.cab', '.sys', '.jar', '.war', '.class', '.db', '.sqlite', '.pdb')
+    if ($binaryExts -contains $ext) { return $false }
+    
+    # 3. Content check: check first 512 bytes for null bytes
+    if ($FileInfo.Length -eq 0) { return $true } # Empty file is fine
+    
+    try {
+        $bytesToRead = [System.Math]::Min(512, $FileInfo.Length)
+        $buffer = New-Object byte[] $bytesToRead
+        $stream = [System.IO.FileStream]::new($FileInfo.FullName, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        $bytesRead = $stream.Read($buffer, 0, $bytesToRead)
+        $stream.Close()
+        
+        # If there's a null byte in the read buffer, it's likely a binary file
+        for ($i = 0; $i -lt $bytesRead; $i++) {
+            if ($buffer[$i] -eq 0) {
+                return $false
+            }
+        }
+        return $true
+    }
+    catch {
+        # If we can't open/read the file (maybe locked), default to true for logs
+        return $true
+    }
+}
+
 function Show-LogViewer {
     param(
         [PSCustomObject]$Server,
@@ -35,6 +99,7 @@ function Show-LogViewer {
     $script:TailFilePath = $null
     $script:TailLastPosition = 0
     $script:LogFilterText = ""
+    $script:ViewerCurrentPath = $Server.Path
 
     # Form setup
     $dlg = New-Object System.Windows.Forms.Form
@@ -221,17 +286,37 @@ function Show-LogViewer {
             }
         })
 
-    # Helper: Refresh file list
+    # Helper: Refresh file/folder list
     $refreshFiles = {
         $lstFiles.Items.Clear()
         try {
-            $files = Get-ChildItem -Path $Server.Path -File | Sort-Object LastWriteTime -Descending
+            # Update folder label to show current location relative to root path
+            $relative = $script:ViewerCurrentPath.Replace($Server.Path, "")
+            if ([string]::IsNullOrWhiteSpace($relative)) {
+                $lblFiles.Text = "Logs (Root):"
+            } else {
+                $lblFiles.Text = "Logs: ..$relative"
+            }
+
+            # 1. Parent folder option if we have navigated down
+            if ($script:ViewerCurrentPath.TrimEnd('\') -ne $Server.Path.TrimEnd('\')) {
+                $lstFiles.Items.Add("📁 .. (Up)") | Out-Null
+            }
+
+            # 2. Add Subdirectories
+            $subDirs = Get-ChildItem -Path $script:ViewerCurrentPath -Directory | Sort-Object Name
+            foreach ($dir in $subDirs) {
+                $lstFiles.Items.Add("📁 $($dir.Name)") | Out-Null
+            }
+
+            # 3. Add Log Files matching the filter
+            $files = Get-ChildItem -Path $script:ViewerCurrentPath -File | Where-Object { Test-IsTextFile $_ } | Sort-Object LastWriteTime -Descending
             foreach ($file in $files) {
-                $lstFiles.Items.Add($file.Name)
+                $lstFiles.Items.Add("📄 $($file.Name)") | Out-Null
             }
         }
         catch {
-            [System.Windows.Forms.MessageBox]::Show("Error reading log folder: $($_.Exception.Message)", "Error", "OK", "Error")
+            [System.Windows.Forms.MessageBox]::Show("Error reading folder: $($_.Exception.Message)", "Error", "OK", "Error")
         }
     }
 
@@ -241,7 +326,7 @@ function Show-LogViewer {
         $timer.Stop()
         $txtContent.Text = "Loading $fileName..."
         
-        $filePath = Join-Path $Server.Path $fileName
+        $filePath = Join-Path $script:ViewerCurrentPath $fileName
         $script:TailFilePath = $filePath
         $script:ActiveLogLines = @()
         
@@ -294,12 +379,29 @@ function Show-LogViewer {
         }
     }
 
-    # â”€â”€ EVENT HANDLERS â”€â”€
+    # ── EVENT HANDLERS ──
     $btnRefreshList.Add_Click($refreshFiles)
     
     $lstFiles.Add_SelectedIndexChanged({
-            if ($lstFiles.SelectedItem) {
-                $loadFileTail.Invoke($lstFiles.SelectedItem)
+            $selected = $lstFiles.SelectedItem
+            if ($null -ne $selected -and $selected.StartsWith("📄 ")) {
+                $fileName = $selected.Substring(2)
+                $loadFileTail.Invoke($fileName)
+            }
+        })
+
+    $lstFiles.Add_DoubleClick({
+            $selected = $lstFiles.SelectedItem
+            if ($null -eq $selected) { return }
+            
+            if ($selected -eq "📁 .. (Up)") {
+                $script:ViewerCurrentPath = Split-Path -Parent $script:ViewerCurrentPath
+                $refreshFiles.Invoke()
+            }
+            elseif ($selected.StartsWith("📁 ")) {
+                $dirName = $selected.Substring(2)
+                $script:ViewerCurrentPath = Join-Path $script:ViewerCurrentPath $dirName
+                $refreshFiles.Invoke()
             }
         })
 
@@ -322,7 +424,7 @@ function Show-LogViewer {
         })
 
     $btnExplorer.Add_Click({
-            explorer.exe $Server.Path
+            explorer.exe $script:ViewerCurrentPath
         })
 
     $btnCopy.Add_Click({
@@ -389,7 +491,7 @@ function Show-LogViewer {
             $lstFiles.SelectedIndex = -1
         
             try {
-                $files = Get-ChildItem -Path $Server.Path -File | Sort-Object LastWriteTime -Descending
+                $files = Get-ChildItem -Path $script:ViewerCurrentPath -File | Where-Object { Test-IsTextFile $_ } | Sort-Object LastWriteTime -Descending
                 $results = [System.Collections.Generic.List[string]]::new()
                 $results.Add("=== MULTI-FILE SEARCH RESULTS FOR: '$query' ===")
                 $results.Add("Search performed on: $(Get-Date)")
@@ -469,8 +571,11 @@ function Show-LogViewer {
     $refreshFiles.Invoke()
     
     # Auto-select the first log file if any exist
-    if ($lstFiles.Items.Count -gt 0) {
-        $lstFiles.SelectedIndex = 0
+    for ($i = 0; $i -lt $lstFiles.Items.Count; $i++) {
+        if ($lstFiles.Items[$i].StartsWith("📄 ")) {
+            $lstFiles.SelectedIndex = $i
+            break
+        }
     }
 
     # Show form

@@ -412,5 +412,9 @@ function Open-ServerPath {
 
 # Pre-load to populate SavedUsers before credential prompt
 $script:Servers = Load-Servers
+if (-not $script:SavedUsers.ContainsKey("LogExtensions")) {
+    $script:SavedUsers["LogExtensions"] = @(".log")
+    Save-Servers $script:Servers
+}
 
 . "$PSScriptRoot\ServerNavigator-UI.ps1"

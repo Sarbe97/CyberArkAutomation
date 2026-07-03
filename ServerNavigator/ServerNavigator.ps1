@@ -417,4 +417,5 @@ if (-not $script:SavedUsers.ContainsKey("LogExtensions")) {
     Save-Servers $script:Servers
 }
 
+. "$PSScriptRoot\LogViewer.ps1"
 . "$PSScriptRoot\ServerNavigator-UI.ps1"

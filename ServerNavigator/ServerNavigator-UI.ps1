@@ -403,7 +403,7 @@ function Show-LogViewer {
     $lstFiles.Add_SelectedIndexChanged({
             $selected = $lstFiles.SelectedItem
             if ($null -ne $selected -and $selected.StartsWith("📄 ")) {
-                $fileName = $selected.Substring(2)
+                $fileName = $selected -replace '^📄\s*', ''
                 $loadFileTail.Invoke($fileName)
             }
         })
@@ -417,7 +417,7 @@ function Show-LogViewer {
                 $refreshFiles.Invoke()
             }
             elseif ($selected.StartsWith("📁 ")) {
-                $dirName = $selected.Substring(2)
+                $dirName = $selected -replace '^📁\s*', ''
                 $script:ViewerCurrentPath = Join-Path $script:ViewerCurrentPath $dirName
                 $refreshFiles.Invoke()
             }

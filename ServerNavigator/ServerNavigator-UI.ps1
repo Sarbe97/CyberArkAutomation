@@ -139,6 +139,7 @@ function Show-LogViewer {
     $lstFiles.Font = New-Object System.Drawing.Font("Segoe UI", 9)
     $lstFiles.BorderStyle = "FixedSingle"
     $leftPanel.Controls.Add($lstFiles)
+    $lstFiles.BringToFront()
 
     $btnRefreshList = New-Object System.Windows.Forms.Button
     $btnRefreshList.Text = "Refresh File List"
@@ -313,6 +314,23 @@ function Show-LogViewer {
             $files = Get-ChildItem -Path $script:ViewerCurrentPath -File | Where-Object { Test-IsTextFile $_ } | Sort-Object LastWriteTime -Descending
             foreach ($file in $files) {
                 $lstFiles.Items.Add("📄 $($file.Name)") | Out-Null
+            }
+
+            # Auto-select first log file if any exist, otherwise clear selection/content
+            $hasFiles = $false
+            for ($i = 0; $i -lt $lstFiles.Items.Count; $i++) {
+                if ($lstFiles.Items[$i].StartsWith("📄 ")) {
+                    $lstFiles.SelectedIndex = $i
+                    $hasFiles = $true
+                    break
+                }
+            }
+            if (-not $hasFiles) {
+                $lstFiles.SelectedIndex = -1
+                $txtContent.Text = ""
+                $script:TailFilePath = $null
+                $script:ActiveLogLines = @()
+                $timer.Stop()
             }
         }
         catch {
@@ -569,14 +587,6 @@ function Show-LogViewer {
 
     # Initial load
     $refreshFiles.Invoke()
-    
-    # Auto-select the first log file if any exist
-    for ($i = 0; $i -lt $lstFiles.Items.Count; $i++) {
-        if ($lstFiles.Items[$i].StartsWith("📄 ")) {
-            $lstFiles.SelectedIndex = $i
-            break
-        }
-    }
 
     # Show form
     $dlg.ShowDialog()

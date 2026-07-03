@@ -298,7 +298,7 @@ function Show-LogViewer {
             $subDirs = Get-ChildItem -Path $dirPath -Directory | Sort-Object Name
             foreach ($dir in $subDirs) {
                 $node = New-Object System.Windows.Forms.TreeNode
-                $node.Text = "📁 $($dir.Name)"
+                $node.Text = "[Dir] $($dir.Name)"
                 $node.Tag = $dir.FullName
                 # Add dummy node to make it expandable
                 $dummyNode = New-Object System.Windows.Forms.TreeNode
@@ -311,7 +311,7 @@ function Show-LogViewer {
             $files = Get-ChildItem -Path $dirPath -File | Where-Object { Test-IsTextFile $_ } | Sort-Object LastWriteTime -Descending
             foreach ($file in $files) {
                 $node = New-Object System.Windows.Forms.TreeNode
-                $node.Text = "📄 $($file.Name)"
+                $node.Text = "[File] $($file.Name)"
                 $node.Tag = $file.FullName
                 $parentNode.Nodes.Add($node) | Out-Null
             }
@@ -328,7 +328,7 @@ function Show-LogViewer {
         $treeFiles.Nodes.Clear()
         try {
             $rootNode = New-Object System.Windows.Forms.TreeNode
-            $rootNode.Text = "📁 $($Server.Name)"
+            $rootNode.Text = "[Dir] $($Server.Name)"
             $rootNode.Tag = $Server.Path
             $treeFiles.Nodes.Add($rootNode) | Out-Null
             
@@ -339,7 +339,7 @@ function Show-LogViewer {
             # Auto-select the first log file at root level if any exists
             $foundFirst = $false
             foreach ($node in $rootNode.Nodes) {
-                if ($node.Text.StartsWith("📄 ")) {
+                if ($node.Text.StartsWith("[File] ")) {
                     $treeFiles.SelectedNode = $node
                     $foundFirst = $true
                     break

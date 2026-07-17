@@ -7,6 +7,7 @@ function Send-PSARunSummary {
     param(
         [Parameter(Mandatory=$true)] [hashtable] $Tokens,
         [Parameter(Mandatory=$true)] [string]    $AnalysisReportFile,
+        [Parameter(Mandatory=$false)][string]    $BlankSafesReportFile = "",
         [Parameter(Mandatory=$true)] [PSCustomObject] $GlobalEmailConfig,
         [Parameter(Mandatory=$true)] [array]     $AdminTo,
         [Parameter(Mandatory=$false)][array]     $AdminCC = @(),
@@ -36,6 +37,7 @@ function Send-PSARunSummary {
 
     $attachments = @()
     if (Test-Path $AnalysisReportFile) { $attachments += $AnalysisReportFile }
+    if ($BlankSafesReportFile -and (Test-Path $BlankSafesReportFile)) { $attachments += $BlankSafesReportFile }
 
     $emailCfg = [PSCustomObject]@{
         SmtpServer = $GlobalEmailConfig.SmtpServer

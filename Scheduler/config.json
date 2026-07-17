@@ -1,5 +1,19 @@
 {
     "BaseUrl": "https://vault.company.com",
+    "SharePoint": {
+        "TenantId": "",
+        "ClientId": "",
+        "ClientSecret": "",
+        "_Comment_ClientSecret": "If ClientSecret is non-blank, it is used directly. If blank, falls back to CCP retrieval.",
+        "CCP": {
+            "AppId": "CyberArkHealthCheck",
+            "Safe": "PAM-Health",
+            "Object": "SharePointAppSecret"
+        },
+        "SiteUrl": "https://nisource.sharepoint.com/sites/ITPMO_Technology",
+        "_Comment_DocumentLibrary": "Name of the SharePoint document library (maps to a Graph drive).",
+        "DocumentLibrary": "SPIdIQ"
+    },
     "_Comment_Credentials": "Direct credentials take priority if BOTH Username and Password are non-blank. If either is empty, CCP is used instead.",
     "Username": "",
     "Password": "",

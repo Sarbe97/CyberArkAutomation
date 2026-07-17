@@ -29,6 +29,7 @@ if (-not (Test-Path $ExportDir)) { New-Item -ItemType Directory -Path $ExportDir
 # Load Shared Utils + Feature Modules
 # ============================================================
 . (Join-Path $SchedulerRoot "Utils.ps1")
+. (Join-Path $SchedulerRoot "SharePointUtils.ps1")
 . (Join-Path $FeatureRoot   "Modules\SAA_DataCollection.ps1")
 . (Join-Path $FeatureRoot   "Modules\SAA_SafeOperations.ps1")
 . (Join-Path $FeatureRoot   "Modules\SAA_Notifications.ps1")
@@ -380,6 +381,43 @@ try {
 
         if ($effectiveMode -eq "Analysis") {
             Write-Log -Message "Mode=Analysis. Reports exported. No onboarding or notifications." -ScriptName $ScriptName -LogPath $LogPath
+
+            # -- SharePoint upload (Analysis mode) --
+            $cfgSP = $featureConfig.SharePoint
+            if ($null -ne $cfgSP -and $cfgSP.Enabled -and $null -ne $config.SharePoint) {
+                Write-Log -Message "========== SHAREPOINT UPLOAD (Analysis) ==========" -ScriptName $ScriptName -LogPath $LogPath
+                try {
+                    $spDataRows = @(
+                        [PSCustomObject]@{ Metric = "Secondary Accounts";       Value = "" }
+                        [PSCustomObject]@{ Metric = "Total Scanned";            Value = $secondaryADAccounts.Count }
+                        [PSCustomObject]@{ Metric = "Already Managed";          Value = $countManaged }
+                        [PSCustomObject]@{ Metric = "Needs Safe + Onboard";     Value = $countNeedsAll }
+                        [PSCustomObject]@{ Metric = "Needs Onboarding Only";    Value = $countNeedsOnboarding }
+                        [PSCustomObject]@{ Metric = "Issues";                   Value = "" }
+                        [PSCustomObject]@{ Metric = "Missing AD Group";         Value = $countMissingGroup }
+                        [PSCustomObject]@{ Metric = "Primary Disabled";         Value = $countPrimaryDisabled }
+                        [PSCustomObject]@{ Metric = "Secondary Disabled";       Value = $countSecondaryDisabled }
+                        [PSCustomObject]@{ Metric = "Missing Primary";          Value = $countMissingPrimary }
+                    )
+                    $spSectionHeaders = @("Secondary Accounts", "Issues")
+
+                    Update-SharePointExcel `
+                        -SharePointGlobalConfig $config.SharePoint `
+                        -FileName              $cfgSP.FileName `
+                        -FolderPath            $cfgSP.FolderPath `
+                        -DataRows              $spDataRows `
+                        -SheetName             $cfgSP.SheetName `
+                        -LocalTempDir          $ExportDir `
+                        -SectionHeaders        $spSectionHeaders `
+                        -GlobalCCPUrl          $config.CCP.Url `
+                        -ScriptName            $ScriptName `
+                        -LogPath               $LogPath
+                }
+                catch {
+                    Write-Log -Message "SharePoint upload failed: $($_.Exception.Message)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
+                }
+            }
+
             Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
             Write-Log -Message "Execution completed (Analysis mode)" -ScriptName $ScriptName -LogPath $LogPath
             exit 0
@@ -664,6 +702,52 @@ try {
 
     $phase3Duration = (Get-Date) - $phase3Start
     Write-Log -Message "Phase 3 (Onboarding & Notifications) completed in $([math]::Round($phase3Duration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
+
+    # ==========================================================
+    # SHAREPOINT UPLOAD (Simulation / Onboarding mode)
+    # Push daily analysis metrics to SharePoint Excel.
+    # Counters are guaranteed to be available here — either from
+    # Phase 2 or recalculated in Phase 4.
+    # ==========================================================
+    $cfgSP = $featureConfig.SharePoint
+    if ($null -ne $cfgSP -and $cfgSP.Enabled -and $null -ne $config.SharePoint) {
+        Write-Log -Message "========== SHAREPOINT UPLOAD ==========" -ScriptName $ScriptName -LogPath $LogPath
+        try {
+            $spDataRows = @(
+                [PSCustomObject]@{ Metric = "Secondary Accounts";       Value = "" }
+                [PSCustomObject]@{ Metric = "Total Scanned";            Value = $totalSecondary }
+                [PSCustomObject]@{ Metric = "Already Managed";          Value = $countManaged }
+                [PSCustomObject]@{ Metric = "Needs Safe + Onboard";     Value = $countNeedsAll }
+                [PSCustomObject]@{ Metric = "Needs Onboarding Only";    Value = $countNeedsOnboarding }
+                [PSCustomObject]@{ Metric = "Issues";                   Value = "" }
+                [PSCustomObject]@{ Metric = "Missing AD Group";         Value = $countMissingGroup }
+                [PSCustomObject]@{ Metric = "Primary Disabled";         Value = $countPrimaryDisabled }
+                [PSCustomObject]@{ Metric = "Secondary Disabled";       Value = $countSecondaryDisabled }
+                [PSCustomObject]@{ Metric = "Missing Primary";          Value = $countMissingPrimary }
+                [PSCustomObject]@{ Metric = "EPV Impact";               Value = "" }
+                [PSCustomObject]@{ Metric = "New EPV Users Consumed";   Value = $newEpvUsersConsumedCnt }
+            )
+            $spSectionHeaders = @("Secondary Accounts", "Issues", "EPV Impact")
+
+            Update-SharePointExcel `
+                -SharePointGlobalConfig $config.SharePoint `
+                -FileName              $cfgSP.FileName `
+                -FolderPath            $cfgSP.FolderPath `
+                -DataRows              $spDataRows `
+                -SheetName             $cfgSP.SheetName `
+                -LocalTempDir          $ExportDir `
+                -SectionHeaders        $spSectionHeaders `
+                -GlobalCCPUrl          $config.CCP.Url `
+                -ScriptName            $ScriptName `
+                -LogPath               $LogPath
+        }
+        catch {
+            Write-Log -Message "SharePoint upload failed: $($_.Exception.Message)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
+        }
+    }
+    else {
+        Write-Log -Message "SharePoint upload is disabled or not configured. Skipping." -ScriptName $ScriptName -LogPath $LogPath
+    }
 
     # ==========================================================
     # PHASE 5 — CLEANUP

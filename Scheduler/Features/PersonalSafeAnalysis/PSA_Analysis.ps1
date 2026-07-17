@@ -87,6 +87,7 @@ $cacheAccounts = Join-Path $ExportDir "RawCache_AllAccounts_$TodayStr.csv"
 $cacheMembers = Join-Path $ExportDir "RawCache_SafeMembers_$TodayStr.csv"
 $cacheADUsers = Join-Path $ExportDir "RawCache_ADUsers_$TodayStr.csv"
 $analysisFile = Join-Path $ExportDir "PSA_AnalysisReport_$Timestamp.csv"
+$blankSafesFile = Join-Path $ExportDir "PSA_BlankSafesReport_$Timestamp.csv"
 
 # ============================================================
 # Authenticate
@@ -304,9 +305,18 @@ try {
     # ==========================================================
     # PHASE 3 — EXPORT REPORTS
     # ==========================================================
+    $blankSafesCount = 0
     if ($analysisReport.Count -gt 0) {
         $analysisReport | Export-Csv -Path $analysisFile -NoTypeInformation -Encoding UTF8
         Write-Log -Message "Analysis report saved: $analysisFile" -ScriptName $ScriptName -LogPath $LogPath
+
+        $blankSafes = $analysisReport | Where-Object { $_.AccountCount -eq 0 }
+        $blankSafesCount = if ($null -eq $blankSafes) { 0 } elseif ($blankSafes -is [array]) { $blankSafes.Count } else { 1 }
+        
+        if ($blankSafesCount -gt 0) {
+            $blankSafes | Export-Csv -Path $blankSafesFile -NoTypeInformation -Encoding UTF8
+            Write-Log -Message "Blank safes report saved: $blankSafesFile" -ScriptName $ScriptName -LogPath $LogPath
+        }
     } else {
         Write-Log -Message "No personal safes matched. Analysis report not generated." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
     }
@@ -318,6 +328,11 @@ try {
 
     $modeTitle = "Analysis Run Complete"
     $modeBanner = "ANALYSIS COMPLETE - Read-only analysis finished."
+
+        $attachedHtml = "<p style=`"margin:2px 0; font-size:12px; color:#555555;`">&#8250; PSA_AnalysisReport.csv</p>"
+        if ($blankSafesCount -gt 0) {
+            $attachedHtml += "`n<p style=`"margin:2px 0; font-size:12px; color:#555555;`">&#8250; PSA_BlankSafesReport.csv</p>"
+        }
 
         $summaryTokens = @{
             EffectiveMode           = $effectiveMode
@@ -334,11 +349,13 @@ try {
             CountNotMember_Disabled = $cntNotMember_Disabled
             CountNotMember_NotFound = $cntNotMember_NotFound
             GeneratedDate           = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+            AttachedReportsHtml     = $attachedHtml
         }
 
         Send-PSARunSummary `
             -Tokens              $summaryTokens `
             -AnalysisReportFile  $analysisFile `
+            -BlankSafesReportFile $blankSafesFile `
             -GlobalEmailConfig   $config.Email `
             -AdminTo             $cfgNotif.AdminTo `
             -AdminCC             $cfgNotif.AdminCC `

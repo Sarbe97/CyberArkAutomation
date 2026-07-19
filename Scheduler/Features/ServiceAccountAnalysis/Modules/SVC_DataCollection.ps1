@@ -140,7 +140,25 @@ function Get-SVCADAccounts {
                 Write-Log -Message "[$domainIndex/$totalDomains] Sending AD query to server '$($domain.Server)'..." -ScriptName $ScriptName -LogPath $LogPath
                 Write-Progress -Id 21 -ParentId 20 -Activity "AD Query" -Status "Querying '$($domain.Server)'... (this may take a moment)" -PercentComplete -1
 
-                $adUsers = @(Get-ADUser @adParams | Select-Object ($adProps))
+                $adUsers = $null
+                try {
+                    $adUsers = @(Get-ADUser @adParams | Select-Object ($adProps))
+                }
+                catch {
+                    if ($_.Exception.Message -match "One or more properties are invalid") {
+                        Write-Log -Message "[$domainIndex/$totalDomains] Domain '$($domain.Name)' is missing custom schema properties (e.g. nIEMPTYPE). Retrying with standard properties..." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+                        $fallbackProps = @(
+                            "SamAccountName", "DistinguishedName", "Enabled", "Mail",
+                            "Description", "PasswordExpired", "PasswordLastSet", 
+                            "PasswordNeverExpires", "LastLogonDate", "wwwHomePage", 
+                            "Manager", "info"
+                        )
+                        $adParams["Properties"] = $fallbackProps
+                        $adUsers = @(Get-ADUser @adParams | Select-Object ($adProps))
+                    } else {
+                        throw
+                    }
+                }
                 $rawCount = if ($adUsers) { $adUsers.Count } else { 0 }
 
                 Write-Log -Message "[$domainIndex/$totalDomains] AD query completed. Received $rawCount raw user records from server '$($domain.Server)'." -ScriptName $ScriptName -LogPath $LogPath

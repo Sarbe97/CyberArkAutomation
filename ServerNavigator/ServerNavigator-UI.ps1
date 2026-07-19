@@ -1,4 +1,4 @@
-﻿function Refresh-BookmarkList {
+function Refresh-BookmarkList {
     $script:lstBookmarks.Items.Clear()
     $server = Get-SelectedServer
     if ($null -ne $server -and $null -ne $server.Bookmarks) {
@@ -419,8 +419,39 @@ function Show-DriveSelector {
 
 # MAIN FORM
 
+function Ensure-Credentials {
+    if ($null -eq $script:Credentials[$script:ActiveEnv]) {
+        $envs = @($script:Servers | Select-Object -ExpandProperty Environment -Unique)
+        if ($envs.Count -eq 0) { $envs = @("PROD") }
+        if ($envs -notcontains $script:ActiveEnv) { $envs += $script:ActiveEnv }
+        
+        $credObj = Get-SessionCredential -AvailableEnvironments $envs -InitialEnvironment $script:ActiveEnv -ExitOnCancel $false
+        if ($null -ne $credObj) {
+            $script:ActiveEnv = $credObj.Environment
+            $script:Credentials[$script:ActiveEnv] = $credObj.Credential
+            if ($cmbEnv) { 
+                $script:InEnvSwitch = $true
+                $cmbEnv.SelectedItem = $script:ActiveEnv
+                $script:InEnvSwitch = $false
+            }
+            return $true
+        }
+        return $false
+    }
+    return $true
+}
+
+$script:Servers = Load-Servers
+$initialEnvs = @($script:Servers | Select-Object -ExpandProperty Environment -Unique)
+if ($initialEnvs.Count -eq 0) { $initialEnvs = @("PROD") }
+$script:ActiveEnv = $initialEnvs[0]
+
 # Prompt for credentials first
-$script:Credentials[$script:ActiveEnv] = Get-SessionCredential -Environment $script:ActiveEnv -ExitOnCancel $true
+$initCredObj = Get-SessionCredential -AvailableEnvironments $initialEnvs -InitialEnvironment $script:ActiveEnv -ExitOnCancel $true
+if ($null -ne $initCredObj) {
+    $script:ActiveEnv = $initCredObj.Environment
+    $script:Credentials[$script:ActiveEnv] = $initCredObj.Credential
+}
 
 # Build main window
 $form = New-Object System.Windows.Forms.Form
@@ -462,15 +493,25 @@ $cmbEnv.Add_SelectedIndexChanged({
         $newEnv = $cmbEnv.SelectedItem
         if ($newEnv -ne $script:ActiveEnv) {
             if ($null -eq $script:Credentials[$newEnv]) {
-                $cred = Get-SessionCredential -Environment $newEnv -ExitOnCancel $false
-                if ($null -eq $cred) {
+                $envs = @($script:Servers | Select-Object -ExpandProperty Environment -Unique)
+                if ($envs.Count -eq 0) { $envs = @("PROD") }
+                if ($envs -notcontains $newEnv) { $envs += $newEnv }
+                
+                $credObj = Get-SessionCredential -AvailableEnvironments $envs -InitialEnvironment $newEnv -ExitOnCancel $false
+                if ($null -eq $credObj) {
                     # Revert selection
                     $script:InEnvSwitch = $true
                     $cmbEnv.SelectedItem = $script:ActiveEnv
                     $script:InEnvSwitch = $false
                     return
                 }
-                $script:Credentials[$newEnv] = $cred
+                $newEnv = $credObj.Environment
+                $script:Credentials[$newEnv] = $credObj.Credential
+                
+                # In case they selected a DIFFERENT environment from the dropdown in the credential prompt
+                $script:InEnvSwitch = $true
+                $cmbEnv.SelectedItem = $newEnv
+                $script:InEnvSwitch = $false
             }
             $script:ActiveEnv = $newEnv
             $script:lstServers.SelectedIndex = -1
@@ -565,6 +606,7 @@ $btnRDP.Cursor = "Hand"
 $btnRDP.Add_Click({
         $server = Get-SelectedServer
         if ($server) {
+            if (-not (Ensure-Credentials)) { return }
             $address = $server.SharePath
             if ($address -like "\\*") {
                 $hostName = $address.TrimStart('\').Split('\')[0]
@@ -626,6 +668,7 @@ $btnAdd.Location = New-Object System.Drawing.Point($col1, $row2Y)
 $btnAdd.FlatStyle = "Flat"
 $btnAdd.Cursor = "Hand"
 $btnAdd.Add_Click({
+        if (-not (Ensure-Credentials)) { return }
         $result = Show-ServerDialog -Title "Add Server" -DetectDrives
         if ($result) {
             $servers = [System.Collections.ArrayList]@(Load-Servers)
@@ -671,6 +714,7 @@ $btnEdit.Cursor = "Hand"
 $btnEdit.Add_Click({
         $server = Get-SelectedServer
         if ($server) {
+            if (-not (Ensure-Credentials)) { return }
             # Extract hostname from SharePath for the dialog
             $currentHost = $server.SharePath.TrimStart('\')
             $result = Show-ServerDialog -Title "Edit Server" `
@@ -740,6 +784,7 @@ $script:lstBookmarks.BorderStyle = "FixedSingle"
 $script:lstBookmarks.Add_DoubleClick({
         $bkm = Get-SelectedBookmark
         if ($bkm) {
+            if (-not (Ensure-Credentials)) { return }
             Open-ServerPath -UncPath $bkm.Path -Credential $script:Credentials[$script:ActiveEnv] -ActionLabel "Bookmark"
         }
     })
@@ -760,6 +805,7 @@ $btnOpenBkmViewer.Add_Click({
         $bkm = Get-SelectedBookmark
         $server = Get-SelectedServer
         if ($bkm -and $server) {
+            if (-not (Ensure-Credentials)) { return }
             $fakeServer = [PSCustomObject]@{
                 Name = "$($server.Name) - $($bkm.Name)"
                 Path = $bkm.Path
@@ -781,6 +827,7 @@ $btnOpenBkmExplorer.Cursor = "Hand"
 $btnOpenBkmExplorer.Add_Click({
         $bkm = Get-SelectedBookmark
         if ($bkm) {
+            if (-not (Ensure-Credentials)) { return }
             Open-ServerPath -UncPath $bkm.Path -Credential $script:Credentials[$script:ActiveEnv] -ActionLabel "Bookmark"
         }
         else {

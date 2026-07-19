@@ -130,7 +130,8 @@ function Save-Servers {
 
 function Get-SessionCredential {
     param(
-        [string]$Environment = "PROD",
+        [array]$AvailableEnvironments = @("PROD"),
+        [string]$InitialEnvironment = "PROD",
         [bool]$ExitOnCancel = $false
     )
     $loginForm = New-Object System.Windows.Forms.Form
@@ -144,42 +145,66 @@ function Get-SessionCredential {
     $loginForm.BackColor = [System.Drawing.Color]::FromArgb(250, 250, 252)
     $loginForm.Font = New-Object System.Drawing.Font("Segoe UI", 9.5)
 
+    $lblEnv = New-Object System.Windows.Forms.Label
+    $lblEnv.Text = "Environment:"
+    $lblEnv.Location = New-Object System.Drawing.Point(20, 15)
+    $lblEnv.Size = New-Object System.Drawing.Size(80, 23)
+    $loginForm.Controls.Add($lblEnv)
+
+    $cmbEnvLogin = New-Object System.Windows.Forms.ComboBox
+    $cmbEnvLogin.DropDownStyle = "DropDownList"
+    foreach ($e in $AvailableEnvironments) { $cmbEnvLogin.Items.Add($e) | Out-Null }
+    if ($cmbEnvLogin.Items.Contains($InitialEnvironment)) {
+        $cmbEnvLogin.SelectedItem = $InitialEnvironment
+    } else {
+        $cmbEnvLogin.SelectedIndex = 0
+    }
+    $cmbEnvLogin.Location = New-Object System.Drawing.Point(110, 13)
+    $cmbEnvLogin.Size = New-Object System.Drawing.Size(120, 23)
+    $loginForm.Controls.Add($cmbEnvLogin)
+
     $lblHeader = New-Object System.Windows.Forms.Label
-    $lblHeader.Text = "Enter credentials for $Environment access"
-    $lblHeader.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+    $lblHeader.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
     $lblHeader.ForeColor = [System.Drawing.Color]::FromArgb(25, 118, 210)
-    $lblHeader.Location = New-Object System.Drawing.Point(20, 15)
-    $lblHeader.Size = New-Object System.Drawing.Size(350, 25)
+    $lblHeader.Location = New-Object System.Drawing.Point(20, 45)
+    $lblHeader.Size = New-Object System.Drawing.Size(350, 20)
     $loginForm.Controls.Add($lblHeader)
 
     $lblUser = New-Object System.Windows.Forms.Label
     $lblUser.Text = "Username:"
-    $lblUser.Location = New-Object System.Drawing.Point(20, 55)
+    $lblUser.Location = New-Object System.Drawing.Point(20, 75)
     $lblUser.Size = New-Object System.Drawing.Size(80, 23)
     $loginForm.Controls.Add($lblUser)
 
     $txtUser = New-Object System.Windows.Forms.TextBox
-    $expectedDomain = if ($Environment -eq "PROD") { "NA" } else { "nadev" }
-    
-    $savedUser = $script:SavedUsers["${Environment}_User"]
-    if (-not [string]::IsNullOrWhiteSpace($savedUser)) {
-        $txtUser.Text = $savedUser
-    } else {
-        $txtUser.Text = "$expectedDomain\$env:USERNAME"
-    }
-    
-    $txtUser.Location = New-Object System.Drawing.Point(110, 53)
+    $txtUser.Location = New-Object System.Drawing.Point(110, 73)
     $txtUser.Size = New-Object System.Drawing.Size(250, 23)
     $loginForm.Controls.Add($txtUser)
 
+    $cmbEnvLogin.Add_SelectedIndexChanged({
+        $env = $cmbEnvLogin.SelectedItem
+        $loginForm.Text = "Server Navigator - Login ($env)"
+        $lblHeader.Text = "Enter credentials for $env access"
+        $expectedDomain = if ($env -eq "PROD") { "NA" } else { "nadev" }
+        $savedUser = $script:SavedUsers["${env}_User"]
+        if (-not [string]::IsNullOrWhiteSpace($savedUser)) {
+            $txtUser.Text = $savedUser
+        } else {
+            $txtUser.Text = "$expectedDomain\$env:USERNAME"
+        }
+    })
+    
+    # Trigger initially
+    $cmbEnvLogin.SelectedIndex = $cmbEnvLogin.SelectedIndex
+
     $lblPass = New-Object System.Windows.Forms.Label
     $lblPass.Text = "Password:"
-    $lblPass.Location = New-Object System.Drawing.Point(20, 95)
+    $lblPass.Location = New-Object System.Drawing.Point(20, 105)
     $lblPass.Size = New-Object System.Drawing.Size(80, 23)
     $loginForm.Controls.Add($lblPass)
 
     $txtPass = New-Object System.Windows.Forms.TextBox
-    $txtPass.Location = New-Object System.Drawing.Point(110, 93)
+    $txtPass.Location = New-Object System.Drawing.Point(110, 103)
     $txtPass.Size = New-Object System.Drawing.Size(250, 23)
     $txtPass.UseSystemPasswordChar = $true
     $loginForm.Controls.Add($txtPass)
@@ -187,7 +212,7 @@ function Get-SessionCredential {
     # Validation status label (below password field)
     $lblStatus = New-Object System.Windows.Forms.Label
     $lblStatus.Text = ""
-    $lblStatus.Location = New-Object System.Drawing.Point(110, 122)
+    $lblStatus.Location = New-Object System.Drawing.Point(110, 132)
     $lblStatus.Size = New-Object System.Drawing.Size(250, 20)
     $lblStatus.Font = New-Object System.Drawing.Font("Segoe UI", 8.5)
     $loginForm.Controls.Add($lblStatus)
@@ -213,7 +238,8 @@ function Get-SessionCredential {
             return
         }
         
-        $domain = if ($Environment -eq "PROD") { "NA" } else { "nadev" }
+        $selEnv = $cmbEnvLogin.SelectedItem
+        $domain = if ($selEnv -eq "PROD") { "NA" } else { "nadev" }
         
         if ($user -notlike "*\*") {
             $user = "$domain\$user"
@@ -221,7 +247,7 @@ function Get-SessionCredential {
         } 
         elseif ($user -notmatch "^(?i)$domain\\") {
             $confirm = [System.Windows.Forms.MessageBox]::Show(
-                "You entered a domain that doesn't match the expected domain for $Environment ($domain\).`n`nAre you sure you want to continue?",
+                "You entered a domain that doesn't match the expected domain for $selEnv ($domain\).`n`nAre you sure you want to continue?",
                 "Domain Mismatch", "YesNo", "Warning")
             if ($confirm -ne "Yes") {
                 return
@@ -298,9 +324,11 @@ function Get-SessionCredential {
         $secPass = ConvertTo-SecureString $txtPass.Text -AsPlainText -Force
         $cred = New-Object System.Management.Automation.PSCredential($txtUser.Text, $secPass)
         
+        $selEnv = $cmbEnvLogin.SelectedItem
+        
         # Save username for next time
-        if ($script:SavedUsers["${Environment}_User"] -ne $txtUser.Text) {
-            $script:SavedUsers["${Environment}_User"] = $txtUser.Text
+        if ($script:SavedUsers["${selEnv}_User"] -ne $txtUser.Text) {
+            $script:SavedUsers["${selEnv}_User"] = $txtUser.Text
             if ($script:Servers) {
                 Save-Servers $script:Servers
             } else {
@@ -311,7 +339,7 @@ function Get-SessionCredential {
         }
         
         $loginForm.Dispose()
-        return $cred
+        return @{ Credential = $cred; Environment = $selEnv }
     }
 
     $loginForm.Dispose()

@@ -339,7 +339,7 @@ function Get-SessionCredential {
         }
         
         $loginForm.Dispose()
-        return @{ Credential = $cred; Environment = $selEnv }
+        return [PSCustomObject]@{ Credential = $cred; Environment = $selEnv }
     }
 
     $loginForm.Dispose()
@@ -362,13 +362,13 @@ function Connect-ServerPath {
 
     # Check if this is a local path (does not start with \\)
     if ($UncPath -notlike "\\*") {
-        return @{ Success = $true; Message = "Local path" }
+        return [PSCustomObject]@{ Success = $true; Message = "Local path" }
     }
 
     # Extract the root share (e.g., \\SERVER\D$) from the full path
     $parts = $UncPath.TrimStart('\').Split('\')
     if ($parts.Count -eq 0 -or [string]::IsNullOrWhiteSpace($parts[0])) {
-        return @{ Success = $false; Message = "Invalid UNC path: $UncPath" }
+        return [PSCustomObject]@{ Success = $false; Message = "Invalid UNC path: $UncPath" }
     }
     
     # If only the server name is provided, connect to the IPC$ administrative share
@@ -388,13 +388,13 @@ function Connect-ServerPath {
         $result = net use $rootShare /user:$username $password 2>&1
 
         if ($LASTEXITCODE -ne 0) {
-            return @{ Success = $false; Message = "Connection failed: $result" }
+            return [PSCustomObject]@{ Success = $false; Message = "Connection failed: $result" }
         }
 
-        return @{ Success = $true; Message = "Connected" }
+        return [PSCustomObject]@{ Success = $true; Message = "Connected" }
     }
     catch {
-        return @{ Success = $false; Message = $_.Exception.Message }
+        return [PSCustomObject]@{ Success = $false; Message = $_.Exception.Message }
     }
 }
 

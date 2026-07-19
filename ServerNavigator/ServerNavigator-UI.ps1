@@ -279,7 +279,7 @@ function Show-ServerDialog {
 
     if ($result -eq "OK") {
         $hostValue = $txtHost.Text.Trim().TrimStart('\')
-        return @{
+        return [PSCustomObject]@{
             Name        = $txtName.Text.Trim()
             Hostname    = $hostValue
             SharePath   = "\\$hostValue"

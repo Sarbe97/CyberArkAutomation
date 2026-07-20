@@ -1,4 +1,4 @@
-﻿# ============================================================
+# ============================================================
 # SharePoint Utilities (Microsoft Graph API)
 # Common functions for SharePoint Excel integration shared
 # across all Scheduler features.
@@ -384,19 +384,26 @@ function Update-SharePointExcel {
     $DateColumns = [System.Collections.Generic.List[string]]::new()
 
     if ($fileExists -and (Test-Path $localTempXlsx)) {
-        $existingRows = @(Import-Excel -Path $localTempXlsx -WorksheetName $effectiveSheet -ErrorAction SilentlyContinue)
-        if ($existingRows -and $existingRows.Count -gt 0) {
+        $existingRows = @(Import-Excel -Path $localTempXlsx -WorksheetName $effectiveSheet -ErrorAction SilentlyContinue | Where-Object { $_ -ne $null })
+        if ($existingRows -and $existingRows.Count -gt 0 -and $null -ne $existingRows[0]) {
             $allProps = $existingRows[0].PSObject.Properties.Name
             foreach ($col in ($allProps | Select-Object -Skip 1)) {
                 if (-not $DateColumns.Contains($col)) { $DateColumns.Add($col) }
             }
             foreach ($existRow in $existingRows) {
+                if ($null -eq $existRow) { continue }
                 $mName = $existRow.Metric
+                if ([string]::IsNullOrWhiteSpace($mName)) { continue }
                 if (-not $SheetData.Contains($mName)) { $SheetData[$mName] = [ordered]@{} }
                 foreach ($col in $DateColumns) { $SheetData[$mName][$col] = $existRow.$col }
             }
             if ($LogPath) {
                 Write-Log -Message "Loaded existing sheet '$effectiveSheet' with $($DateColumns.Count) date column(s)." -ScriptName $ScriptName -LogPath $LogPath
+            }
+        }
+        else {
+            if ($LogPath) {
+                Write-Log -Message "Existing file found but sheet '$effectiveSheet' has no readable rows. Starting fresh." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
             }
         }
     }

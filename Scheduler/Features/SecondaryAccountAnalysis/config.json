@@ -14,7 +14,7 @@
       "SharePoint": {
         "Enabled": true,
         "_Comment_FileName": "Name of the Excel file. You can share one file across features (each using its own SheetName) or use a separate file per feature.",
-        "FileName": "SAA_DailyReport.xlsx",
+        "FileName": "CyberArk_DailyReport.xlsx",
         "_Comment_SheetName": "If non-blank, data goes into this named sheet. If blank, defaults to monthly sheet (e.g. Jul-2026).",
         "SheetName": "SecondaryAccountAnalysis",
         "_Comment_FolderPath": "Path within the document library where the Excel file is stored.",

@@ -33,6 +33,7 @@ if (-not (Test-Path $ExportDir)) { New-Item -ItemType Directory -Path $ExportDir
 . (Join-Path $FeatureRoot   "Modules\SAA_DataCollection.ps1")
 . (Join-Path $FeatureRoot   "Modules\SAA_SafeOperations.ps1")
 . (Join-Path $FeatureRoot   "Modules\SAA_Notifications.ps1")
+. (Join-Path $FeatureRoot   "Modules\SAA_SharePointReport.ps1")
 
 Write-Log -Message "Execution started" -ScriptName $ScriptName -LogPath $LogPath
 $overallStartTime = Get-Date
@@ -386,36 +387,25 @@ try {
             $cfgSP = $featureConfig.SharePoint
             if ($null -ne $cfgSP -and $cfgSP.Enabled -and $null -ne $config.SharePoint) {
                 Write-Log -Message "========== SHAREPOINT UPLOAD (Analysis) ==========" -ScriptName $ScriptName -LogPath $LogPath
-                try {
-                    $spDataRows = @(
-                        [PSCustomObject]@{ Metric = "Secondary Accounts";       Value = "" }
-                        [PSCustomObject]@{ Metric = "Total Scanned";            Value = $secondaryADAccounts.Count }
-                        [PSCustomObject]@{ Metric = "Already Managed";          Value = $countManaged }
-                        [PSCustomObject]@{ Metric = "Needs Safe + Onboard";     Value = $countNeedsAll }
-                        [PSCustomObject]@{ Metric = "Needs Onboarding Only";    Value = $countNeedsOnboarding }
-                        [PSCustomObject]@{ Metric = "Issues";                   Value = "" }
-                        [PSCustomObject]@{ Metric = "Missing AD Group";         Value = $countMissingGroup }
-                        [PSCustomObject]@{ Metric = "Primary Disabled";         Value = $countPrimaryDisabled }
-                        [PSCustomObject]@{ Metric = "Secondary Disabled";       Value = $countSecondaryDisabled }
-                        [PSCustomObject]@{ Metric = "Missing Primary";          Value = $countMissingPrimary }
-                    )
-                    $spSectionHeaders = @("Secondary Accounts", "Issues")
+                
+                $metricsHash = @{
+                    TotalScanned          = $secondaryADAccounts.Count
+                    CountManaged          = $countManaged
+                    CountNeedsAll         = $countNeedsAll
+                    CountNeedsOnboarding  = $countNeedsOnboarding
+                    CountMissingGroup     = $countMissingGroup
+                    CountPrimaryDisabled  = $countPrimaryDisabled
+                    CountSecondaryDisabled = $countSecondaryDisabled
+                    CountMissingPrimary   = $countMissingPrimary
+                }
 
-                    Update-SharePointExcel `
-                        -SharePointGlobalConfig $config.SharePoint `
-                        -FileName              $cfgSP.FileName `
-                        -FolderPath            $cfgSP.FolderPath `
-                        -DataRows              $spDataRows `
-                        -SheetName             $cfgSP.SheetName `
-                        -LocalTempDir          $ExportDir `
-                        -SectionHeaders        $spSectionHeaders `
-                        -GlobalCCPUrl          $config.CCP.Url `
-                        -ScriptName            $ScriptName `
-                        -LogPath               $LogPath
-                }
-                catch {
-                    Write-Log -Message "SharePoint upload failed: $($_.Exception.Message)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
-                }
+                Publish-SAASharePointReport `
+                    -GlobalConfig            $config `
+                    -SharePointFeatureConfig $cfgSP `
+                    -Metrics                 $metricsHash `
+                    -ExportDir               $ExportDir `
+                    -ScriptName              $ScriptName `
+                    -LogPath                 $LogPath
             }
 
             Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
@@ -712,38 +702,26 @@ try {
     $cfgSP = $featureConfig.SharePoint
     if ($null -ne $cfgSP -and $cfgSP.Enabled -and $null -ne $config.SharePoint) {
         Write-Log -Message "========== SHAREPOINT UPLOAD ==========" -ScriptName $ScriptName -LogPath $LogPath
-        try {
-            $spDataRows = @(
-                [PSCustomObject]@{ Metric = "Secondary Accounts";       Value = "" }
-                [PSCustomObject]@{ Metric = "Total Scanned";            Value = $totalSecondary }
-                [PSCustomObject]@{ Metric = "Already Managed";          Value = $countManaged }
-                [PSCustomObject]@{ Metric = "Needs Safe + Onboard";     Value = $countNeedsAll }
-                [PSCustomObject]@{ Metric = "Needs Onboarding Only";    Value = $countNeedsOnboarding }
-                [PSCustomObject]@{ Metric = "Issues";                   Value = "" }
-                [PSCustomObject]@{ Metric = "Missing AD Group";         Value = $countMissingGroup }
-                [PSCustomObject]@{ Metric = "Primary Disabled";         Value = $countPrimaryDisabled }
-                [PSCustomObject]@{ Metric = "Secondary Disabled";       Value = $countSecondaryDisabled }
-                [PSCustomObject]@{ Metric = "Missing Primary";          Value = $countMissingPrimary }
-                [PSCustomObject]@{ Metric = "EPV Impact";               Value = "" }
-                [PSCustomObject]@{ Metric = "New EPV Users Consumed";   Value = $newEpvUsersConsumedCnt }
-            )
-            $spSectionHeaders = @("Secondary Accounts", "Issues", "EPV Impact")
+        
+        $metricsHash = @{
+            TotalScanned          = $totalSecondary
+            CountManaged          = $countManaged
+            CountNeedsAll         = $countNeedsAll
+            CountNeedsOnboarding  = $countNeedsOnboarding
+            CountMissingGroup     = $countMissingGroup
+            CountPrimaryDisabled  = $countPrimaryDisabled
+            CountSecondaryDisabled = $countSecondaryDisabled
+            CountMissingPrimary   = $countMissingPrimary
+            NewEPVUsersConsumed   = $newEpvUsersConsumedCnt
+        }
 
-            Update-SharePointExcel `
-                -SharePointGlobalConfig $config.SharePoint `
-                -FileName              $cfgSP.FileName `
-                -FolderPath            $cfgSP.FolderPath `
-                -DataRows              $spDataRows `
-                -SheetName             $cfgSP.SheetName `
-                -LocalTempDir          $ExportDir `
-                -SectionHeaders        $spSectionHeaders `
-                -GlobalCCPUrl          $config.CCP.Url `
-                -ScriptName            $ScriptName `
-                -LogPath               $LogPath
-        }
-        catch {
-            Write-Log -Message "SharePoint upload failed: $($_.Exception.Message)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
-        }
+        Publish-SAASharePointReport `
+            -GlobalConfig            $config `
+            -SharePointFeatureConfig $cfgSP `
+            -Metrics                 $metricsHash `
+            -ExportDir               $ExportDir `
+            -ScriptName              $ScriptName `
+            -LogPath                 $LogPath
     }
     else {
         Write-Log -Message "SharePoint upload is disabled or not configured. Skipping." -ScriptName $ScriptName -LogPath $LogPath

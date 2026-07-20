@@ -11,6 +11,13 @@
         "RetentionDays": 30
       },
 
+      "SharePoint": {
+        "Enabled": true,
+        "FileName": "CyberArk_DailyReport.xlsx",
+        "SheetName": "ServiceAccountAnalysis",
+        "FolderPath": "Project Deliverables/CyberArk_Wipro/Migration"
+      },
+
       "PersonalAccount": {
         "_Comment": "Regex matching personal/human accounts to exclude from the AD service account list.",
         "Pattern": "^[AIMSWaimsw]\\d{6}$"

@@ -10,6 +10,13 @@
         "RetentionDays": 30
       },
 
+      "SharePoint": {
+        "Enabled": true,
+        "FileName": "CyberArk_DailyReport.xlsx",
+        "SheetName": "PersonalSafeAnalysis",
+        "FolderPath": "Project Deliverables/CyberArk_Wipro/Migration"
+      },
+
       "PersonalSafe": {
         "NamingPatternRegex": "^S-A-PR-WI-U\\d{6}$",
         "_Comment_Extraction": "Regex capture group used to extract the primary owner's username from the safe name",

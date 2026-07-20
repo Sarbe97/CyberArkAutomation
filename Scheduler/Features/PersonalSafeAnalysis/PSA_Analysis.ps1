@@ -29,8 +29,10 @@ if (-not (Test-Path $ExportDir)) { New-Item -ItemType Directory -Path $ExportDir
 # Load Shared Utils + Feature Modules
 # ============================================================
 . (Join-Path $SchedulerRoot "Utils.ps1")
+. (Join-Path $SchedulerRoot "SharePointUtils.ps1")
 . (Join-Path $FeatureRoot   "Modules\PSA_DataCollection.ps1")
 . (Join-Path $FeatureRoot   "Modules\PSA_Notifications.ps1")
+. (Join-Path $FeatureRoot   "Modules\PSA_SharePointReport.ps1")
 
 Write-Log -Message "Execution started" -ScriptName $ScriptName -LogPath $LogPath
 $overallStartTime = Get-Date
@@ -365,7 +367,35 @@ try {
             -FromOverride        $cfgNotif.AdminFrom
 
     # ==========================================================
-    # PHASE 5: CLEANUP
+    # PHASE 5: SHAREPOINT UPLOAD
+    # ==========================================================
+    $cfgSP = $featureConfig.SharePoint
+    if ($null -ne $cfgSP -and $cfgSP.Enabled -and $null -ne $config.SharePoint) {
+        Write-Log -Message "========== PHASE 5: SHAREPOINT UPLOAD ==========" -ScriptName $ScriptName -LogPath $LogPath
+        
+        $metricsHash = @{
+            TotalSafes          = $totalSafes
+            TotalAccounts       = $totalAccounts
+            BlankSafesCount     = $blankSafesCount
+            MemberEnabled       = $cntMember_Enabled
+            MemberDisabled      = $cntMember_Disabled
+            MemberNotFound      = $cntMember_NotFound
+            NotMemberEnabled    = $cntNotMember_Enabled
+            NotMemberDisabled   = $cntNotMember_Disabled
+            NotMemberNotFound   = $cntNotMember_NotFound
+        }
+
+        Publish-PSASharePointReport `
+            -GlobalConfig            $config `
+            -SharePointFeatureConfig $cfgSP `
+            -Metrics                 $metricsHash `
+            -ExportDir               $ExportDir `
+            -ScriptName              $ScriptName `
+            -LogPath                 $LogPath
+    }
+
+    # ==========================================================
+    # PHASE 6: CLEANUP
     # ==========================================================
     $cfgCleanup = $featureConfig.Cleanup
     if ($null -ne $cfgCleanup -and $cfgCleanup.Enabled -and $cfgCleanup.RetentionDays -gt 0) {

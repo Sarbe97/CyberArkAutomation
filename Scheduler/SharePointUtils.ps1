@@ -384,8 +384,8 @@ function Update-SharePointExcel {
     $DateColumns = [System.Collections.Generic.List[string]]::new()
 
     if ($fileExists -and (Test-Path $localTempXlsx)) {
-        $existingRows = Import-Excel -Path $localTempXlsx -WorksheetName $effectiveSheet -ErrorAction SilentlyContinue
-        if ($existingRows) {
+        $existingRows = @(Import-Excel -Path $localTempXlsx -WorksheetName $effectiveSheet -ErrorAction SilentlyContinue)
+        if ($existingRows -and $existingRows.Count -gt 0) {
             $allProps = $existingRows[0].PSObject.Properties.Name
             foreach ($col in ($allProps | Select-Object -Skip 1)) {
                 if (-not $DateColumns.Contains($col)) { $DateColumns.Add($col) }
@@ -448,9 +448,10 @@ function Update-SharePointExcel {
 
     # -- Apply section header styling if specified --
     if ($SectionHeaders.Count -gt 0) {
-        $pkg = Open-ExcelPackage -Path $localTempXlsx
-        $ws  = $pkg.Workbook.Worksheets[$effectiveSheet]
-        if ($ws) {
+        $pkg = Open-ExcelPackage -Path $localTempXlsx -ErrorAction SilentlyContinue
+        if ($null -ne $pkg -and $null -ne $pkg.Workbook) {
+            $ws = $pkg.Workbook.Worksheets[$effectiveSheet]
+            if ($ws) {
             $endCol     = $ws.Dimension.End.Column
             $purpleDark = [System.Drawing.Color]::FromArgb(91, 74, 130)
             $white      = [System.Drawing.Color]::White

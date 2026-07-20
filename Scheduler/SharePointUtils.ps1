@@ -1,0 +1,490 @@
+﻿# ============================================================
+# SharePoint Utilities (Microsoft Graph API)
+# Common functions for SharePoint Excel integration shared
+# across all Scheduler features.
+#
+# Auth: Azure AD App  OAuth 2.0 Client Credentials flow
+# API:  Microsoft Graph v1.0
+# Dependencies: ImportExcel (for Excel file manipulation only)
+#
+# Required Azure AD App Permission:
+#   Sites.ReadWrite.All (Application)  Microsoft Graph
+#
+# Exposes:
+#   Get-GraphAccessToken       OAuth2 token via client credentials
+#   Get-SharePointClientSecret  Resolve secret (direct or CCP)
+#   Update-SharePointExcel     Download/create Excel, merge daily
+#                               data column, upload back via Graph
+# ============================================================
+
+# -------------------------------------------------------
+# Get-GraphAccessToken
+# OAuth 2.0 Client Credentials flow.
+# POST https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token
+# Returns: Bearer access token string.
+# -------------------------------------------------------
+function Get-GraphAccessToken {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TenantId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ClientId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ClientSecret,
+
+        [string]$ScriptName = "SharePoint",
+        [string]$LogPath
+    )
+
+    $tokenUrl = "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token"
+
+    $body = @{
+        client_id     = $ClientId
+        client_secret = $ClientSecret
+        scope         = "https://graph.microsoft.com/.default"
+        grant_type    = "client_credentials"
+    }
+
+    if ($LogPath) {
+        Write-Log -Message "Requesting Graph access token from Azure AD (TenantId: $TenantId, ClientId: $ClientId)..." -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    $response = Invoke-RestMethod -Uri $tokenUrl -Method Post -Body $body -ContentType "application/x-www-form-urlencoded" -ErrorAction Stop
+
+    if ($LogPath) {
+        Write-Log -Message "Graph access token acquired successfully." -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    return $response.access_token
+}
+
+# -------------------------------------------------------
+# Get-SharePointClientSecret
+# Resolves the client secret: direct value if non-blank,
+# otherwise falls back to CCP retrieval (Option C pattern).
+# Returns the plain-text secret string.
+# -------------------------------------------------------
+function Get-SharePointClientSecret {
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$SharePointConfig,
+
+        [string]$GlobalCCPUrl,
+        [string]$ScriptName = "SharePoint",
+        [string]$LogPath
+    )
+
+    # Direct secret takes priority if non-blank
+    if (-not [string]::IsNullOrWhiteSpace($SharePointConfig.ClientSecret)) {
+        if ($LogPath) {
+            Write-Log -Message "Using direct ClientSecret from config." -ScriptName $ScriptName -LogPath $LogPath
+        }
+        return $SharePointConfig.ClientSecret
+    }
+
+    # Fall back to CCP
+    if ($null -eq $SharePointConfig.CCP) {
+        throw "SharePoint ClientSecret is blank and no CCP config provided. Cannot authenticate."
+    }
+
+    if ($LogPath) {
+        Write-Log -Message "ClientSecret is blank. Fetching from CyberArk CCP..." -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    $ccpConfig = [PSCustomObject]@{
+        Url    = if ($SharePointConfig.CCP.Url) { $SharePointConfig.CCP.Url } else { $GlobalCCPUrl }
+        AppId  = $SharePointConfig.CCP.AppId
+        Safe   = $SharePointConfig.CCP.Safe
+        Object = $SharePointConfig.CCP.Object
+    }
+
+    $credential = Get-CCPCredential -CCPConfig $ccpConfig -ScriptName $ScriptName -LogPath $LogPath
+    return $credential.Password
+}
+
+# -------------------------------------------------------
+# Get-GraphSiteId
+# Resolves a SharePoint site URL to a Graph site ID.
+# GET https://graph.microsoft.com/v1.0/sites/{host}:/{path}
+# -------------------------------------------------------
+function Get-GraphSiteId {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SiteUrl,
+
+        [Parameter(Mandatory = $true)]
+        [string]$AccessToken,
+
+        [string]$ScriptName = "SharePoint",
+        [string]$LogPath
+    )
+
+    $uri = [System.Uri]$SiteUrl
+    $hostName = $uri.Host
+    $sitePath = $uri.AbsolutePath.TrimEnd('/')
+
+    $graphUrl = "https://graph.microsoft.com/v1.0/sites/${hostName}:${sitePath}"
+    $headers = @{ Authorization = "Bearer $AccessToken" }
+
+    if ($LogPath) {
+        Write-Log -Message "Resolving SharePoint site ID: $graphUrl" -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    $site = Invoke-RestMethod -Uri $graphUrl -Headers $headers -ErrorAction Stop
+
+    if ($LogPath) {
+        Write-Log -Message "Site ID resolved: $($site.id)" -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    return $site.id
+}
+
+# -------------------------------------------------------
+# Get-GraphDriveId
+# Finds the drive (document library) ID by name.
+# GET https://graph.microsoft.com/v1.0/sites/{siteId}/drives
+# -------------------------------------------------------
+function Get-GraphDriveId {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SiteId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$LibraryName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$AccessToken,
+
+        [string]$ScriptName = "SharePoint",
+        [string]$LogPath
+    )
+
+    $graphUrl = "https://graph.microsoft.com/v1.0/sites/$SiteId/drives"
+    $headers = @{ Authorization = "Bearer $AccessToken" }
+
+    if ($LogPath) {
+        Write-Log -Message "Looking up document library '$LibraryName'..." -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    $drives = Invoke-RestMethod -Uri $graphUrl -Headers $headers -ErrorAction Stop
+    $drive = $drives.value | Where-Object { $_.name -eq $LibraryName }
+
+    if (-not $drive) {
+        $available = ($drives.value | Select-Object -ExpandProperty name) -join ', '
+        throw "Document library '$LibraryName' not found on this site. Available libraries: $available"
+    }
+
+    if ($LogPath) {
+        Write-Log -Message "Drive ID for '$LibraryName': $($drive.id)" -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    return $drive.id
+}
+
+# -------------------------------------------------------
+# Get-GraphFile (Download)
+# Downloads a file from SharePoint via Graph.
+# GET /drives/{driveId}/root:/{path}:/content
+# Returns $true if downloaded, $false if file not found.
+# -------------------------------------------------------
+function Get-GraphFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DriveId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ItemPath,           # Path within the drive (e.g. "Folder/SubFolder/File.xlsx")
+
+        [Parameter(Mandatory = $true)]
+        [string]$LocalFilePath,      # Where to save locally
+
+        [Parameter(Mandatory = $true)]
+        [string]$AccessToken,
+
+        [string]$ScriptName = "SharePoint",
+        [string]$LogPath
+    )
+
+    $encodedPath = $ItemPath -replace ' ', '%20'
+    $graphUrl = "https://graph.microsoft.com/v1.0/drives/$DriveId/root:/$encodedPath`:/content"
+    $headers = @{ Authorization = "Bearer $AccessToken" }
+
+    try {
+        Invoke-RestMethod -Uri $graphUrl -Headers $headers -OutFile $LocalFilePath -ErrorAction Stop
+
+        if ($LogPath) {
+            Write-Log -Message "Downloaded file from SharePoint: $ItemPath" -ScriptName $ScriptName -LogPath $LogPath
+        }
+        return $true
+    }
+    catch {
+        $statusCode = $null
+        if ($_.Exception.Response) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+        }
+
+        if ($statusCode -eq 404) {
+            if ($LogPath) {
+                Write-Log -Message "File not found on SharePoint: $ItemPath. A new file will be created." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+            }
+            return $false
+        }
+
+        throw
+    }
+}
+
+# -------------------------------------------------------
+# Set-GraphFile (Upload)
+# Uploads a file to SharePoint via Graph.
+# PUT /drives/{driveId}/root:/{path}:/content
+# Simple upload  works for files up to 4 MB.
+# -------------------------------------------------------
+function Set-GraphFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DriveId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ItemPath,           # Path within the drive
+
+        [Parameter(Mandatory = $true)]
+        [string]$LocalFilePath,      # Local file to upload
+
+        [Parameter(Mandatory = $true)]
+        [string]$AccessToken,
+
+        [string]$ScriptName = "SharePoint",
+        [string]$LogPath
+    )
+
+    $encodedPath = $ItemPath -replace ' ', '%20'
+    $graphUrl = "https://graph.microsoft.com/v1.0/drives/$DriveId/root:/$encodedPath`:/content"
+    $headers = @{ Authorization = "Bearer $AccessToken" }
+
+    $fileBytes = [System.IO.File]::ReadAllBytes($LocalFilePath)
+
+    if ($LogPath) {
+        $fileSizeKB = [math]::Round($fileBytes.Length / 1024, 1)
+        Write-Log -Message "Uploading file to SharePoint: $ItemPath ($fileSizeKB KB)" -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    $null = Invoke-RestMethod -Uri $graphUrl -Headers $headers -Method Put -Body $fileBytes -ContentType "application/octet-stream" -ErrorAction Stop
+
+    if ($LogPath) {
+        Write-Log -Message "File uploaded successfully." -ScriptName $ScriptName -LogPath $LogPath
+    }
+}
+
+# -------------------------------------------------------
+# Update-SharePointExcel
+# Generic function: download/create an Excel file on
+# SharePoint via Microsoft Graph, merge a daily data
+# column into a named sheet, and upload it back.
+#
+# DataRows: Array of objects with 'Metric' and 'Value'
+#           properties.
+# SheetName: If blank/omitted, defaults to "MMM-yyyy"
+#            (e.g. "Jul-2026")  monthly sheets.
+# SectionHeaders: Optional array of Metric names to
+#                 style as section header rows.
+# -------------------------------------------------------
+function Update-SharePointExcel {
+    param(
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject]$SharePointGlobalConfig,    # Global SharePoint config block
+
+        [Parameter(Mandatory = $true)]
+        [string]$FileName,                          # Excel file name (e.g. "SAA_DailyReport.xlsx")
+
+        [string]$FolderPath,                        # Path within the document library (from feature config)
+
+        [Parameter(Mandatory = $true)]
+        [PSCustomObject[]]$DataRows,                # Objects with .Metric and .Value
+
+        [string]$SheetName,                         # Sheet name (blank = MMM-yyyy)
+
+        [string]$LocalTempDir,                      # Temp dir for download/create
+
+        [string[]]$SectionHeaders = @(),            # Metric names that are section headers
+
+        [string]$GlobalCCPUrl,                      # Fallback CCP URL from global config
+        [string]$ScriptName = "SharePoint",
+        [string]$LogPath
+    )
+
+    Import-Module ImportExcel -ErrorAction Stop
+
+    if ($LogPath) {
+        Write-Log -Message "SharePoint Excel update started (Microsoft Graph)..." -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    # -- Resolve Client Secret (direct or CCP) --
+    $clientSecret = Get-SharePointClientSecret `
+        -SharePointConfig $SharePointGlobalConfig `
+        -GlobalCCPUrl     $GlobalCCPUrl `
+        -ScriptName       $ScriptName `
+        -LogPath          $LogPath
+
+    # -- Get Graph Access Token --
+    $accessToken = Get-GraphAccessToken `
+        -TenantId     $SharePointGlobalConfig.TenantId `
+        -ClientId     $SharePointGlobalConfig.ClientId `
+        -ClientSecret $clientSecret `
+        -ScriptName   $ScriptName `
+        -LogPath       $LogPath
+
+    # -- Resolve Site ID and Drive ID --
+    $siteId = Get-GraphSiteId `
+        -SiteUrl     $SharePointGlobalConfig.SiteUrl `
+        -AccessToken $accessToken `
+        -ScriptName  $ScriptName `
+        -LogPath     $LogPath
+
+    $driveId = Get-GraphDriveId `
+        -SiteId      $siteId `
+        -LibraryName $SharePointGlobalConfig.DocumentLibrary `
+        -AccessToken $accessToken `
+        -ScriptName  $ScriptName `
+        -LogPath     $LogPath
+
+    # -- Build paths --
+    $cleanFolderPath = if ($FolderPath) { $FolderPath.TrimEnd('/') } else { "" }
+    $graphItemPath = if ($cleanFolderPath) { "$cleanFolderPath/$FileName" } else { $FileName }
+    $localTempXlsx = Join-Path $LocalTempDir $FileName
+
+    # -- Download existing file or start fresh --
+    $fileExists = Get-GraphFile `
+        -DriveId       $driveId `
+        -ItemPath      $graphItemPath `
+        -LocalFilePath $localTempXlsx `
+        -AccessToken   $accessToken `
+        -ScriptName    $ScriptName `
+        -LogPath       $LogPath
+
+    # -- Resolve sheet name --
+    $effectiveSheet = if (-not [string]::IsNullOrWhiteSpace($SheetName)) { $SheetName } else { Get-Date -Format "MMM-yyyy" }
+    $RunDate = Get-Date -Format "yyyy-MM-dd"
+
+    if ($LogPath) {
+        Write-Log -Message "Target sheet: '$effectiveSheet', Date column: '$RunDate'" -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    # -- Build today's value lookup (skip section headers) --
+    $TodayValues = [ordered]@{}
+    foreach ($row in $DataRows) {
+        if ($row.Metric -in $SectionHeaders) { continue }
+        $TodayValues[$row.Metric] = $row.Value
+    }
+
+    # -- Read existing sheet if available --
+    $SheetData = [ordered]@{}
+    $DateColumns = [System.Collections.Generic.List[string]]::new()
+
+    if ($fileExists -and (Test-Path $localTempXlsx)) {
+        $existingRows = @(Import-Excel -Path $localTempXlsx -WorksheetName $effectiveSheet -ErrorAction SilentlyContinue)
+        if ($existingRows -and $existingRows.Count -gt 0) {
+            $allProps = $existingRows[0].PSObject.Properties.Name
+            foreach ($col in ($allProps | Select-Object -Skip 1)) {
+                if (-not $DateColumns.Contains($col)) { $DateColumns.Add($col) }
+            }
+            foreach ($existRow in $existingRows) {
+                $mName = $existRow.Metric
+                if (-not $SheetData.Contains($mName)) { $SheetData[$mName] = [ordered]@{} }
+                foreach ($col in $DateColumns) { $SheetData[$mName][$col] = $existRow.$col }
+            }
+            if ($LogPath) {
+                Write-Log -Message "Loaded existing sheet '$effectiveSheet' with $($DateColumns.Count) date column(s)." -ScriptName $ScriptName -LogPath $LogPath
+            }
+        }
+    }
+
+    # -- Merge today's column --
+    if (-not $DateColumns.Contains($RunDate)) {
+        $DateColumns.Add($RunDate)
+        if ($LogPath) {
+            Write-Log -Message "Adding new date column: $RunDate" -ScriptName $ScriptName -LogPath $LogPath
+        }
+    }
+    else {
+        if ($LogPath) {
+            Write-Log -Message "Date column '$RunDate' already exists. Overwriting today's values." -ScriptName $ScriptName -LogPath $LogPath
+        }
+    }
+
+    # Build canonical ordered metric list from DataRows (including section headers)
+    $canonicalOrder = @($DataRows | Select-Object -ExpandProperty Metric)
+
+    foreach ($metric in $TodayValues.Keys) {
+        if (-not $SheetData.Contains($metric)) { $SheetData[$metric] = [ordered]@{} }
+        $SheetData[$metric][$RunDate] = $TodayValues[$metric]
+    }
+
+    # -- Build export rows in canonical order --
+    $ExportRows = foreach ($metric in $canonicalOrder) {
+        $obj = [ordered]@{ Metric = $metric }
+        foreach ($dateCol in $DateColumns) {
+            $obj[$dateCol] = if ($SheetData.Contains($metric) -and $SheetData[$metric].Contains($dateCol)) { $SheetData[$metric][$dateCol] } else { "" }
+        }
+        [PSCustomObject]$obj
+    }
+
+    # -- Write sheet --
+    $safeTableName = ($effectiveSheet -replace '[^A-Za-z0-9]', '') + "_" + (Get-Date -Format "MMMyyyy")
+    $excelParams = @{
+        Path          = $localTempXlsx
+        WorksheetName = $effectiveSheet
+        ClearSheet    = $true
+        AutoSize      = $true
+        FreezeTopRow  = $true
+        BoldTopRow    = $true
+        TableName     = $safeTableName
+        TableStyle    = "Medium9"
+        ErrorAction   = "Stop"
+    }
+    $ExportRows | Export-Excel @excelParams
+
+    # -- Apply section header styling if specified --
+    if ($SectionHeaders.Count -gt 0) {
+        $pkg = Open-ExcelPackage -Path $localTempXlsx
+        $ws = $pkg.Workbook.Worksheets[$effectiveSheet]
+        if ($ws) {
+            $endCol = $ws.Dimension.End.Column
+            $purpleDark = [System.Drawing.Color]::FromArgb(91, 74, 130)
+            $white = [System.Drawing.Color]::White
+            for ($r = 2; $r -le $ws.Dimension.End.Row; $r++) {
+                if ([string]$ws.Cells[$r, 1].Value -in $SectionHeaders) {
+                    $rng = $ws.Cells[$r, 1, $r, $endCol]
+                    $rng.Style.Font.Bold = $true
+                    $rng.Style.Font.Color.SetColor($white)
+                    $rng.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $rng.Style.Fill.BackgroundColor.SetColor($purpleDark)
+                }
+            }
+        }
+        Close-ExcelPackage $pkg
+
+        if ($LogPath) {
+            Write-Log -Message "Section header styling applied to $($SectionHeaders.Count) header row(s)." -ScriptName $ScriptName -LogPath $LogPath
+        }
+    }
+
+    if ($LogPath) {
+        Write-Log -Message "Excel sheet '$effectiveSheet' updated with $($DateColumns.Count) date column(s)." -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    # -- Upload via Graph --
+    Set-GraphFile `
+        -DriveId       $driveId `
+        -ItemPath      $graphItemPath `
+        -LocalFilePath $localTempXlsx `
+        -AccessToken   $accessToken `
+        -ScriptName    $ScriptName `
+        -LogPath       $LogPath
+
+    if ($LogPath) {
+        Write-Log -Message "SharePoint Excel update completed successfully." -ScriptName $ScriptName -LogPath $LogPath
+    }
+}

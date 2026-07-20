@@ -121,12 +121,12 @@ function Get-GraphSiteId {
         [string]$LogPath
     )
 
-    $uri       = [System.Uri]$SiteUrl
-    $hostName  = $uri.Host
-    $sitePath  = $uri.AbsolutePath.TrimEnd('/')
+    $uri = [System.Uri]$SiteUrl
+    $hostName = $uri.Host
+    $sitePath = $uri.AbsolutePath.TrimEnd('/')
 
     $graphUrl = "https://graph.microsoft.com/v1.0/sites/${hostName}:${sitePath}"
-    $headers  = @{ Authorization = "Bearer $AccessToken" }
+    $headers = @{ Authorization = "Bearer $AccessToken" }
 
     if ($LogPath) {
         Write-Log -Message "Resolving SharePoint site ID: $graphUrl" -ScriptName $ScriptName -LogPath $LogPath
@@ -162,14 +162,14 @@ function Get-GraphDriveId {
     )
 
     $graphUrl = "https://graph.microsoft.com/v1.0/sites/$SiteId/drives"
-    $headers  = @{ Authorization = "Bearer $AccessToken" }
+    $headers = @{ Authorization = "Bearer $AccessToken" }
 
     if ($LogPath) {
         Write-Log -Message "Looking up document library '$LibraryName'..." -ScriptName $ScriptName -LogPath $LogPath
     }
 
     $drives = Invoke-RestMethod -Uri $graphUrl -Headers $headers -ErrorAction Stop
-    $drive  = $drives.value | Where-Object { $_.name -eq $LibraryName }
+    $drive = $drives.value | Where-Object { $_.name -eq $LibraryName }
 
     if (-not $drive) {
         $available = ($drives.value | Select-Object -ExpandProperty name) -join ', '
@@ -208,8 +208,8 @@ function Get-GraphFile {
     )
 
     $encodedPath = $ItemPath -replace ' ', '%20'
-    $graphUrl    = "https://graph.microsoft.com/v1.0/drives/$DriveId/root:/$encodedPath`:/content"
-    $headers     = @{ Authorization = "Bearer $AccessToken" }
+    $graphUrl = "https://graph.microsoft.com/v1.0/drives/$DriveId/root:/$encodedPath`:/content"
+    $headers = @{ Authorization = "Bearer $AccessToken" }
 
     try {
         Invoke-RestMethod -Uri $graphUrl -Headers $headers -OutFile $LocalFilePath -ErrorAction Stop
@@ -261,8 +261,8 @@ function Set-GraphFile {
     )
 
     $encodedPath = $ItemPath -replace ' ', '%20'
-    $graphUrl    = "https://graph.microsoft.com/v1.0/drives/$DriveId/root:/$encodedPath`:/content"
-    $headers     = @{ Authorization = "Bearer $AccessToken" }
+    $graphUrl = "https://graph.microsoft.com/v1.0/drives/$DriveId/root:/$encodedPath`:/content"
+    $headers = @{ Authorization = "Bearer $AccessToken" }
 
     $fileBytes = [System.IO.File]::ReadAllBytes($LocalFilePath)
 
@@ -352,7 +352,7 @@ function Update-SharePointExcel {
 
     # -- Build paths --
     $cleanFolderPath = if ($FolderPath) { $FolderPath.TrimEnd('/') } else { "" }
-    $graphItemPath   = if ($cleanFolderPath) { "$cleanFolderPath/$FileName" } else { $FileName }
+    $graphItemPath = if ($cleanFolderPath) { "$cleanFolderPath/$FileName" } else { $FileName }
     $localTempXlsx = Join-Path $LocalTempDir $FileName
 
     # -- Download existing file or start fresh --
@@ -380,7 +380,7 @@ function Update-SharePointExcel {
     }
 
     # -- Read existing sheet if available --
-    $SheetData   = [ordered]@{}
+    $SheetData = [ordered]@{}
     $DateColumns = [System.Collections.Generic.List[string]]::new()
 
     if ($fileExists -and (Test-Path $localTempXlsx)) {
@@ -452,9 +452,160 @@ function Update-SharePointExcel {
         if ($null -ne $pkg -and $null -ne $pkg.Workbook) {
             $ws = $pkg.Workbook.Worksheets[$effectiveSheet]
             if ($ws) {
-            $endCol     = $ws.Dimension.End.Column
+                $endCol = $ws.Dimension.End.Column
+                $purpleDark = [System.Drawing.Color]::FromArgb(91, 74, 130)
+                $white = [System.Drawing.Color]::White
+                for ($r = 2; $r -le $ws.Dimension.End.Row; $r++) {
+                    if ([string]$ws.Cells[$r, 1].Value -in $SectionHeaders) {
+                        $rng = $ws.Cells[$r, 1, $r, $endCol]
+                        $rng.Style.Font.Bold = $true
+                        $rng.Style.Font.Color.SetColor($white)
+                        $rng.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                        $rng.Style.Fill.BackgroundColor.SetColor($purpleDark)
+                    }
+                }
+            }
+            Close-ExcelPackage $pkg
+
+            if ($LogPath) {
+                Write-Log -Message "Section header styling applied to $($SectionHeaders.Count) header row(s)." -ScriptName $ScriptName -LogPath $LogPath
+            }
+        }
+    }
+
+    if ($LogPath) {
+        Write-Log -Message "Excel sheet '$effectiveSheet' updated with $($DateColumns.Count) date column(s)." -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    # -- Upload via Graph --
+    Set-GraphFile `
+        -DriveId       $driveId `
+        -ItemPath      $graphItemPath `
+        -LocalFilePath $localTempXlsx `
+        -AccessToken   $accessToken `
+        -ScriptName    $ScriptName `
+        -LogPath       $LogPath
+    else {
+        if ($LogPath) {
+            Write-Log -Message "Date column '$RunDate' already exists. Overwriting today's values." -ScriptName $ScriptName -LogPath $LogPath
+        }
+    }
+
+    # Build canonical ordered metric list from DataRows (including section headers)
+    $canonicalOrder = @($DataRows | Select-Object -ExpandProperty Metric)
+
+    foreach ($metric in $TodayValues.Keys) {
+        if (-not $SheetData.Contains($metric)) { $SheetData[$metric] = [ordered]@{} }
+        $SheetData[$metric][$RunDate] = $TodayValues[$metric]
+    }
+
+    # -- Build export rows in canonical order --
+    $ExportRows = foreach ($metric in $canonicalOrder) {
+        $obj = [ordered]@{ Metric = $metric }
+        foreach ($dateCol in $DateColumns) {
+            $obj[$dateCol] = if ($SheetData.Contains($metric) -and $SheetData[$metric].Contains($dateCol)) { $SheetData[$metric][$dateCol] } else { "" }
+        }
+        [PSCustomObject]$obj
+    }
+
+    # -- Write sheet --
+    $safeTableName = ($effectiveSheet -replace '[^A-Za-z0-9]', '') + "_" + (Get-Date -Format "MMMyyyy")
+    $excelParams = @{
+        Path          = $localTempXlsx
+        WorksheetName = $effectiveSheet
+        ClearSheet    = $true
+        AutoSize      = $true
+        FreezeTopRow  = $true
+        BoldTopRow    = $true
+        TableName     = $safeTableName
+        TableStyle    = "Medium9"
+        ErrorAction   = "Stop"
+    }
+    $ExportRows | Export-Excel @excelParams
+
+    # -- Apply section header styling if specified --
+    if ($SectionHeaders.Count -gt 0) {
+        $pkg = Open-ExcelPackage -Path $localTempXlsx
+        $ws = $pkg.Workbook.Worksheets[$effectiveSheet]
+        if ($ws) {
+            $endCol = $ws.Dimension.End.Column
             $purpleDark = [System.Drawing.Color]::FromArgb(91, 74, 130)
-            $white      = [System.Drawing.Color]::White
+            $white = [System.Drawing.Color]::White
+            for ($r = 2; $r -le $ws.Dimension.End.Row; $r++) {
+                if ([string]$ws.Cells[$r, 1].Value -in $SectionHeaders) {
+                    $rng = $ws.Cells[$r, 1, $r, $endCol]
+                    $rng.Style.Font.Bold = $true
+                    $rng.Style.Font.Color.SetColor($white)
+                    $rng.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                    $rng.Style.Fill.BackgroundColor.SetColor($purpleDark)
+                }
+            }
+        }
+        Close-ExcelPackage $pkg
+
+        if ($LogPath) {
+            Write-Log -Message "Section header styling applied to $($SectionHeaders.Count) header row(s)." -ScriptName $ScriptName -LogPath $LogPath
+        }
+    }
+
+    if ($LogPath) {
+        Write-Log -Message "Excel sheet '$effectiveSheet' updated with $($DateColumns.Count) date column(s)." -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    # -- Upload via Graph --
+    Set-GraphFile `
+        -DriveId       $driveId `
+        -ItemPath      $graphItemPath `
+        -LocalFilePath $localTempXlsx `
+        -AccessToken   $accessToken `
+        -ScriptName    $ScriptName `
+        -LogPath       $LogPath
+    else {
+        if ($LogPath) {
+            Write-Log -Message "Date column '$RunDate' already exists. Overwriting today's values." -ScriptName $ScriptName -LogPath $LogPath
+        }
+    }
+
+    # Build canonical ordered metric list from DataRows (including section headers)
+    $canonicalOrder = @($DataRows | Select-Object -ExpandProperty Metric)
+
+    foreach ($metric in $TodayValues.Keys) {
+        if (-not $SheetData.Contains($metric)) { $SheetData[$metric] = [ordered]@{} }
+        $SheetData[$metric][$RunDate] = $TodayValues[$metric]
+    }
+
+    # -- Build export rows in canonical order --
+    $ExportRows = foreach ($metric in $canonicalOrder) {
+        $obj = [ordered]@{ Metric = $metric }
+        foreach ($dateCol in $DateColumns) {
+            $obj[$dateCol] = if ($SheetData.Contains($metric) -and $SheetData[$metric].Contains($dateCol)) { $SheetData[$metric][$dateCol] } else { "" }
+        }
+        [PSCustomObject]$obj
+    }
+
+    # -- Write sheet --
+    $safeTableName = ($effectiveSheet -replace '[^A-Za-z0-9]', '') + "_" + (Get-Date -Format "MMMyyyy")
+    $excelParams = @{
+        Path          = $localTempXlsx
+        WorksheetName = $effectiveSheet
+        ClearSheet    = $true
+        AutoSize      = $true
+        FreezeTopRow  = $true
+        BoldTopRow    = $true
+        TableName     = $safeTableName
+        TableStyle    = "Medium9"
+        ErrorAction   = "Stop"
+    }
+    $ExportRows | Export-Excel @excelParams
+
+    # -- Apply section header styling if specified --
+    if ($SectionHeaders.Count -gt 0) {
+        $pkg = Open-ExcelPackage -Path $localTempXlsx
+        $ws = $pkg.Workbook.Worksheets[$effectiveSheet]
+        if ($ws) {
+            $endCol = $ws.Dimension.End.Column
+            $purpleDark = [System.Drawing.Color]::FromArgb(91, 74, 130)
+            $white = [System.Drawing.Color]::White
             for ($r = 2; $r -le $ws.Dimension.End.Row; $r++) {
                 if ([string]$ws.Cells[$r, 1].Value -in $SectionHeaders) {
                     $rng = $ws.Cells[$r, 1, $r, $endCol]

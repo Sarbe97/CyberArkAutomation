@@ -1,19 +1,19 @@
-# ============================================================
+﻿# ============================================================
 # SharePoint Utilities (Microsoft Graph API)
 # Common functions for SharePoint Excel integration shared
 # across all Scheduler features.
 #
-# Auth: Azure AD App — OAuth 2.0 Client Credentials flow
+# Auth: Azure AD App  OAuth 2.0 Client Credentials flow
 # API:  Microsoft Graph v1.0
 # Dependencies: ImportExcel (for Excel file manipulation only)
 #
 # Required Azure AD App Permission:
-#   Sites.ReadWrite.All (Application) — Microsoft Graph
+#   Sites.ReadWrite.All (Application)  Microsoft Graph
 #
 # Exposes:
-#   Get-GraphAccessToken      — OAuth2 token via client credentials
-#   Get-SharePointClientSecret — Resolve secret (direct or CCP)
-#   Update-SharePointExcel    — Download/create Excel, merge daily
+#   Get-GraphAccessToken       OAuth2 token via client credentials
+#   Get-SharePointClientSecret  Resolve secret (direct or CCP)
+#   Update-SharePointExcel     Download/create Excel, merge daily
 #                               data column, upload back via Graph
 # ============================================================
 
@@ -240,7 +240,7 @@ function Get-GraphFile {
 # Set-GraphFile (Upload)
 # Uploads a file to SharePoint via Graph.
 # PUT /drives/{driveId}/root:/{path}:/content
-# Simple upload — works for files up to 4 MB.
+# Simple upload  works for files up to 4 MB.
 # -------------------------------------------------------
 function Set-GraphFile {
     param(
@@ -287,7 +287,7 @@ function Set-GraphFile {
 # DataRows: Array of objects with 'Metric' and 'Value'
 #           properties.
 # SheetName: If blank/omitted, defaults to "MMM-yyyy"
-#            (e.g. "Jul-2026") — monthly sheets.
+#            (e.g. "Jul-2026")  monthly sheets.
 # SectionHeaders: Optional array of Metric names to
 #                 style as section header rows.
 # -------------------------------------------------------
@@ -448,158 +448,6 @@ function Update-SharePointExcel {
 
     # -- Apply section header styling if specified --
     if ($SectionHeaders.Count -gt 0) {
-        $pkg = Open-ExcelPackage -Path $localTempXlsx -ErrorAction SilentlyContinue
-        if ($null -ne $pkg -and $null -ne $pkg.Workbook) {
-            $ws = $pkg.Workbook.Worksheets[$effectiveSheet]
-            if ($ws) {
-                $endCol = $ws.Dimension.End.Column
-                $purpleDark = [System.Drawing.Color]::FromArgb(91, 74, 130)
-                $white = [System.Drawing.Color]::White
-                for ($r = 2; $r -le $ws.Dimension.End.Row; $r++) {
-                    if ([string]$ws.Cells[$r, 1].Value -in $SectionHeaders) {
-                        $rng = $ws.Cells[$r, 1, $r, $endCol]
-                        $rng.Style.Font.Bold = $true
-                        $rng.Style.Font.Color.SetColor($white)
-                        $rng.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-                        $rng.Style.Fill.BackgroundColor.SetColor($purpleDark)
-                    }
-                }
-            }
-            Close-ExcelPackage $pkg
-
-            if ($LogPath) {
-                Write-Log -Message "Section header styling applied to $($SectionHeaders.Count) header row(s)." -ScriptName $ScriptName -LogPath $LogPath
-            }
-        }
-    }
-
-    if ($LogPath) {
-        Write-Log -Message "Excel sheet '$effectiveSheet' updated with $($DateColumns.Count) date column(s)." -ScriptName $ScriptName -LogPath $LogPath
-    }
-
-    # -- Upload via Graph --
-    Set-GraphFile `
-        -DriveId       $driveId `
-        -ItemPath      $graphItemPath `
-        -LocalFilePath $localTempXlsx `
-        -AccessToken   $accessToken `
-        -ScriptName    $ScriptName `
-        -LogPath       $LogPath
-    else {
-        if ($LogPath) {
-            Write-Log -Message "Date column '$RunDate' already exists. Overwriting today's values." -ScriptName $ScriptName -LogPath $LogPath
-        }
-    }
-
-    # Build canonical ordered metric list from DataRows (including section headers)
-    $canonicalOrder = @($DataRows | Select-Object -ExpandProperty Metric)
-
-    foreach ($metric in $TodayValues.Keys) {
-        if (-not $SheetData.Contains($metric)) { $SheetData[$metric] = [ordered]@{} }
-        $SheetData[$metric][$RunDate] = $TodayValues[$metric]
-    }
-
-    # -- Build export rows in canonical order --
-    $ExportRows = foreach ($metric in $canonicalOrder) {
-        $obj = [ordered]@{ Metric = $metric }
-        foreach ($dateCol in $DateColumns) {
-            $obj[$dateCol] = if ($SheetData.Contains($metric) -and $SheetData[$metric].Contains($dateCol)) { $SheetData[$metric][$dateCol] } else { "" }
-        }
-        [PSCustomObject]$obj
-    }
-
-    # -- Write sheet --
-    $safeTableName = ($effectiveSheet -replace '[^A-Za-z0-9]', '') + "_" + (Get-Date -Format "MMMyyyy")
-    $excelParams = @{
-        Path          = $localTempXlsx
-        WorksheetName = $effectiveSheet
-        ClearSheet    = $true
-        AutoSize      = $true
-        FreezeTopRow  = $true
-        BoldTopRow    = $true
-        TableName     = $safeTableName
-        TableStyle    = "Medium9"
-        ErrorAction   = "Stop"
-    }
-    $ExportRows | Export-Excel @excelParams
-
-    # -- Apply section header styling if specified --
-    if ($SectionHeaders.Count -gt 0) {
-        $pkg = Open-ExcelPackage -Path $localTempXlsx
-        $ws = $pkg.Workbook.Worksheets[$effectiveSheet]
-        if ($ws) {
-            $endCol = $ws.Dimension.End.Column
-            $purpleDark = [System.Drawing.Color]::FromArgb(91, 74, 130)
-            $white = [System.Drawing.Color]::White
-            for ($r = 2; $r -le $ws.Dimension.End.Row; $r++) {
-                if ([string]$ws.Cells[$r, 1].Value -in $SectionHeaders) {
-                    $rng = $ws.Cells[$r, 1, $r, $endCol]
-                    $rng.Style.Font.Bold = $true
-                    $rng.Style.Font.Color.SetColor($white)
-                    $rng.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-                    $rng.Style.Fill.BackgroundColor.SetColor($purpleDark)
-                }
-            }
-        }
-        Close-ExcelPackage $pkg
-
-        if ($LogPath) {
-            Write-Log -Message "Section header styling applied to $($SectionHeaders.Count) header row(s)." -ScriptName $ScriptName -LogPath $LogPath
-        }
-    }
-
-    if ($LogPath) {
-        Write-Log -Message "Excel sheet '$effectiveSheet' updated with $($DateColumns.Count) date column(s)." -ScriptName $ScriptName -LogPath $LogPath
-    }
-
-    # -- Upload via Graph --
-    Set-GraphFile `
-        -DriveId       $driveId `
-        -ItemPath      $graphItemPath `
-        -LocalFilePath $localTempXlsx `
-        -AccessToken   $accessToken `
-        -ScriptName    $ScriptName `
-        -LogPath       $LogPath
-    else {
-        if ($LogPath) {
-            Write-Log -Message "Date column '$RunDate' already exists. Overwriting today's values." -ScriptName $ScriptName -LogPath $LogPath
-        }
-    }
-
-    # Build canonical ordered metric list from DataRows (including section headers)
-    $canonicalOrder = @($DataRows | Select-Object -ExpandProperty Metric)
-
-    foreach ($metric in $TodayValues.Keys) {
-        if (-not $SheetData.Contains($metric)) { $SheetData[$metric] = [ordered]@{} }
-        $SheetData[$metric][$RunDate] = $TodayValues[$metric]
-    }
-
-    # -- Build export rows in canonical order --
-    $ExportRows = foreach ($metric in $canonicalOrder) {
-        $obj = [ordered]@{ Metric = $metric }
-        foreach ($dateCol in $DateColumns) {
-            $obj[$dateCol] = if ($SheetData.Contains($metric) -and $SheetData[$metric].Contains($dateCol)) { $SheetData[$metric][$dateCol] } else { "" }
-        }
-        [PSCustomObject]$obj
-    }
-
-    # -- Write sheet --
-    $safeTableName = ($effectiveSheet -replace '[^A-Za-z0-9]', '') + "_" + (Get-Date -Format "MMMyyyy")
-    $excelParams = @{
-        Path          = $localTempXlsx
-        WorksheetName = $effectiveSheet
-        ClearSheet    = $true
-        AutoSize      = $true
-        FreezeTopRow  = $true
-        BoldTopRow    = $true
-        TableName     = $safeTableName
-        TableStyle    = "Medium9"
-        ErrorAction   = "Stop"
-    }
-    $ExportRows | Export-Excel @excelParams
-
-    # -- Apply section header styling if specified --
-    if ($SectionHeaders.Count -gt 0) {
         $pkg = Open-ExcelPackage -Path $localTempXlsx
         $ws = $pkg.Workbook.Worksheets[$effectiveSheet]
         if ($ws) {
@@ -639,4 +487,147 @@ function Update-SharePointExcel {
     if ($LogPath) {
         Write-Log -Message "SharePoint Excel update completed successfully." -ScriptName $ScriptName -LogPath $LogPath
     }
+}
+}
+
+# -- Build export rows in canonical order --
+$ExportRows = foreach ($metric in $canonicalOrder) {
+    $obj = [ordered]@{ Metric = $metric }
+    foreach ($dateCol in $DateColumns) {
+        $obj[$dateCol] = if ($SheetData.Contains($metric) -and $SheetData[$metric].Contains($dateCol)) { $SheetData[$metric][$dateCol] } else { "" }
+    }
+    [PSCustomObject]$obj
+}
+
+# -- Write sheet --
+$safeTableName = ($effectiveSheet -replace '[^A-Za-z0-9]', '') + "_" + (Get-Date -Format "MMMyyyy")
+$excelParams = @{
+    Path          = $localTempXlsx
+    WorksheetName = $effectiveSheet
+    ClearSheet    = $true
+    AutoSize      = $true
+    FreezeTopRow  = $true
+    BoldTopRow    = $true
+    TableName     = $safeTableName
+    TableStyle    = "Medium9"
+    ErrorAction   = "Stop"
+}
+$ExportRows | Export-Excel @excelParams
+
+# -- Apply section header styling if specified --
+if ($SectionHeaders.Count -gt 0) {
+    $pkg = Open-ExcelPackage -Path $localTempXlsx
+    $ws = $pkg.Workbook.Worksheets[$effectiveSheet]
+    if ($ws) {
+        $endCol = $ws.Dimension.End.Column
+        $purpleDark = [System.Drawing.Color]::FromArgb(91, 74, 130)
+        $white = [System.Drawing.Color]::White
+        for ($r = 2; $r -le $ws.Dimension.End.Row; $r++) {
+            if ([string]$ws.Cells[$r, 1].Value -in $SectionHeaders) {
+                $rng = $ws.Cells[$r, 1, $r, $endCol]
+                $rng.Style.Font.Bold = $true
+                $rng.Style.Font.Color.SetColor($white)
+                $rng.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                $rng.Style.Fill.BackgroundColor.SetColor($purpleDark)
+            }
+        }
+    }
+    Close-ExcelPackage $pkg
+
+    if ($LogPath) {
+        Write-Log -Message "Section header styling applied to $($SectionHeaders.Count) header row(s)." -ScriptName $ScriptName -LogPath $LogPath
+    }
+}
+
+if ($LogPath) {
+    Write-Log -Message "Excel sheet '$effectiveSheet' updated with $($DateColumns.Count) date column(s)." -ScriptName $ScriptName -LogPath $LogPath
+}
+
+# -- Upload via Graph --
+Set-GraphFile `
+    -DriveId       $driveId `
+    -ItemPath      $graphItemPath `
+    -LocalFilePath $localTempXlsx `
+    -AccessToken   $accessToken `
+    -ScriptName    $ScriptName `
+    -LogPath       $LogPath
+
+if ($LogPath) {
+    Write-Log -Message "SharePoint Excel update completed successfully." -ScriptName $ScriptName -LogPath $LogPath
+}
+}
+
+# Build canonical ordered metric list from DataRows (including section headers)
+$canonicalOrder = @($DataRows | Select-Object -ExpandProperty Metric)
+
+foreach ($metric in $TodayValues.Keys) {
+    if (-not $SheetData.Contains($metric)) { $SheetData[$metric] = [ordered]@{} }
+    $SheetData[$metric][$RunDate] = $TodayValues[$metric]
+}
+
+# -- Build export rows in canonical order --
+$ExportRows = foreach ($metric in $canonicalOrder) {
+    $obj = [ordered]@{ Metric = $metric }
+    foreach ($dateCol in $DateColumns) {
+        $obj[$dateCol] = if ($SheetData.Contains($metric) -and $SheetData[$metric].Contains($dateCol)) { $SheetData[$metric][$dateCol] } else { "" }
+    }
+    [PSCustomObject]$obj
+}
+
+# -- Write sheet --
+$safeTableName = ($effectiveSheet -replace '[^A-Za-z0-9]', '') + "_" + (Get-Date -Format "MMMyyyy")
+$excelParams = @{
+    Path          = $localTempXlsx
+    WorksheetName = $effectiveSheet
+    ClearSheet    = $true
+    AutoSize      = $true
+    FreezeTopRow  = $true
+    BoldTopRow    = $true
+    TableName     = $safeTableName
+    TableStyle    = "Medium9"
+    ErrorAction   = "Stop"
+}
+$ExportRows | Export-Excel @excelParams
+
+# -- Apply section header styling if specified --
+if ($SectionHeaders.Count -gt 0) {
+    $pkg = Open-ExcelPackage -Path $localTempXlsx
+    $ws = $pkg.Workbook.Worksheets[$effectiveSheet]
+    if ($ws) {
+        $endCol = $ws.Dimension.End.Column
+        $purpleDark = [System.Drawing.Color]::FromArgb(91, 74, 130)
+        $white = [System.Drawing.Color]::White
+        for ($r = 2; $r -le $ws.Dimension.End.Row; $r++) {
+            if ([string]$ws.Cells[$r, 1].Value -in $SectionHeaders) {
+                $rng = $ws.Cells[$r, 1, $r, $endCol]
+                $rng.Style.Font.Bold = $true
+                $rng.Style.Font.Color.SetColor($white)
+                $rng.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                $rng.Style.Fill.BackgroundColor.SetColor($purpleDark)
+            }
+        }
+    }
+    Close-ExcelPackage $pkg
+
+    if ($LogPath) {
+        Write-Log -Message "Section header styling applied to $($SectionHeaders.Count) header row(s)." -ScriptName $ScriptName -LogPath $LogPath
+    }
+}
+
+if ($LogPath) {
+    Write-Log -Message "Excel sheet '$effectiveSheet' updated with $($DateColumns.Count) date column(s)." -ScriptName $ScriptName -LogPath $LogPath
+}
+
+# -- Upload via Graph --
+Set-GraphFile `
+    -DriveId       $driveId `
+    -ItemPath      $graphItemPath `
+    -LocalFilePath $localTempXlsx `
+    -AccessToken   $accessToken `
+    -ScriptName    $ScriptName `
+    -LogPath       $LogPath
+
+if ($LogPath) {
+    Write-Log -Message "SharePoint Excel update completed successfully." -ScriptName $ScriptName -LogPath $LogPath
+}
 }

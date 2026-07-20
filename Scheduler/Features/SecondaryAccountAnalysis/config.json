@@ -18,7 +18,7 @@
         "_Comment_SheetName": "If non-blank, data goes into this named sheet. If blank, defaults to monthly sheet (e.g. Jul-2026).",
         "SheetName": "SecondaryAccountAnalysis",
         "_Comment_FolderPath": "Path within the document library where the Excel file is stored.",
-        "FolderPath": "Project Documents/Project Deliverables/CyberArk_Wipro/Migration"
+        "FolderPath": "Project Deliverables/CyberArk_Wipro/Migration"
       },
 
       "PrimaryAccount": {

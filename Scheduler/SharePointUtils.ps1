@@ -315,47 +315,67 @@ function Update-SharePointExcel {
         [string]$LogPath
     )
 
+    Write-Host "[DBG] ===== Update-SharePointExcel START =====" -ForegroundColor Cyan
+    Write-Host "[DBG] FileName      : $FileName" -ForegroundColor Cyan
+    Write-Host "[DBG] FolderPath    : $FolderPath" -ForegroundColor Cyan
+    Write-Host "[DBG] LocalTempDir  : $LocalTempDir" -ForegroundColor Cyan
+    Write-Host "[DBG] SheetName     : $SheetName" -ForegroundColor Cyan
+    Write-Host "[DBG] DataRows count: $($DataRows.Count)" -ForegroundColor Cyan
+    Write-Host "[DBG] SectionHdrs  : $($SectionHeaders -join ', ')" -ForegroundColor Cyan
+
     Import-Module ImportExcel -ErrorAction Stop
+    Write-Host "[DBG] ImportExcel module loaded OK" -ForegroundColor Cyan
 
     if ($LogPath) {
         Write-Log -Message "SharePoint Excel update started (Microsoft Graph)..." -ScriptName $ScriptName -LogPath $LogPath
     }
 
     # -- Resolve Client Secret (direct or CCP) --
+    Write-Host "[DBG] Resolving client secret..." -ForegroundColor Cyan
     $clientSecret = Get-SharePointClientSecret `
         -SharePointConfig $SharePointGlobalConfig `
         -GlobalCCPUrl     $GlobalCCPUrl `
         -ScriptName       $ScriptName `
         -LogPath          $LogPath
+    Write-Host "[DBG] Client secret resolved OK (length=$($clientSecret.Length))" -ForegroundColor Cyan
 
     # -- Get Graph Access Token --
+    Write-Host "[DBG] Getting Graph access token..." -ForegroundColor Cyan
     $accessToken = Get-GraphAccessToken `
         -TenantId     $SharePointGlobalConfig.TenantId `
         -ClientId     $SharePointGlobalConfig.ClientId `
         -ClientSecret $clientSecret `
         -ScriptName   $ScriptName `
-        -LogPath       $LogPath
+        -LogPath      $LogPath
+    Write-Host "[DBG] Access token acquired (length=$($accessToken.Length))" -ForegroundColor Cyan
 
     # -- Resolve Site ID and Drive ID --
+    Write-Host "[DBG] Resolving site ID..." -ForegroundColor Cyan
     $siteId = Get-GraphSiteId `
         -SiteUrl     $SharePointGlobalConfig.SiteUrl `
         -AccessToken $accessToken `
         -ScriptName  $ScriptName `
         -LogPath     $LogPath
+    Write-Host "[DBG] Site ID: $siteId" -ForegroundColor Cyan
 
+    Write-Host "[DBG] Resolving drive ID for library: $($SharePointGlobalConfig.DocumentLibrary)" -ForegroundColor Cyan
     $driveId = Get-GraphDriveId `
         -SiteId      $siteId `
         -LibraryName $SharePointGlobalConfig.DocumentLibrary `
         -AccessToken $accessToken `
         -ScriptName  $ScriptName `
         -LogPath     $LogPath
+    Write-Host "[DBG] Drive ID: $driveId" -ForegroundColor Cyan
 
     # -- Build paths --
     $cleanFolderPath = if ($FolderPath) { $FolderPath.TrimEnd('/') } else { "" }
-    $graphItemPath = if ($cleanFolderPath) { "$cleanFolderPath/$FileName" } else { $FileName }
-    $localTempXlsx = Join-Path $LocalTempDir $FileName
+    $graphItemPath   = if ($cleanFolderPath) { "$cleanFolderPath/$FileName" } else { $FileName }
+    $localTempXlsx   = Join-Path $LocalTempDir $FileName
+    Write-Host "[DBG] Graph item path : $graphItemPath" -ForegroundColor Cyan
+    Write-Host "[DBG] Local temp xlsx : $localTempXlsx" -ForegroundColor Cyan
 
     # -- Download existing file or start fresh --
+    Write-Host "[DBG] Downloading existing file from SharePoint..." -ForegroundColor Cyan
     $fileExists = Get-GraphFile `
         -DriveId       $driveId `
         -ItemPath      $graphItemPath `
@@ -363,10 +383,12 @@ function Update-SharePointExcel {
         -AccessToken   $accessToken `
         -ScriptName    $ScriptName `
         -LogPath       $LogPath
+    Write-Host "[DBG] fileExists=$fileExists  LocalFileOnDisk=$(Test-Path $localTempXlsx)" -ForegroundColor Cyan
 
     # -- Resolve sheet name --
     $effectiveSheet = if (-not [string]::IsNullOrWhiteSpace($SheetName)) { $SheetName } else { Get-Date -Format "MMM-yyyy" }
-    $RunDate = Get-Date -Format "yyyy-MM-dd"
+    $RunDate        = Get-Date -Format "yyyy-MM-dd"
+    Write-Host "[DBG] effectiveSheet='$effectiveSheet'  RunDate='$RunDate'" -ForegroundColor Cyan
 
     if ($LogPath) {
         Write-Log -Message "Target sheet: '$effectiveSheet', Date column: '$RunDate'" -ScriptName $ScriptName -LogPath $LogPath
@@ -378,16 +400,26 @@ function Update-SharePointExcel {
         if ($row.Metric -in $SectionHeaders) { continue }
         $TodayValues[$row.Metric] = $row.Value
     }
+    Write-Host "[DBG] TodayValues keys: $($TodayValues.Keys -join ', ')" -ForegroundColor Cyan
 
     # -- Read existing sheet if available --
-    $SheetData = [ordered]@{}
+    $SheetData   = [ordered]@{}
     $DateColumns = [System.Collections.Generic.List[string]]::new()
 
     if ($fileExists -and (Test-Path $localTempXlsx)) {
-        $existingRows = @(Import-Excel -Path $localTempXlsx -WorksheetName $effectiveSheet -ErrorAction SilentlyContinue | Where-Object { $_ -ne $null })
-        if ($existingRows -and $existingRows.Count -gt 0 -and $null -ne $existingRows[0]) {
+        Write-Host "[DBG] Reading existing sheet '$effectiveSheet' from $localTempXlsx..." -ForegroundColor Cyan
+        $rawImport    = Import-Excel -Path $localTempXlsx -WorksheetName $effectiveSheet -ErrorAction SilentlyContinue
+        Write-Host "[DBG] Import-Excel raw type : $($rawImport.GetType().FullName)" -ForegroundColor Yellow
+        Write-Host "[DBG] Import-Excel raw count: $(@($rawImport).Count)" -ForegroundColor Yellow
+        $existingRows = @($rawImport | Where-Object { $_ -ne $null })
+        Write-Host "[DBG] existingRows after null-filter: $($existingRows.Count)" -ForegroundColor Yellow
+
+        if ($existingRows.Count -gt 0 -and $null -ne $existingRows[0]) {
             $allProps = $existingRows[0].PSObject.Properties.Name
-            foreach ($col in ($allProps | Select-Object -Skip 1)) {
+            Write-Host "[DBG] allProps: $($allProps -join ', ')" -ForegroundColor Yellow
+            $dateCols = @($allProps | Select-Object -Skip 1)
+            Write-Host "[DBG] date cols to add: $($dateCols -join ', ')" -ForegroundColor Yellow
+            foreach ($col in $dateCols) {
                 if (-not $DateColumns.Contains($col)) { $DateColumns.Add($col) }
             }
             foreach ($existRow in $existingRows) {
@@ -400,46 +432,61 @@ function Update-SharePointExcel {
             if ($LogPath) {
                 Write-Log -Message "Loaded existing sheet '$effectiveSheet' with $($DateColumns.Count) date column(s)." -ScriptName $ScriptName -LogPath $LogPath
             }
+            Write-Host "[DBG] Loaded $($SheetData.Count) metric rows, $($DateColumns.Count) date col(s)" -ForegroundColor Yellow
         }
         else {
+            Write-Host "[DBG] No readable rows found in sheet '$effectiveSheet' - starting fresh" -ForegroundColor Yellow
             if ($LogPath) {
                 Write-Log -Message "Existing file found but sheet '$effectiveSheet' has no readable rows. Starting fresh." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
             }
         }
     }
+    else {
+        Write-Host "[DBG] No existing file to read (fileExists=$fileExists)" -ForegroundColor Yellow
+    }
 
     # -- Merge today's column --
     if (-not $DateColumns.Contains($RunDate)) {
         $DateColumns.Add($RunDate)
+        Write-Host "[DBG] Added new date column: $RunDate" -ForegroundColor Cyan
         if ($LogPath) {
             Write-Log -Message "Adding new date column: $RunDate" -ScriptName $ScriptName -LogPath $LogPath
         }
     }
     else {
+        Write-Host "[DBG] Date column '$RunDate' already exists - overwriting" -ForegroundColor Cyan
         if ($LogPath) {
             Write-Log -Message "Date column '$RunDate' already exists. Overwriting today's values." -ScriptName $ScriptName -LogPath $LogPath
         }
     }
+    Write-Host "[DBG] DateColumns total: $($DateColumns.Count) -> $($DateColumns -join ', ')" -ForegroundColor Cyan
 
-    # Build canonical ordered metric list from DataRows (including section headers)
+    # -- Build canonical ordered metric list from DataRows (including section headers) --
     $canonicalOrder = @($DataRows | Select-Object -ExpandProperty Metric)
+    Write-Host "[DBG] canonicalOrder ($($canonicalOrder.Count)): $($canonicalOrder -join ', ')" -ForegroundColor Cyan
 
+    # -- Merge today's values into SheetData --
     foreach ($metric in $TodayValues.Keys) {
         if (-not $SheetData.Contains($metric)) { $SheetData[$metric] = [ordered]@{} }
         $SheetData[$metric][$RunDate] = $TodayValues[$metric]
     }
 
     # -- Build export rows in canonical order --
+    Write-Host "[DBG] Building ExportRows..." -ForegroundColor Cyan
     $ExportRows = foreach ($metric in $canonicalOrder) {
         $obj = [ordered]@{ Metric = $metric }
         foreach ($dateCol in $DateColumns) {
-            $obj[$dateCol] = if ($SheetData.Contains($metric) -and $SheetData[$metric].Contains($dateCol)) { $SheetData[$metric][$dateCol] } else { "" }
+            $obj[$dateCol] = if ($SheetData.Contains($metric) -and $SheetData[$metric].Contains($dateCol)) {
+                $SheetData[$metric][$dateCol]
+            } else { "" }
         }
         [PSCustomObject]$obj
     }
+    Write-Host "[DBG] ExportRows built: $(@($ExportRows).Count) rows" -ForegroundColor Cyan
 
     # -- Write sheet --
     $safeTableName = ($effectiveSheet -replace '[^A-Za-z0-9]', '') + "_" + (Get-Date -Format "MMMyyyy")
+    Write-Host "[DBG] Exporting to Excel: path=$localTempXlsx  sheet=$effectiveSheet  table=$safeTableName" -ForegroundColor Cyan
     $excelParams = @{
         Path          = $localTempXlsx
         WorksheetName = $effectiveSheet
@@ -452,26 +499,46 @@ function Update-SharePointExcel {
         ErrorAction   = "Stop"
     }
     $ExportRows | Export-Excel @excelParams
+    Write-Host "[DBG] Export-Excel completed OK" -ForegroundColor Cyan
 
     # -- Apply section header styling if specified --
     if ($SectionHeaders.Count -gt 0) {
+        Write-Host "[DBG] Opening package for section-header styling..." -ForegroundColor Cyan
         $pkg = Open-ExcelPackage -Path $localTempXlsx
+        Write-Host "[DBG] pkg null? $($null -eq $pkg)" -ForegroundColor Yellow
+        Write-Host "[DBG] pkg.Workbook null? $($null -eq $pkg.Workbook)" -ForegroundColor Yellow
         $ws = $pkg.Workbook.Worksheets[$effectiveSheet]
+        Write-Host "[DBG] ws null? $($null -eq $ws)" -ForegroundColor Yellow
+
         if ($ws) {
-            $endCol = $ws.Dimension.End.Column
-            $purpleDark = [System.Drawing.Color]::FromArgb(91, 74, 130)
-            $white = [System.Drawing.Color]::White
-            for ($r = 2; $r -le $ws.Dimension.End.Row; $r++) {
-                if ([string]$ws.Cells[$r, 1].Value -in $SectionHeaders) {
-                    $rng = $ws.Cells[$r, 1, $r, $endCol]
-                    $rng.Style.Font.Bold = $true
-                    $rng.Style.Font.Color.SetColor($white)
-                    $rng.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-                    $rng.Style.Fill.BackgroundColor.SetColor($purpleDark)
+            Write-Host "[DBG] ws.Dimension null? $($null -eq $ws.Dimension)" -ForegroundColor Yellow
+            if ($null -ne $ws.Dimension) {
+                $endCol     = $ws.Dimension.End.Column
+                $endRow     = $ws.Dimension.End.Row
+                Write-Host "[DBG] Dimension: rows=1..${endRow}  cols=1..${endCol}" -ForegroundColor Yellow
+                $purpleDark = [System.Drawing.Color]::FromArgb(91, 74, 130)
+                $white      = [System.Drawing.Color]::White
+                for ($r = 2; $r -le $endRow; $r++) {
+                    if ([string]$ws.Cells[$r, 1].Value -in $SectionHeaders) {
+                        $rng = $ws.Cells[$r, 1, $r, $endCol]
+                        $rng.Style.Font.Bold = $true
+                        $rng.Style.Font.Color.SetColor($white)
+                        $rng.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+                        $rng.Style.Fill.BackgroundColor.SetColor($purpleDark)
+                    }
                 }
+                Write-Host "[DBG] Section header styling loop complete" -ForegroundColor Cyan
+            }
+            else {
+                Write-Host "[DBG] WARNING: ws.Dimension is null - skipping styling" -ForegroundColor Red
             }
         }
+        else {
+            Write-Host "[DBG] WARNING: worksheet '$effectiveSheet' not found in package - skipping styling" -ForegroundColor Red
+        }
+
         Close-ExcelPackage $pkg
+        Write-Host "[DBG] ExcelPackage closed" -ForegroundColor Cyan
 
         if ($LogPath) {
             Write-Log -Message "Section header styling applied to $($SectionHeaders.Count) header row(s)." -ScriptName $ScriptName -LogPath $LogPath
@@ -483,6 +550,7 @@ function Update-SharePointExcel {
     }
 
     # -- Upload via Graph --
+    Write-Host "[DBG] Uploading to SharePoint: $graphItemPath" -ForegroundColor Cyan
     Set-GraphFile `
         -DriveId       $driveId `
         -ItemPath      $graphItemPath `
@@ -490,8 +558,11 @@ function Update-SharePointExcel {
         -AccessToken   $accessToken `
         -ScriptName    $ScriptName `
         -LogPath       $LogPath
+    Write-Host "[DBG] Upload complete!" -ForegroundColor Green
 
     if ($LogPath) {
         Write-Log -Message "SharePoint Excel update completed successfully." -ScriptName $ScriptName -LogPath $LogPath
     }
+    Write-Host "[DBG] ===== Update-SharePointExcel END =====" -ForegroundColor Cyan
 }
+

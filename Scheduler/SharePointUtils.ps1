@@ -18,12 +18,12 @@
 # ============================================================
 
 # -------------------------------------------------------
-# Get-GraphAccessToken
-# OAuth 2.0 Client Credentials flow.
+# Get-SPAccessToken
+# OAuth 2.0 Client Credentials flow for SharePoint REST.
 # POST https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token
 # Returns: Bearer access token string.
 # -------------------------------------------------------
-function Get-GraphAccessToken {
+function Get-SPAccessToken {
     param(
         [Parameter(Mandatory = $true)]
         [string]$TenantId,
@@ -34,27 +34,33 @@ function Get-GraphAccessToken {
         [Parameter(Mandatory = $true)]
         [string]$ClientSecret,
 
+        [Parameter(Mandatory = $true)]
+        [string]$SiteUrl,
+
         [string]$ScriptName = "SharePoint",
         [string]$LogPath
     )
 
     $tokenUrl = "https://login.microsoftonline.com/$TenantId/oauth2/v2.0/token"
 
+    $uri = [System.Uri]$SiteUrl
+    $spScope = "https://$($uri.Host)/.default"
+
     $body = @{
         client_id     = $ClientId
         client_secret = $ClientSecret
-        scope         = "https://graph.microsoft.com/.default"
+        scope         = $spScope
         grant_type    = "client_credentials"
     }
 
     if ($LogPath) {
-        Write-Log -Message "Requesting Graph access token from Azure AD (TenantId: $TenantId, ClientId: $ClientId)..." -ScriptName $ScriptName -LogPath $LogPath
+        Write-Log -Message "Requesting SP access token from Azure AD (TenantId: $TenantId, ClientId: $ClientId, Scope: $spScope)..." -ScriptName $ScriptName -LogPath $LogPath
     }
 
     $response = Invoke-RestMethod -Uri $tokenUrl -Method Post -Body $body -ContentType "application/x-www-form-urlencoded" -ErrorAction Stop
 
     if ($LogPath) {
-        Write-Log -Message "Graph access token acquired successfully." -ScriptName $ScriptName -LogPath $LogPath
+        Write-Log -Message "SP access token acquired successfully." -ScriptName $ScriptName -LogPath $LogPath
     }
 
     return $response.access_token
@@ -105,54 +111,21 @@ function Get-SharePointClientSecret {
 }
 
 # -------------------------------------------------------
-# Get-GraphSiteId
-# Resolves a SharePoint site URL to a Graph site ID.
-# GET https://graph.microsoft.com/v1.0/sites/{host}:/{path}
+# Get-SPFile (Download)
+# Downloads a file from SharePoint via SP REST API.
+# GET {siteUrl}/_api/web/GetFileByServerRelativeUrl('{fileRelativeUrl}')/$value
+# Returns $true if downloaded, $false if file not found.
 # -------------------------------------------------------
-function Get-GraphSiteId {
+function Get-SPFile {
     param(
         [Parameter(Mandatory = $true)]
         [string]$SiteUrl,
 
         [Parameter(Mandatory = $true)]
-        [string]$AccessToken,
-
-        [string]$ScriptName = "SharePoint",
-        [string]$LogPath
-    )
-
-    $uri       = [System.Uri]$SiteUrl
-    $hostName  = $uri.Host
-    $sitePath  = $uri.AbsolutePath.TrimEnd('/')
-
-    $graphUrl = "https://graph.microsoft.com/v1.0/sites/${hostName}:${sitePath}"
-    $headers  = @{ Authorization = "Bearer $AccessToken" }
-
-    if ($LogPath) {
-        Write-Log -Message "Resolving SharePoint site ID: $graphUrl" -ScriptName $ScriptName -LogPath $LogPath
-    }
-
-    $site = Invoke-RestMethod -Uri $graphUrl -Headers $headers -ErrorAction Stop
-
-    if ($LogPath) {
-        Write-Log -Message "Site ID resolved: $($site.id)" -ScriptName $ScriptName -LogPath $LogPath
-    }
-
-    return $site.id
-}
-
-# -------------------------------------------------------
-# Get-GraphDriveId
-# Finds the drive (document library) ID by name.
-# GET https://graph.microsoft.com/v1.0/sites/{siteId}/drives
-# -------------------------------------------------------
-function Get-GraphDriveId {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$SiteId,
+        [string]$FileRelativeUrl,
 
         [Parameter(Mandatory = $true)]
-        [string]$LibraryName,
+        [string]$LocalFilePath,
 
         [Parameter(Mandatory = $true)]
         [string]$AccessToken,
@@ -161,61 +134,15 @@ function Get-GraphDriveId {
         [string]$LogPath
     )
 
-    $graphUrl = "https://graph.microsoft.com/v1.0/sites/$SiteId/drives"
-    $headers  = @{ Authorization = "Bearer $AccessToken" }
-
-    if ($LogPath) {
-        Write-Log -Message "Looking up document library '$LibraryName'..." -ScriptName $ScriptName -LogPath $LogPath
-    }
-
-    $drives = Invoke-RestMethod -Uri $graphUrl -Headers $headers -ErrorAction Stop
-    $drive  = $drives.value | Where-Object { $_.name -eq $LibraryName }
-
-    if (-not $drive) {
-        $available = ($drives.value | Select-Object -ExpandProperty name) -join ', '
-        throw "Document library '$LibraryName' not found on this site. Available libraries: $available"
-    }
-
-    if ($LogPath) {
-        Write-Log -Message "Drive ID for '$LibraryName': $($drive.id)" -ScriptName $ScriptName -LogPath $LogPath
-    }
-
-    return $drive.id
-}
-
-# -------------------------------------------------------
-# Get-GraphFile (Download)
-# Downloads a file from SharePoint via Graph.
-# GET /drives/{driveId}/root:/{path}:/content
-# Returns $true if downloaded, $false if file not found.
-# -------------------------------------------------------
-function Get-GraphFile {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$DriveId,
-
-        [Parameter(Mandatory = $true)]
-        [string]$ItemPath,           # Path within the drive (e.g. "Folder/SubFolder/File.xlsx")
-
-        [Parameter(Mandatory = $true)]
-        [string]$LocalFilePath,      # Where to save locally
-
-        [Parameter(Mandatory = $true)]
-        [string]$AccessToken,
-
-        [string]$ScriptName = "SharePoint",
-        [string]$LogPath
-    )
-
-    $encodedPath = $ItemPath -replace ' ', '%20'
-    $graphUrl    = "https://graph.microsoft.com/v1.0/drives/$DriveId/root:/$encodedPath`:/content"
-    $headers     = @{ Authorization = "Bearer $AccessToken" }
+    $fileRelUrlEncoded = $FileRelativeUrl -replace "'", "''"
+    $restUrl = "$SiteUrl/_api/web/GetFileByServerRelativeUrl('$fileRelUrlEncoded')/`$value"
+    $headers = @{ Authorization = "Bearer $AccessToken" }
 
     try {
-        Invoke-RestMethod -Uri $graphUrl -Headers $headers -OutFile $LocalFilePath -ErrorAction Stop
+        Invoke-RestMethod -Uri $restUrl -Headers $headers -OutFile $LocalFilePath -ErrorAction Stop
 
         if ($LogPath) {
-            Write-Log -Message "Downloaded file from SharePoint: $ItemPath" -ScriptName $ScriptName -LogPath $LogPath
+            Write-Log -Message "Downloaded file from SharePoint: $FileRelativeUrl" -ScriptName $ScriptName -LogPath $LogPath
         }
         return $true
     }
@@ -225,33 +152,34 @@ function Get-GraphFile {
             $statusCode = [int]$_.Exception.Response.StatusCode
         }
 
-        if ($statusCode -eq 404) {
+        if ($statusCode -eq 404 -or $_.Exception.Message -match "404") {
             if ($LogPath) {
-                Write-Log -Message "File not found on SharePoint: $ItemPath. A new file will be created." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+                Write-Log -Message "File not found on SharePoint: $FileRelativeUrl. A new file will be created." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
             }
             return $false
         }
-
         throw
     }
 }
 
 # -------------------------------------------------------
-# Set-GraphFile (Upload)
-# Uploads a file to SharePoint via Graph.
-# PUT /drives/{driveId}/root:/{path}:/content
-# Simple upload — works for files up to 4 MB.
+# Set-SPFile (Upload)
+# Uploads a file to SharePoint via SP REST API.
+# POST {siteUrl}/_api/web/GetFolderByServerRelativeUrl('{folderRelativeUrl}')/Files/add(url='{filename}',overwrite=true)
 # -------------------------------------------------------
-function Set-GraphFile {
+function Set-SPFile {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$DriveId,
+        [string]$SiteUrl,
 
         [Parameter(Mandatory = $true)]
-        [string]$ItemPath,           # Path within the drive
+        [string]$FolderRelativeUrl,
 
         [Parameter(Mandatory = $true)]
-        [string]$LocalFilePath,      # Local file to upload
+        [string]$FileName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$LocalFilePath,
 
         [Parameter(Mandatory = $true)]
         [string]$AccessToken,
@@ -260,18 +188,20 @@ function Set-GraphFile {
         [string]$LogPath
     )
 
-    $encodedPath = $ItemPath -replace ' ', '%20'
-    $graphUrl    = "https://graph.microsoft.com/v1.0/drives/$DriveId/root:/$encodedPath`:/content"
-    $headers     = @{ Authorization = "Bearer $AccessToken" }
+    $folderRelUrlEncoded = $FolderRelativeUrl -replace "'", "''"
+    $fileNameEncoded = $FileName -replace "'", "''"
+    
+    $restUrl = "$SiteUrl/_api/web/GetFolderByServerRelativeUrl('$folderRelUrlEncoded')/Files/add(url='$fileNameEncoded',overwrite=true)"
+    $headers = @{ Authorization = "Bearer $AccessToken" }
 
     $fileBytes = [System.IO.File]::ReadAllBytes($LocalFilePath)
 
     if ($LogPath) {
         $fileSizeKB = [math]::Round($fileBytes.Length / 1024, 1)
-        Write-Log -Message "Uploading file to SharePoint: $ItemPath ($fileSizeKB KB)" -ScriptName $ScriptName -LogPath $LogPath
+        Write-Log -Message "Uploading file to SharePoint: $FolderRelativeUrl/$FileName ($fileSizeKB KB)" -ScriptName $ScriptName -LogPath $LogPath
     }
 
-    $null = Invoke-RestMethod -Uri $graphUrl -Headers $headers -Method Put -Body $fileBytes -ContentType "application/octet-stream" -ErrorAction Stop
+    $null = Invoke-RestMethod -Uri $restUrl -Headers $headers -Method Post -Body $fileBytes -ContentType "application/octet-stream" -ErrorAction Stop
 
     if ($LogPath) {
         Write-Log -Message "File uploaded successfully." -ScriptName $ScriptName -LogPath $LogPath
@@ -328,41 +258,35 @@ function Update-SharePointExcel {
         -ScriptName       $ScriptName `
         -LogPath          $LogPath
 
-    # -- Get Graph Access Token --
-    $accessToken = Get-GraphAccessToken `
+    # -- Get SP Access Token --
+    $accessToken = Get-SPAccessToken `
         -TenantId     $SharePointGlobalConfig.TenantId `
         -ClientId     $SharePointGlobalConfig.ClientId `
         -ClientSecret $clientSecret `
+        -SiteUrl      $SharePointGlobalConfig.SiteUrl `
         -ScriptName   $ScriptName `
         -LogPath       $LogPath
 
-    # -- Resolve Site ID and Drive ID --
-    $siteId = Get-GraphSiteId `
-        -SiteUrl     $SharePointGlobalConfig.SiteUrl `
-        -AccessToken $accessToken `
-        -ScriptName  $ScriptName `
-        -LogPath     $LogPath
+    # -- Build Server Relative URLs --
+    $uri = [System.Uri]$SharePointGlobalConfig.SiteUrl
+    $sitePath = $uri.AbsolutePath.TrimEnd('/')
+    
+    $folderRelUrl = "$sitePath/$($SharePointGlobalConfig.DocumentLibrary)"
+    if (-not [string]::IsNullOrWhiteSpace($FolderPath)) {
+        $folderRelUrl += "/$($FolderPath.Trim('/'))"
+    }
+    $fileRelUrl = "$folderRelUrl/$FileName"
 
-    $driveId = Get-GraphDriveId `
-        -SiteId      $siteId `
-        -LibraryName $SharePointGlobalConfig.DocumentLibrary `
-        -AccessToken $accessToken `
-        -ScriptName  $ScriptName `
-        -LogPath     $LogPath
-
-    # -- Build paths --
-    $cleanFolderPath = if ($FolderPath) { $FolderPath.TrimEnd('/') } else { "" }
-    $graphItemPath   = if ($cleanFolderPath) { "$cleanFolderPath/$FileName" } else { $FileName }
     $localTempXlsx = Join-Path $LocalTempDir $FileName
 
     # -- Download existing file or start fresh --
-    $fileExists = Get-GraphFile `
-        -DriveId       $driveId `
-        -ItemPath      $graphItemPath `
-        -LocalFilePath $localTempXlsx `
-        -AccessToken   $accessToken `
-        -ScriptName    $ScriptName `
-        -LogPath       $LogPath
+    $fileExists = Get-SPFile `
+        -SiteUrl         $SharePointGlobalConfig.SiteUrl `
+        -FileRelativeUrl $fileRelUrl `
+        -LocalFilePath   $localTempXlsx `
+        -AccessToken     $accessToken `
+        -ScriptName      $ScriptName `
+        -LogPath         $LogPath
 
     # -- Resolve sheet name --
     $effectiveSheet = if (-not [string]::IsNullOrWhiteSpace($SheetName)) { $SheetName } else { Get-Date -Format "MMM-yyyy" }
@@ -475,14 +399,15 @@ function Update-SharePointExcel {
         Write-Log -Message "Excel sheet '$effectiveSheet' updated with $($DateColumns.Count) date column(s)." -ScriptName $ScriptName -LogPath $LogPath
     }
 
-    # -- Upload via Graph --
-    Set-GraphFile `
-        -DriveId       $driveId `
-        -ItemPath      $graphItemPath `
-        -LocalFilePath $localTempXlsx `
-        -AccessToken   $accessToken `
-        -ScriptName    $ScriptName `
-        -LogPath       $LogPath
+    # -- Upload via SP REST API --
+    Set-SPFile `
+        -SiteUrl           $SharePointGlobalConfig.SiteUrl `
+        -FolderRelativeUrl $folderRelUrl `
+        -FileName          $FileName `
+        -LocalFilePath     $localTempXlsx `
+        -AccessToken       $accessToken `
+        -ScriptName        $ScriptName `
+        -LogPath           $LogPath
 
     if ($LogPath) {
         Write-Log -Message "SharePoint Excel update completed successfully." -ScriptName $ScriptName -LogPath $LogPath

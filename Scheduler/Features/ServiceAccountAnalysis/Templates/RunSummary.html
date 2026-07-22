@@ -214,7 +214,41 @@
                     </td>
                 </tr>
 
+                <!-- ── DOMAIN BREAKDOWN TABLE ── -->
+                <tr>
+                    <td style="padding:0 20px 20px 20px; background-color:#fafbfc;">
+
+                        <!-- Section Label -->
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                            <tr>
+                                <td style="padding:4px 0 8px 2px;">
+                                    <p style="margin:0; font-size:11px; font-weight:bold; color:#2c5f9e; text-transform:uppercase; letter-spacing:0.8px;">
+                                        &#9646; Domain Breakdown
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"
+                               style="background:#ffffff; border:1px solid #dde1e7; border-radius:2px;">
+                            <!-- Header row -->
+                            <tr style="background-color:#1a2744;">
+                                <th style="padding:9px 12px; font-size:10px; font-weight:bold; color:#c8d4e8; text-transform:uppercase; letter-spacing:0.5px; text-align:left;">Domain</th>
+                                <th style="padding:9px 12px; font-size:10px; font-weight:bold; color:#7faee8; text-transform:uppercase; letter-spacing:0.5px; text-align:center;">Total</th>
+                                <th style="padding:9px 12px; font-size:10px; font-weight:bold; color:#7ecfa0; text-transform:uppercase; letter-spacing:0.5px; text-align:center;">Enabled</th>
+                                <th style="padding:9px 12px; font-size:10px; font-weight:bold; color:#b0b0b0; text-transform:uppercase; letter-spacing:0.5px; text-align:center;">Disabled</th>
+                                <th style="padding:9px 12px; font-size:10px; font-weight:bold; color:#4ecb8d; text-transform:uppercase; letter-spacing:0.5px; text-align:center;">In CyberArk</th>
+                                <th style="padding:9px 12px; font-size:10px; font-weight:bold; color:#f6c060; text-transform:uppercase; letter-spacing:0.5px; text-align:center;">Not in CyberArk</th>
+                            </tr>
+                            <!-- Per-domain rows injected here -->
+                            {{DomainBreakdownHtml}}
+                        </table>
+
+                    </td>
+                </tr>
+
                 <!-- ── ATTACHED REPORTS ── -->
+
                 <tr>
                     <td style="padding:4px 20px 20px 20px; background-color:#fafbfc; border-top:1px solid #e8eaed;">
                         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">

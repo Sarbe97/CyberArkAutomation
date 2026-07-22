@@ -283,6 +283,43 @@ try {
             "<i>Disabled</i>"
         }
 
+        # --- Build per-domain breakdown HTML (one row per domain) ---
+        $domainRows      = [System.Text.StringBuilder]::new()
+        $uniqueDomains   = @($analysisReport | Select-Object -ExpandProperty Domain -Unique | Sort-Object)
+
+        foreach ($dom in $uniqueDomains) {
+            $domAccts    = @($analysisReport | Where-Object { $_.Domain -eq $dom })
+            $domEnabled  = @($domAccts | Where-Object { [string]$_.Enabled -ne "False" })
+            $domDisabled = @($domAccts | Where-Object { [string]$_.Enabled -eq "False" })
+            $domInCA     = @($domAccts | Where-Object { [string]$_.InCyberArk -eq "True" })
+            $domNotInCA  = @($domAccts | Where-Object { [string]$_.InCyberArk -ne "True" })
+
+            $null = $domainRows.Append("
+                <tr>
+                  <td style=""padding:8px 12px; font-size:12px; color:#333333; border-bottom:1px solid #eef0f3;"">$dom</td>
+                  <td style=""padding:8px 12px; font-size:12px; color:#2c5f9e; font-weight:bold; text-align:center; border-bottom:1px solid #eef0f3;"">$($domAccts.Count)</td>
+                  <td style=""padding:8px 12px; font-size:12px; color:#2d7d46; text-align:center; border-bottom:1px solid #eef0f3;"">$($domEnabled.Count)</td>
+                  <td style=""padding:8px 12px; font-size:12px; color:#888888; text-align:center; border-bottom:1px solid #eef0f3;"">$($domDisabled.Count)</td>
+                  <td style=""padding:8px 12px; font-size:12px; color:#1f8c5a; text-align:center; border-bottom:1px solid #eef0f3;"">$($domInCA.Count)</td>
+                  <td style=""padding:8px 12px; font-size:12px; color:#d97706; text-align:center; border-bottom:1px solid #eef0f3;"">$($domNotInCA.Count)</td>
+                </tr>")
+        }
+
+        # Totals row
+        $totalInCA    = @($analysisReport | Where-Object { [string]$_.InCyberArk -eq "True" })
+        $totalNotInCA = @($analysisReport | Where-Object { [string]$_.InCyberArk -ne "True" })
+        $null = $domainRows.Append("
+                <tr style=""background-color:#f3f5f9;"">
+                  <td style=""padding:9px 12px; font-size:12px; font-weight:bold; color:#333333;"">Total</td>
+                  <td style=""padding:9px 12px; font-size:12px; font-weight:bold; color:#2c5f9e; text-align:center;"">$($analysisReport.Count)</td>
+                  <td style=""padding:9px 12px; font-size:12px; font-weight:bold; color:#2d7d46; text-align:center;"">$($enabledAccounts.Count)</td>
+                  <td style=""padding:9px 12px; font-size:12px; font-weight:bold; color:#888888; text-align:center;"">$($disabledAccounts.Count)</td>
+                  <td style=""padding:9px 12px; font-size:12px; font-weight:bold; color:#1f8c5a; text-align:center;"">$($totalInCA.Count)</td>
+                  <td style=""padding:9px 12px; font-size:12px; font-weight:bold; color:#d97706; text-align:center;"">$($totalNotInCA.Count)</td>
+                </tr>")
+
+        $domainBreakdownHtml = if ($uniqueDomains.Count -gt 0) { $domainRows.ToString() } else { "" }
+
         $summaryTokens = @{
             EffectiveMode           = $effectiveMode
             ModeTitle               = "Execution Run Complete"
@@ -301,7 +338,9 @@ try {
             EmployeeFilterHtml      = $employeeFilterHtml
             CyberArkAuthStatus      = if ($cyberArkAuthAvailable) { "Connected" } else { "Unavailable" }
             CyberArkAuthStatusColor = if ($cyberArkAuthAvailable) { "4caf7d" } else { "e05252" }
+            DomainBreakdownHtml     = $domainBreakdownHtml
         }
+
 
         $smartIdFiles = @(Get-ChildItem -Path $ExportDir -Filter "SmartIDs_*_$TodayStr.csv" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
 

@@ -130,19 +130,28 @@ function Start-PingCheck {
     }
 }
 
+function Get-ServerDisplayLabel {
+    param([PSCustomObject]$Server)
+    # Only UNC paths have a meaningful hostname/IP to show
+    if ($Server.SharePath -notlike '\\*') { return $Server.Name }
+    $hostPart = $Server.SharePath.TrimStart('\').Split('\')[0].Trim()
+    if ([string]::IsNullOrWhiteSpace($hostPart)) { return $Server.Name }
+    return "$($Server.Name)  ($hostPart)"
+}
+
 function Refresh-ServerList {
     param([string]$Filter = "")
     $script:Servers = Load-Servers
     $script:lstServers.Items.Clear()
-    foreach ($srv in $script:Servers) {
-        if ($srv.Environment -eq $script:ActiveEnv) {
-            if ([string]::IsNullOrWhiteSpace($Filter) -or
-                $srv.Name -like "*$Filter*") {
-                $script:lstServers.Items.Add($srv.Name)
-                $script:ServerStatus[$srv.Name] = "Checking"
-                Start-PingCheck -ServerName $srv.Name -Address $srv.SharePath
-            }
-        }
+    $filtered = $script:Servers | Where-Object {
+        $_.Environment -eq $script:ActiveEnv -and
+        ([string]::IsNullOrWhiteSpace($Filter) -or $_.Name -like "*$Filter*")
+    } | Sort-Object Name
+    foreach ($srv in $filtered) {
+        $label = Get-ServerDisplayLabel $srv
+        $script:lstServers.Items.Add($label)
+        $script:ServerStatus[$srv.Name] = "Checking"
+        Start-PingCheck -ServerName $srv.Name -Address $srv.SharePath
     }
     $userStr = if ($script:Credentials[$script:ActiveEnv]) { $script:Credentials[$script:ActiveEnv].UserName } else { "None" }
     Update-StatusBar "Loaded $($script:lstServers.Items.Count) server(s) | User: $userStr" "Info"
@@ -156,7 +165,9 @@ function Get-SelectedServer {
             "No Selection", "OK", "Information")
         return $null
     }
-    return $script:Servers | Where-Object { $_.Name -eq $selected -and $_.Environment -eq $script:ActiveEnv }
+    # Display label may be "Name  (hostname)" — extract the name part before the first two spaces
+    $serverName = ($selected -split '  ')[0].Trim()
+    return $script:Servers | Where-Object { $_.Name -eq $serverName -and $_.Environment -eq $script:ActiveEnv }
 }
 
 # SERVER MANAGEMENT DIALOGS
@@ -549,28 +560,30 @@ $script:lstServers.Add_DrawItem({
         param($sender, $e)
         if ($e.Index -lt 0) { return }
         $e.DrawBackground()
-    
-        $itemText = $sender.Items[$e.Index]
-        $status = $script:ServerStatus[$itemText]
-    
+
+        $itemText  = $sender.Items[$e.Index]
+        # Status lookup uses the server Name (before the hostname suffix)
+        $srvName   = ($itemText -split '  ')[0].Trim()
+        $status    = $script:ServerStatus[$srvName]
+
         $color = switch ($status) {
-            "Online" { [System.Drawing.Color]::FromArgb(46, 125, 50) }   # Green
+            "Online"  { [System.Drawing.Color]::FromArgb(46, 125, 50) }   # Green
             "Offline" { [System.Drawing.Color]::FromArgb(198, 40, 40) }  # Red
-            default { [System.Drawing.Color]::FromArgb(120, 120, 120) } # Gray (checking)
+            default   { [System.Drawing.Color]::FromArgb(120, 120, 120) } # Gray
         }
-    
-        $brush = New-Object System.Drawing.SolidBrush($color)
+
+        $brush     = New-Object System.Drawing.SolidBrush($color)
         $textBrush = New-Object System.Drawing.SolidBrush($e.ForeColor)
-    
-        # Draw status circle (X offset = 6, diameter = 8, Y centered)
+
+        # Draw status circle
         $circleY = $e.Bounds.Y + [int](($e.Bounds.Height - 8) / 2)
         $e.Graphics.FillEllipse($brush, $e.Bounds.X + 6, $circleY, 8, 8)
-    
-        # Draw text (X offset = 22)
+
+        # Draw text
         $font = $e.Font
         if ($null -eq $font) { $font = $sender.Font }
         $e.Graphics.DrawString($itemText, $font, $textBrush, $e.Bounds.X + 22, $e.Bounds.Y + 2)
-    
+
         $brush.Dispose()
         $textBrush.Dispose()
         $e.DrawFocusRectangle()
@@ -578,12 +591,74 @@ $script:lstServers.Add_DrawItem({
 
 $script:lstServers.Add_SelectedIndexChanged({
         if ($script:lstServers.SelectedItem) {
-            $userStr = if ($script:Credentials[$script:ActiveEnv]) { $script:Credentials[$script:ActiveEnv].UserName } else { "None" }
-            Update-StatusBar "Selected: $($script:lstServers.SelectedItem) | User: $userStr" "Info"
+            $srvLabel = $script:lstServers.SelectedItem
+            $srvName  = ($srvLabel -split '  ')[0].Trim()
+            $userStr  = if ($script:Credentials[$script:ActiveEnv]) { $script:Credentials[$script:ActiveEnv].UserName } else { "None" }
+            Update-StatusBar "Selected: $srvName | User: $userStr" "Info"
             Refresh-BookmarkList
         }
     })
 $form.Controls.Add($script:lstServers)
+
+# ── Move Up / Move Down buttons ──
+$btnMoveUp = New-Object System.Windows.Forms.Button
+$btnMoveUp.Text = "▲"
+$btnMoveUp.Size = New-Object System.Drawing.Size(32, 36)
+$btnMoveUp.Location = New-Object System.Drawing.Point(485, 85)
+$btnMoveUp.FlatStyle = "Flat"
+$btnMoveUp.Cursor = "Hand"
+$btnMoveUp.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+$btnMoveUp.Add_Click({
+    $idx = $script:lstServers.SelectedIndex
+    if ($idx -le 0) { return }
+    $servers = [System.Collections.ArrayList]@(Load-Servers)
+    # Find the actual indices in the full list for this env
+    $envList = @($servers | Where-Object { $_.Environment -eq $script:ActiveEnv })
+    $selectedLabel = $script:lstServers.SelectedItem
+    $selectedName  = ($selectedLabel -split '  ')[0].Trim()
+    $currentSrv    = $envList | Where-Object { $_.Name -eq $selectedName } | Select-Object -First 1
+    $prevSrv       = $envList[$idx - 1]
+    # Swap in the flat list
+    $iCurrent = $servers.IndexOf($currentSrv)
+    $iPrev    = $servers.IndexOf($prevSrv)
+    if ($iCurrent -ge 0 -and $iPrev -ge 0) {
+        $tmp = $servers[$iCurrent]; $servers[$iCurrent] = $servers[$iPrev]; $servers[$iPrev] = $tmp
+        Save-Servers $servers.ToArray()
+        Refresh-ServerList -Filter $txtSearch.Text
+        # Re-select moved item
+        $newLabel = Get-ServerDisplayLabel $currentSrv
+        $script:lstServers.SelectedItem = $newLabel
+    }
+})
+$form.Controls.Add($btnMoveUp)
+
+$btnMoveDown = New-Object System.Windows.Forms.Button
+$btnMoveDown.Text = "▼"
+$btnMoveDown.Size = New-Object System.Drawing.Size(32, 36)
+$btnMoveDown.Location = New-Object System.Drawing.Point(485, 125)
+$btnMoveDown.FlatStyle = "Flat"
+$btnMoveDown.Cursor = "Hand"
+$btnMoveDown.Font = New-Object System.Drawing.Font("Segoe UI", 10)
+$btnMoveDown.Add_Click({
+    $idx = $script:lstServers.SelectedIndex
+    if ($idx -lt 0 -or $idx -ge ($script:lstServers.Items.Count - 1)) { return }
+    $servers = [System.Collections.ArrayList]@(Load-Servers)
+    $envList = @($servers | Where-Object { $_.Environment -eq $script:ActiveEnv })
+    $selectedLabel = $script:lstServers.SelectedItem
+    $selectedName  = ($selectedLabel -split '  ')[0].Trim()
+    $currentSrv    = $envList | Where-Object { $_.Name -eq $selectedName } | Select-Object -First 1
+    $nextSrv       = $envList[$idx + 1]
+    $iCurrent = $servers.IndexOf($currentSrv)
+    $iNext    = $servers.IndexOf($nextSrv)
+    if ($iCurrent -ge 0 -and $iNext -ge 0) {
+        $tmp = $servers[$iCurrent]; $servers[$iCurrent] = $servers[$iNext]; $servers[$iNext] = $tmp
+        Save-Servers $servers.ToArray()
+        Refresh-ServerList -Filter $txtSearch.Text
+        $newLabel = Get-ServerDisplayLabel $currentSrv
+        $script:lstServers.SelectedItem = $newLabel
+    }
+})
+$form.Controls.Add($btnMoveDown)
 
 # â”€â”€ Action Buttons â”€â”€
 $buttonY = 340

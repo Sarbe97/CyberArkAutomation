@@ -138,6 +138,7 @@ function Show-LogViewer {
     $treeFiles.Dock = "Fill"
     $treeFiles.Font = New-Object System.Drawing.Font("Segoe UI", 9)
     $treeFiles.BorderStyle = "FixedSingle"
+    $treeFiles.ShowNodeToolTips = $true
     $leftPanel.Controls.Add($treeFiles)
     $treeFiles.SendToBack()
 
@@ -300,6 +301,7 @@ function Show-LogViewer {
                 $node = New-Object System.Windows.Forms.TreeNode
                 $node.Text = "[Dir] $($dir.Name)"
                 $node.Tag = $dir.FullName
+                $node.ToolTipText = $dir.FullName
                 # Add dummy node to make it expandable
                 $dummyNode = New-Object System.Windows.Forms.TreeNode
                 $dummyNode.Text = "..."
@@ -313,6 +315,7 @@ function Show-LogViewer {
                 $node = New-Object System.Windows.Forms.TreeNode
                 $node.Text = "[File] $($file.Name)"
                 $node.Tag = $file.FullName
+                $node.ToolTipText = $file.FullName
                 $parentNode.Nodes.Add($node) | Out-Null
             }
         }
@@ -330,6 +333,7 @@ function Show-LogViewer {
             $rootNode = New-Object System.Windows.Forms.TreeNode
             $rootNode.Text = "[Dir] $($Server.Name)"
             $rootNode.Tag = $Server.Path
+            $rootNode.ToolTipText = $Server.Path
             $treeFiles.Nodes.Add($rootNode) | Out-Null
             
             # Populate root level folders and files
@@ -388,12 +392,13 @@ function Show-LogViewer {
             if ($fs.Length -gt 100KB -and $lines.Count -gt 1) {
                 $lines = $lines[1..($lines.Count - 1)]
             }
-            # Cap at the last 500 lines for initial view
-            if ($lines.Count -gt 500) {
-                $script:ActiveLogLines = $lines[-500..-1]
+            # Cap at the last 500 lines for initial view; strip blanks so filter works cleanly
+            $nonBlankLines = @($lines | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+            if ($nonBlankLines.Count -gt 500) {
+                $script:ActiveLogLines = $nonBlankLines[-500..-1]
             }
             else {
-                $script:ActiveLogLines = $lines
+                $script:ActiveLogLines = $nonBlankLines
             }
 
             # Apply current filter and show
@@ -604,18 +609,17 @@ function Show-LogViewer {
 
     $txtFilter.Add_TextChanged({
             $script:LogFilterText = $txtFilter.Text
-            # Re-apply filter on existing lines
-            if ($script:TailFilePath) {
-                $filtered = if ([string]::IsNullOrEmpty($script:LogFilterText)) {
-                    $script:ActiveLogLines
-                }
-                else {
-                    $script:ActiveLogLines | Where-Object { $_ -like "*$script:LogFilterText*" }
-                }
-                $txtContent.Text = ($filtered -join "`r`n") + "`r`n"
-                $txtContent.SelectionStart = 0
-                $txtContent.ScrollToCaret()
+            # Re-apply filter on existing in-memory lines (works for both single-file
+            # and search-all modes since ActiveLogLines is always kept up to date)
+            $filtered = if ([string]::IsNullOrEmpty($script:LogFilterText)) {
+                $script:ActiveLogLines
             }
+            else {
+                $script:ActiveLogLines | Where-Object { $_ -like "*$script:LogFilterText*" }
+            }
+            $txtContent.Text = ($filtered -join "`r`n") + "`r`n"
+            $txtContent.SelectionStart = 0
+            $txtContent.ScrollToCaret()
         })
 
     # Cleanup timer on close

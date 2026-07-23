@@ -1,4 +1,12 @@
 {
+  "Settings":{
+  "LogExtensions":[
+    "*.log",
+    "*.txt"
+  ],
+  "DEV_User":"NADEV\\S123456",
+  "PROD_User":"NA\\S123456"
+  },
   "DEV": [
     {
       "Name": "Local",

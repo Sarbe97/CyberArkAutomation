@@ -152,7 +152,7 @@ function Get-SessionCredential {
     $loginForm.Controls.Add($lblEnv)
 
     $cmbEnvLogin = New-Object System.Windows.Forms.ComboBox
-    $cmbEnvLogin.DropDownStyle = "DropDownList"
+    $cmbEnvLogin.DropDownStyle = "DropDown"
     foreach ($e in $AvailableEnvironments) { $cmbEnvLogin.Items.Add($e) | Out-Null }
     if ($cmbEnvLogin.Items.Contains($InitialEnvironment)) {
         $cmbEnvLogin.SelectedItem = $InitialEnvironment
@@ -181,8 +181,9 @@ function Get-SessionCredential {
     $txtUser.Size = New-Object System.Drawing.Size(250, 23)
     $loginForm.Controls.Add($txtUser)
 
-    $cmbEnvLogin.Add_SelectedIndexChanged({
-        $env = $cmbEnvLogin.SelectedItem
+    $cmbEnvLogin.Add_TextChanged({
+        $env = $cmbEnvLogin.Text
+        if ([string]::IsNullOrWhiteSpace($env)) { return }
         $loginForm.Text = "Server Navigator - Login ($env)"
         $lblHeader.Text = "Enter credentials for $env access"
         $expectedDomain = if ($env -eq "PROD") { "NA" } else { "nadev" }
@@ -238,7 +239,7 @@ function Get-SessionCredential {
             return
         }
         
-        $selEnv = $cmbEnvLogin.SelectedItem
+        $selEnv = $cmbEnvLogin.Text
         $domain = if ($selEnv -eq "PROD") { "NA" } else { "nadev" }
         
         if ($user -notlike "*\*") {

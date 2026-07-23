@@ -638,42 +638,26 @@ $btnRDP.Add_Click({
             if ($address -like "\\*") {
                 $hostName = $address.TrimStart('\').Split('\')[0]
                 Write-RDPLog "Extracted HostName: $hostName"
-                Update-StatusBar "Initiating RDP connection to $hostName..." "Info"
             
-                $rdpStarted = $false
                 try {
-                    $username = $script:Credentials[$script:ActiveEnv].UserName
-                    Write-RDPLog "Using username: $username"
                     $password = $script:Credentials[$script:ActiveEnv].GetNetworkCredential().Password
                 
-                    Write-RDPLog "Injecting credentials into vault via cmdkey..."
-                    $cmdArgs = @("/generic:TERMSRV/$hostName", "/user:$username", "/pass:$password")
-                    $cmdkeyProc = Start-Process -FilePath "cmdkey.exe" -ArgumentList $cmdArgs -WindowStyle Hidden -Wait -PassThru
-                    Write-RDPLog "cmdkey exited with code: $($cmdkeyProc.ExitCode)"
+                    if (-not [string]::IsNullOrEmpty($password)) {
+                        [System.Windows.Forms.Clipboard]::SetText($password)
+                        Update-StatusBar "Password copied to clipboard. Paste it when prompted." "Info"
+                        Write-RDPLog "Password copied to clipboard."
+                    }
+                    else {
+                        Write-RDPLog "No password available to copy."
+                    }
 
                     Write-RDPLog "Launching mstsc.exe..."
                     Start-Process mstsc.exe -ArgumentList "/v:$hostName"
-                    $rdpStarted = $true
                     Write-RDPLog "mstsc.exe launched successfully."
-                
-                    Write-RDPLog "Starting 60-second cleanup timer..."
-                    $cleanupTimer = New-Object System.Windows.Forms.Timer
-                    $cleanupTimer.Interval = 60000
-                    $cleanupTimer.Add_Tick({
-                            $this.Stop()
-                            $this.Dispose()
-                            Add-Content -Path $logFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Timer elapsed (60s). Deleting credentials from vault..."
-                            $delProc = Start-Process -FilePath "cmdkey.exe" -ArgumentList "/delete:TERMSRV/$hostName" -WindowStyle Hidden -Wait -PassThru
-                            Add-Content -Path $logFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - cmdkey delete exited with code: $($delProc.ExitCode)"
-                        }.GetNewClosure())
-                    $cleanupTimer.Start()
                 }
                 catch {
                     Write-RDPLog "EXCEPTION caught: $($_.Exception.Message)"
-                    if (-not $rdpStarted) {
-                        Write-RDPLog "Fallback: Launching mstsc.exe manually..."
-                        Start-Process mstsc.exe -ArgumentList "/v:$hostName"
-                    }
+                    Update-StatusBar "Error launching RDP." "Error"
                 }
             }
             else {

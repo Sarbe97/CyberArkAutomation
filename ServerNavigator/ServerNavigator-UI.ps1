@@ -619,47 +619,69 @@ $btnRDP.ForeColor = [System.Drawing.Color]::White
 $btnRDP.FlatStyle = "Flat"
 $btnRDP.Cursor = "Hand"
 $btnRDP.Add_Click({
+        $logFile = Join-Path $script:ScriptDir "RDP_Debug.log"
+        function Write-RDPLog { param($msg) Add-Content -Path $logFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $msg" }
+        Write-RDPLog "======================================="
+        Write-RDPLog "RDP Button Clicked"
+        
         $server = Get-SelectedServer
         if ($server) {
-            if (-not (Ensure-Credentials)) { return }
+            Write-RDPLog "Selected Server: $($server.Name)"
+            if (-not (Ensure-Credentials)) { 
+                Write-RDPLog "Credentials not available. Exiting."
+                return 
+            }
+            Write-RDPLog "Credentials verified."
+            
             $address = $server.SharePath
+            Write-RDPLog "SharePath: $address"
             if ($address -like "\\*") {
                 $hostName = $address.TrimStart('\').Split('\')[0]
+                Write-RDPLog "Extracted HostName: $hostName"
                 Update-StatusBar "Initiating RDP connection to $hostName..." "Info"
             
                 $rdpStarted = $false
                 try {
                     $username = $script:Credentials[$script:ActiveEnv].UserName
+                    Write-RDPLog "Using username: $username"
                     $password = $script:Credentials[$script:ActiveEnv].GetNetworkCredential().Password
                 
-                    # Securely pass credentials to Windows Credential Vault temporarily
+                    Write-RDPLog "Injecting credentials into vault via cmdkey..."
                     $cmdArgs = @("/generic:TERMSRV/$hostName", "/user:$username", "/pass:$password")
-                    Start-Process -FilePath "cmdkey.exe" -ArgumentList $cmdArgs -WindowStyle Hidden -Wait
+                    $cmdkeyProc = Start-Process -FilePath "cmdkey.exe" -ArgumentList $cmdArgs -WindowStyle Hidden -Wait -PassThru
+                    Write-RDPLog "cmdkey exited with code: $($cmdkeyProc.ExitCode)"
 
-                    # Launch RDP
+                    Write-RDPLog "Launching mstsc.exe..."
                     Start-Process mstsc.exe -ArgumentList "/v:$hostName"
                     $rdpStarted = $true
+                    Write-RDPLog "mstsc.exe launched successfully."
                 
-                    # Clean up stored credentials from vault after 10 seconds using a WinForms Timer
+                    Write-RDPLog "Starting 60-second cleanup timer..."
                     $cleanupTimer = New-Object System.Windows.Forms.Timer
-                    $cleanupTimer.Interval = 10000
+                    $cleanupTimer.Interval = 60000
                     $cleanupTimer.Add_Tick({
                             $this.Stop()
                             $this.Dispose()
-                            Start-Process -FilePath "cmdkey.exe" -ArgumentList "/delete:TERMSRV/$hostName" -WindowStyle Hidden -Wait
+                            Write-RDPLog "Timer elapsed (60s). Deleting credentials from vault..."
+                            $delProc = Start-Process -FilePath "cmdkey.exe" -ArgumentList "/delete:TERMSRV/$hostName" -WindowStyle Hidden -Wait -PassThru
+                            Write-RDPLog "cmdkey delete exited with code: $($delProc.ExitCode)"
                         })
                     $cleanupTimer.Start()
                 }
                 catch {
+                    Write-RDPLog "EXCEPTION caught: $($_.Exception.Message)"
                     if (-not $rdpStarted) {
-                        # Fallback to standard RDP connection
+                        Write-RDPLog "Fallback: Launching mstsc.exe manually..."
                         Start-Process mstsc.exe -ArgumentList "/v:$hostName"
                     }
                 }
             }
             else {
+                Write-RDPLog "Not a UNC path. Cannot RDP."
                 [System.Windows.Forms.MessageBox]::Show("RDP is only supported for remote servers (UNC paths).", "RDP Support", "OK", "Information")
             }
+        } else {
+            Write-RDPLog "No server selected."
         }
     })
 $form.Controls.Add($btnRDP)

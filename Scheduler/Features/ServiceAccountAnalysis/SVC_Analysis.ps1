@@ -251,17 +251,45 @@ try {
     if ($effectiveMode -eq "Analysis" -and $cfgNotif.SendSummary) {
         Write-Log -Message "========== PHASE 3: RUN SUMMARY EMAIL ==========" -ScriptName $ScriptName -LogPath $LogPath
 
-        # --- Compute breakdown metrics ---
-        # If 'Enabled' is missing or anything other than explicitly False, treat it as True
-        $disabledAccounts = @($analysisReport | Where-Object { [string]$_.Enabled -eq "False" })
-        $enabledAccounts  = @($analysisReport | Where-Object { [string]$_.Enabled -ne "False" })
+        # --- Compute breakdown metrics in a single pass for high performance ---
+        $cntEnabled = 0
+        $cntDisabled = 0
+        $cntEnabledInCA = 0
+        $cntEnabledNotInCA = 0
+        $cntDisabledInCA = 0
+        $cntDisabledNotInCA = 0
+        $totalInCA = 0
+        $totalNotInCA = 0
 
-        # If 'InCyberArk' is anything other than explicitly True (including False or Unknown), count as Not in CyberArk
-        $enabledInCyberArk    = @($enabledAccounts  | Where-Object { [string]$_.InCyberArk -eq "True" })
-        $enabledNotInCyberArk = @($enabledAccounts  | Where-Object { [string]$_.InCyberArk -ne "True" })
-        
-        $disabledInCyberArk   = @($disabledAccounts | Where-Object { [string]$_.InCyberArk -eq "True" })
-        $disabledNotCyberArk  = @($disabledAccounts | Where-Object { [string]$_.InCyberArk -ne "True" })
+        $domainStats = @{}
+
+        foreach ($acct in $analysisReport) {
+            $dom = $acct.Domain
+            if (-not $domainStats.ContainsKey($dom)) {
+                $domainStats[$dom] = @{ Total = 0; Enabled = 0; Disabled = 0; InCA = 0; NotInCA = 0 }
+            }
+            $stats = $domainStats[$dom]
+            $stats.Total++
+            
+            $isInCA = ([string]$acct.InCyberArk -eq "True")
+            if ($isInCA) { 
+                $totalInCA++
+                $stats.InCA++ 
+            } else { 
+                $totalNotInCA++
+                $stats.NotInCA++ 
+            }
+
+            if ([string]$acct.Enabled -ne "False") {
+                $cntEnabled++
+                $stats.Enabled++
+                if ($isInCA) { $cntEnabledInCA++ } else { $cntEnabledNotInCA++ }
+            } else {
+                $cntDisabled++
+                $stats.Disabled++
+                if ($isInCA) { $cntDisabledInCA++ } else { $cntDisabledNotInCA++ }
+            }
+        }
 
         $allExcludedOUs = [System.Collections.Generic.List[string]]::new()
         foreach ($d in $cfgDomains) {
@@ -290,37 +318,31 @@ try {
 
         # --- Build per-domain breakdown HTML (one row per domain) ---
         $domainRows      = [System.Text.StringBuilder]::new()
-        $uniqueDomains   = @($analysisReport | Select-Object -ExpandProperty Domain -Unique | Sort-Object)
+        $uniqueDomains   = $domainStats.Keys | Sort-Object
 
         foreach ($dom in $uniqueDomains) {
-            $domAccts    = @($analysisReport | Where-Object { $_.Domain -eq $dom })
-            $domEnabled  = @($domAccts | Where-Object { [string]$_.Enabled -ne "False" })
-            $domDisabled = @($domAccts | Where-Object { [string]$_.Enabled -eq "False" })
-            $domInCA     = @($domAccts | Where-Object { [string]$_.InCyberArk -eq "True" })
-            $domNotInCA  = @($domAccts | Where-Object { [string]$_.InCyberArk -ne "True" })
+            $stats = $domainStats[$dom]
 
             $null = $domainRows.Append("
                 <tr>
                   <td style=""padding:8px 12px; font-size:12px; color:#333333; border-bottom:1px solid #eef0f3;"">$dom</td>
-                  <td style=""padding:8px 12px; font-size:12px; color:#2c5f9e; font-weight:bold; text-align:center; border-bottom:1px solid #eef0f3;"">$($domAccts.Count)</td>
-                  <td style=""padding:8px 12px; font-size:12px; color:#2d7d46; text-align:center; border-bottom:1px solid #eef0f3;"">$($domEnabled.Count)</td>
-                  <td style=""padding:8px 12px; font-size:12px; color:#888888; text-align:center; border-bottom:1px solid #eef0f3;"">$($domDisabled.Count)</td>
-                  <td style=""padding:8px 12px; font-size:12px; color:#1f8c5a; text-align:center; border-bottom:1px solid #eef0f3;"">$($domInCA.Count)</td>
-                  <td style=""padding:8px 12px; font-size:12px; color:#d97706; text-align:center; border-bottom:1px solid #eef0f3;"">$($domNotInCA.Count)</td>
+                  <td style=""padding:8px 12px; font-size:12px; color:#2c5f9e; font-weight:bold; text-align:center; border-bottom:1px solid #eef0f3;"">$($stats.Total)</td>
+                  <td style=""padding:8px 12px; font-size:12px; color:#2d7d46; text-align:center; border-bottom:1px solid #eef0f3;"">$($stats.Enabled)</td>
+                  <td style=""padding:8px 12px; font-size:12px; color:#888888; text-align:center; border-bottom:1px solid #eef0f3;"">$($stats.Disabled)</td>
+                  <td style=""padding:8px 12px; font-size:12px; color:#1f8c5a; text-align:center; border-bottom:1px solid #eef0f3;"">$($stats.InCA)</td>
+                  <td style=""padding:8px 12px; font-size:12px; color:#d97706; text-align:center; border-bottom:1px solid #eef0f3;"">$($stats.NotInCA)</td>
                 </tr>")
         }
 
         # Totals row
-        $totalInCA    = @($analysisReport | Where-Object { [string]$_.InCyberArk -eq "True" })
-        $totalNotInCA = @($analysisReport | Where-Object { [string]$_.InCyberArk -ne "True" })
         $null = $domainRows.Append("
                 <tr style=""background-color:#f3f5f9;"">
                   <td style=""padding:9px 12px; font-size:12px; font-weight:bold; color:#333333;"">Total</td>
                   <td style=""padding:9px 12px; font-size:12px; font-weight:bold; color:#2c5f9e; text-align:center;"">$($analysisReport.Count)</td>
-                  <td style=""padding:9px 12px; font-size:12px; font-weight:bold; color:#2d7d46; text-align:center;"">$($enabledAccounts.Count)</td>
-                  <td style=""padding:9px 12px; font-size:12px; font-weight:bold; color:#888888; text-align:center;"">$($disabledAccounts.Count)</td>
-                  <td style=""padding:9px 12px; font-size:12px; font-weight:bold; color:#1f8c5a; text-align:center;"">$($totalInCA.Count)</td>
-                  <td style=""padding:9px 12px; font-size:12px; font-weight:bold; color:#d97706; text-align:center;"">$($totalNotInCA.Count)</td>
+                  <td style=""padding:9px 12px; font-size:12px; font-weight:bold; color:#2d7d46; text-align:center;"">$cntEnabled</td>
+                  <td style=""padding:9px 12px; font-size:12px; font-weight:bold; color:#888888; text-align:center;"">$cntDisabled</td>
+                  <td style=""padding:9px 12px; font-size:12px; font-weight:bold; color:#1f8c5a; text-align:center;"">$totalInCA</td>
+                  <td style=""padding:9px 12px; font-size:12px; font-weight:bold; color:#d97706; text-align:center;"">$totalNotInCA</td>
                 </tr>")
 
         $domainBreakdownHtml = if ($uniqueDomains.Count -gt 0) { $domainRows.ToString() } else { "" }
@@ -331,13 +353,13 @@ try {
             GeneratedDate           = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
             TotalServiceAccounts    = $analysisReport.Count
             TotalCyberArkAccounts   = $cyberArkAccounts.Count
-            TotalMatchedAccounts    = $enabledInCyberArk.Count + $disabledInCyberArk.Count
-            EnabledInAD             = $enabledAccounts.Count
-            DisabledInAD            = $disabledAccounts.Count
-            EnabledInCyberArk       = $enabledInCyberArk.Count
-            EnabledNotInCyberArk    = $enabledNotInCyberArk.Count
-            DisabledInCyberArk      = $disabledInCyberArk.Count
-            DisabledNotInCyberArk   = $disabledNotCyberArk.Count
+            TotalMatchedAccounts    = $cntEnabledInCA + $cntDisabledInCA
+            EnabledInAD             = $cntEnabled
+            DisabledInAD            = $cntDisabled
+            EnabledInCyberArk       = $cntEnabledInCA
+            EnabledNotInCyberArk    = $cntEnabledNotInCA
+            DisabledInCyberArk      = $cntDisabledInCA
+            DisabledNotInCyberArk   = $cntDisabledNotInCA
             ExcludedOUsHtml         = $excludedOUsHtml
             PersonalAccountPattern  = if ($cfgPersonalAccount.Pattern) { $cfgPersonalAccount.Pattern } else { "<i>None</i>" }
             EmployeeFilterHtml      = $employeeFilterHtml

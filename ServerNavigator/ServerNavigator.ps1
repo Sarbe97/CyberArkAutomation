@@ -96,7 +96,7 @@ function Save-Servers {
             Settings = $settingsObj
         }
         
-        $envs = @($Servers | Select-Object -ExpandProperty Environment -Unique)
+        $envs = @($Servers | Select-Object -ExpandProperty Environment -Unique | Where-Object { ![string]::IsNullOrEmpty($_) })
         foreach ($e in @("DEV", "PROD")) { if ($envs -notcontains $e) { $envs += $e } }
         
         foreach ($env in $envs) {

@@ -662,10 +662,10 @@ $btnRDP.Add_Click({
                     $cleanupTimer.Add_Tick({
                             $this.Stop()
                             $this.Dispose()
-                            Write-RDPLog "Timer elapsed (60s). Deleting credentials from vault..."
+                            Add-Content -Path $logFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - Timer elapsed (60s). Deleting credentials from vault..."
                             $delProc = Start-Process -FilePath "cmdkey.exe" -ArgumentList "/delete:TERMSRV/$hostName" -WindowStyle Hidden -Wait -PassThru
-                            Write-RDPLog "cmdkey delete exited with code: $($delProc.ExitCode)"
-                        })
+                            Add-Content -Path $logFile -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - cmdkey delete exited with code: $($delProc.ExitCode)"
+                        }.GetNewClosure())
                     $cleanupTimer.Start()
                 }
                 catch {

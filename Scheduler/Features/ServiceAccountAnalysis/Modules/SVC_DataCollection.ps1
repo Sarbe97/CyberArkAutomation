@@ -11,11 +11,16 @@ function Export-CsvNoBom {
     begin   { $rows = [System.Collections.Generic.List[object]]::new() }
     process { $rows.Add($InputObject) }
     end {
-        [string[]]$csvLines = if ($rows.Count -gt 0) { $rows | ConvertTo-Csv -NoTypeInformation } else { [string[]]::new(0) }
-        if ($null -ne $csvLines) {
-            [System.IO.File]::WriteAllLines($Path, $csvLines, [System.Text.UTF8Encoding]::new($false))
-        } else {
-            [System.IO.File]::WriteAllLines($Path, [string[]]::new(0), [System.Text.UTF8Encoding]::new($false))
+        try {
+            [string[]]$csvLines = if ($rows.Count -gt 0) { $rows | ConvertTo-Csv -NoTypeInformation } else { [string[]]::new(0) }
+            if ($null -ne $csvLines) {
+                [System.IO.File]::WriteAllLines($Path, $csvLines, [System.Text.UTF8Encoding]::new($false))
+            } else {
+                [System.IO.File]::WriteAllLines($Path, [string[]]::new(0), [System.Text.UTF8Encoding]::new($false))
+            }
+        }
+        catch {
+            throw "Failed to write to file '$Path'. The file is locked by another process (likely open in Excel). Please close the file and try again. Original Error: $($_.Exception.Message)"
         }
     }
 }

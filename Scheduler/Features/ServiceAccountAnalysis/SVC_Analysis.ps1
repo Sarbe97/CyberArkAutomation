@@ -193,6 +193,8 @@ try {
     Write-Log -Message "========== PHASE 2: CYBERARK FETCH & ANALYSIS ==========" -ScriptName $ScriptName -LogPath $LogPath
     $phaseStart = Get-Date
 
+    $analysisReport = [System.Collections.Generic.List[object]]::new()
+
     if ($cyberArkAuthAvailable -and $cyberArkAccounts.Count -ge 0) {
         $enrichedAccounts = Resolve-SVCCyberArkOnboarding `
             -ADAccounts       $serviceAccounts `

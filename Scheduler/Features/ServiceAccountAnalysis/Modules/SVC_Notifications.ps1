@@ -58,11 +58,26 @@ function Send-SVCRunSummary {
     $fromAddress = if ($FromOverride) { $FromOverride } else { $GlobalEmailConfig.From }
 
     $attachments = @()
-    if (Test-Path $AnalysisReportFile) { $attachments += $AnalysisReportFile }
+    $maxAttachmentSizeMB = 15
+
+    if (Test-Path $AnalysisReportFile) {
+        $sizeMB = (Get-Item $AnalysisReportFile).Length / 1MB
+        if ($sizeMB -le $maxAttachmentSizeMB) {
+            $attachments += $AnalysisReportFile
+        } else {
+            Write-Log -Message "Skipping attachment '$([System.IO.Path]::GetFileName($AnalysisReportFile))' because its size ($([math]::Round($sizeMB, 2)) MB) exceeds the $maxAttachmentSizeMB MB email limit." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+        }
+    }
+
     if ($SmartIdFiles) {
         foreach ($file in $SmartIdFiles) {
             if ($file -and (Test-Path $file)) {
-                $attachments += $file
+                $sizeMB = (Get-Item $file).Length / 1MB
+                if ($sizeMB -le $maxAttachmentSizeMB) {
+                    $attachments += $file
+                } else {
+                    Write-Log -Message "Skipping attachment '$([System.IO.Path]::GetFileName($file))' because its size ($([math]::Round($sizeMB, 2)) MB) exceeds the $maxAttachmentSizeMB MB email limit." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+                }
             }
         }
     }

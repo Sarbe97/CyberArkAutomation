@@ -28,34 +28,48 @@ function Publish-SVCSharePointReport {
         $spDataRows = [System.Collections.Generic.List[object]]::new()
         $spSectionHeaders = [System.Collections.Generic.List[string]]::new()
 
+        # Build hashtable to count metrics per domain in a single pass (high performance)
+        $domainStats = @{}
+        foreach ($acct in $AnalysisReport) {
+            $dom = $acct.Domain
+            if (-not $domainStats.ContainsKey($dom)) {
+                $domainStats[$dom] = @{ Total = 0; Enabled = 0; Disabled = 0; EnabledInCA = 0; EnabledNotInCA = 0; DisabledInCA = 0; DisabledNotInCA = 0 }
+            }
+            $stats = $domainStats[$dom]
+            $stats.Total++
+            
+            $isInCA = ([string]$acct.InCyberArk -eq "True")
+            if ([string]$acct.Enabled -ne "False") {
+                $stats.Enabled++
+                if ($isInCA) { $stats.EnabledInCA++ } else { $stats.EnabledNotInCA++ }
+            } else {
+                $stats.Disabled++
+                if ($isInCA) { $stats.DisabledInCA++ } else { $stats.DisabledNotInCA++ }
+            }
+        }
+
         foreach ($domain in $Domains) {
             $dName = $domain.Name
             
-            # Filter the analysis report for this domain
-            $domainAccounts = @($AnalysisReport | Where-Object { [string]$_.Domain -eq $dName })
-            
-            $disabledAccounts = @($domainAccounts | Where-Object { [string]$_.Enabled -eq "False" })
-            $enabledAccounts  = @($domainAccounts | Where-Object { [string]$_.Enabled -ne "False" })
-
-            $enabledInCyberArk    = @($enabledAccounts  | Where-Object { [string]$_.InCyberArk -eq "True" })
-            $enabledNotInCyberArk = @($enabledAccounts  | Where-Object { [string]$_.InCyberArk -ne "True" })
-            
-            $disabledInCyberArk   = @($disabledAccounts | Where-Object { [string]$_.InCyberArk -eq "True" })
-            $disabledNotCyberArk  = @($disabledAccounts | Where-Object { [string]$_.InCyberArk -ne "True" })
+            if ($domainStats.ContainsKey($dName)) {
+                $stats = $domainStats[$dName]
+            } else {
+                $stats = @{ Total = 0; Enabled = 0; Disabled = 0; EnabledInCA = 0; EnabledNotInCA = 0; DisabledInCA = 0; DisabledNotInCA = 0 }
+            }
 
             # Active Directory Status (Section Header)
             $spSectionHeaders.Add("[$dName] Active Directory Status")
             $spDataRows.Add([PSCustomObject]@{ Metric = "[$dName] Active Directory Status"; Value = "" })
             
-            $spDataRows.Add([PSCustomObject]@{ Metric = "[$dName] Total Scanned"; Value = $domainAccounts.Count })
+            $spDataRows.Add([PSCustomObject]@{ Metric = "[$dName] Total Scanned"; Value = $stats.Total })
             
-            $spDataRows.Add([PSCustomObject]@{ Metric = "[$dName] Enabled in AD"; Value = $enabledAccounts.Count })
-            $spDataRows.Add([PSCustomObject]@{ Metric = "[$dName] Enabled - In CyberArk"; Value = $enabledInCyberArk.Count })
-            $spDataRows.Add([PSCustomObject]@{ Metric = "[$dName] Enabled - NOT in CyberArk"; Value = $enabledNotInCyberArk.Count })
+            $spDataRows.Add([PSCustomObject]@{ Metric = "[$dName] Enabled in AD"; Value = $stats.Enabled })
+            $spDataRows.Add([PSCustomObject]@{ Metric = "[$dName] Enabled - In CyberArk"; Value = $stats.EnabledInCA })
+            $spDataRows.Add([PSCustomObject]@{ Metric = "[$dName] Enabled - NOT in CyberArk"; Value = $stats.EnabledNotInCA })
             
-            $spDataRows.Add([PSCustomObject]@{ Metric = "[$dName] Disabled in AD"; Value = $disabledAccounts.Count })
-            $spDataRows.Add([PSCustomObject]@{ Metric = "[$dName] Disabled - In CyberArk"; Value = $disabledInCyberArk.Count })
-            $spDataRows.Add([PSCustomObject]@{ Metric = "[$dName] Disabled - NOT in CyberArk"; Value = $disabledNotCyberArk.Count })
+            $spDataRows.Add([PSCustomObject]@{ Metric = "[$dName] Disabled in AD"; Value = $stats.Disabled })
+            $spDataRows.Add([PSCustomObject]@{ Metric = "[$dName] Disabled - In CyberArk"; Value = $stats.DisabledInCA })
+            $spDataRows.Add([PSCustomObject]@{ Metric = "[$dName] Disabled - NOT in CyberArk"; Value = $stats.DisabledNotInCA })
         }
 
         Update-SharePointExcel `

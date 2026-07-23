@@ -85,6 +85,7 @@ $Credential = Get-SchedulerCredential -CCPConfig $config.CCP -Username $config.U
 
 Write-Log -Message "Connecting to CyberArk API..." -ScriptName $ScriptName -LogPath $LogPath
 $null = Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential -ScriptName $ScriptName -LogPath $LogPath
+$cyberArkDisconnected = $false
 
 try {
     # ---- Cache & output file paths ----
@@ -138,6 +139,10 @@ try {
         -TrackedFailedAccounts  $TrackedFailedAccounts `
         -FailFile               $failFile `
         -ScriptName             $ScriptName -LogPath $LogPath
+
+    Write-Log -Message "CyberArk data collection complete. Disconnecting early to prevent token expiry during reporting..." -ScriptName $ScriptName -LogPath $LogPath
+    Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
+    $cyberArkDisconnected = $true
 
     $compResult = Invoke-FailureComparison `
         -FilteredFailedAccounts $failResult.FilteredFailedAccounts `
@@ -278,6 +283,8 @@ catch {
     Write-Log -Message "Dashboard Report failed: $_" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
 }
 finally {
-    Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
+    if (-not $cyberArkDisconnected) {
+        Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
+    }
     Write-Log -Message "Execution completed" -ScriptName $ScriptName -LogPath $LogPath
 }

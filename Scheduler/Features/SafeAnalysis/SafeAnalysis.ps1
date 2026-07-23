@@ -104,6 +104,7 @@ $Credential = Get-SchedulerCredential -CCPConfig $config.CCP -Username $config.U
 Write-Log -Message "Connecting to CyberArk API..." -ScriptName $ScriptName -LogPath $LogPath
 $null = Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential `
     -ScriptName $ScriptName -LogPath $LogPath
+$cyberArkDisconnected = $false
 
 try {
     # ==========================================================
@@ -280,12 +281,22 @@ try {
         Write-Log -Message "Analysis report saved: $analysisFile" -ScriptName $ScriptName -LogPath $LogPath
     }
 
+    Write-Log -Message "CyberArk data collection complete. Disconnecting to prevent token expiry during local processing..." -ScriptName $ScriptName -LogPath $LogPath
+    Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
+    $cyberArkDisconnected = $true
+
     # ==========================================================
     # PHASE 3 — REMEDIATION
     # ==========================================================
     $cntRemediations = 0
     if ($effectiveMode -in @("Remediation", "Simulation") -and $remediationQueue.Count -gt 0) {
         Write-Log -Message "========== PHASE 3: REMEDIATION ==========" -ScriptName $ScriptName -LogPath $LogPath
+
+        if ($cyberArkDisconnected) {
+            Write-Log -Message "Reconnecting to CyberArk API for Phase 3 (Remediation)..." -ScriptName $ScriptName -LogPath $LogPath
+            $null = Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential -ScriptName $ScriptName -LogPath $LogPath
+            $cyberArkDisconnected = $false
+        }
 
         $remediationResults = [System.Collections.Generic.List[object]]::new()
 
@@ -389,7 +400,9 @@ catch {
     Write-Log -Message "Stack trace: $($_.ScriptStackTrace)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
 }
 finally {
-    Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
+    if (-not $cyberArkDisconnected) {
+        Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
+    }
     $overallDuration = (Get-Date) - $overallStartTime
     Write-Log -Message "Execution completed in $([math]::Round($overallDuration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
     Write-Log -Message "Execution completed (mode: $effectiveMode)" -ScriptName $ScriptName -LogPath $LogPath

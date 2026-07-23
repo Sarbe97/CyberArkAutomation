@@ -132,6 +132,7 @@ $Credential = Get-SchedulerCredential -CCPConfig $config.CCP -Username $config.U
 Write-Log -Message "Connecting to CyberArk API..." -ScriptName $ScriptName -LogPath $LogPath
 $null = Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential `
     -ScriptName $ScriptName -LogPath $LogPath
+$cyberArkDisconnected = $false
 
 try {
 
@@ -240,9 +241,14 @@ try {
         if ($effectiveMode -eq "Discovery") {
             Write-Log -Message "Mode=Discovery. Raw data collected and cached. Exiting after Phase 1." -ScriptName $ScriptName -LogPath $LogPath
             Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
+            $cyberArkDisconnected = $true
             Write-Log -Message "Execution completed (Discovery mode)" -ScriptName $ScriptName -LogPath $LogPath
             exit 0
         }
+
+        Write-Log -Message "CyberArk data collection complete. Disconnecting to prevent token expiry during local analysis..." -ScriptName $ScriptName -LogPath $LogPath
+        Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
+        $cyberArkDisconnected = $true
 
         # ==========================================================
         # PHASE 2 — ANALYSIS
@@ -408,7 +414,9 @@ try {
                     -LogPath                 $LogPath
             }
 
-            Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
+            if (-not $cyberArkDisconnected) {
+                Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
+            }
             Write-Log -Message "Execution completed (Analysis mode)" -ScriptName $ScriptName -LogPath $LogPath
             exit 0
         }
@@ -422,6 +430,12 @@ try {
     # ==========================================================
     Write-Log -Message "========== PHASE 3: ONBOARDING & API CALLS ==========" -ScriptName $ScriptName -LogPath $LogPath
     $phase3Start = Get-Date
+
+    if ($cyberArkDisconnected) {
+        Write-Log -Message "Reconnecting to CyberArk API for Phase 3..." -ScriptName $ScriptName -LogPath $LogPath
+        $null = Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential -ScriptName $ScriptName -LogPath $LogPath
+        $cyberArkDisconnected = $false
+    }
 
     if (-not (Test-Path $analysisFile)) {
         throw "Cannot proceed to Phase 3: $analysisFile does not exist."
@@ -761,7 +775,9 @@ catch {
     Write-Log -Message "Stack trace: $($_.ScriptStackTrace)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
 }
 finally {
-    Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
+    if (-not $cyberArkDisconnected) {
+        Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
+    }
     $overallDuration = (Get-Date) - $overallStartTime
     Write-Log -Message "Execution completed in $([math]::Round($overallDuration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
     Write-Log -Message "Execution completed (mode: $effectiveMode)" -ScriptName $ScriptName -LogPath $LogPath

@@ -600,66 +600,6 @@ $script:lstServers.Add_SelectedIndexChanged({
     })
 $form.Controls.Add($script:lstServers)
 
-# ── Move Up / Move Down buttons ──
-$btnMoveUp = New-Object System.Windows.Forms.Button
-$btnMoveUp.Text = "▲"
-$btnMoveUp.Size = New-Object System.Drawing.Size(32, 36)
-$btnMoveUp.Location = New-Object System.Drawing.Point(485, 85)
-$btnMoveUp.FlatStyle = "Flat"
-$btnMoveUp.Cursor = "Hand"
-$btnMoveUp.Font = New-Object System.Drawing.Font("Segoe UI", 10)
-$btnMoveUp.Add_Click({
-    $idx = $script:lstServers.SelectedIndex
-    if ($idx -le 0) { return }
-    $servers = [System.Collections.ArrayList]@(Load-Servers)
-    # Find the actual indices in the full list for this env
-    $envList = @($servers | Where-Object { $_.Environment -eq $script:ActiveEnv })
-    $selectedLabel = $script:lstServers.SelectedItem
-    $selectedName  = ($selectedLabel -split '  ')[0].Trim()
-    $currentSrv    = $envList | Where-Object { $_.Name -eq $selectedName } | Select-Object -First 1
-    $prevSrv       = $envList[$idx - 1]
-    # Swap in the flat list
-    $iCurrent = $servers.IndexOf($currentSrv)
-    $iPrev    = $servers.IndexOf($prevSrv)
-    if ($iCurrent -ge 0 -and $iPrev -ge 0) {
-        $tmp = $servers[$iCurrent]; $servers[$iCurrent] = $servers[$iPrev]; $servers[$iPrev] = $tmp
-        Save-Servers $servers.ToArray()
-        Refresh-ServerList -Filter $txtSearch.Text
-        # Re-select moved item
-        $newLabel = Get-ServerDisplayLabel $currentSrv
-        $script:lstServers.SelectedItem = $newLabel
-    }
-})
-$form.Controls.Add($btnMoveUp)
-
-$btnMoveDown = New-Object System.Windows.Forms.Button
-$btnMoveDown.Text = "▼"
-$btnMoveDown.Size = New-Object System.Drawing.Size(32, 36)
-$btnMoveDown.Location = New-Object System.Drawing.Point(485, 125)
-$btnMoveDown.FlatStyle = "Flat"
-$btnMoveDown.Cursor = "Hand"
-$btnMoveDown.Font = New-Object System.Drawing.Font("Segoe UI", 10)
-$btnMoveDown.Add_Click({
-    $idx = $script:lstServers.SelectedIndex
-    if ($idx -lt 0 -or $idx -ge ($script:lstServers.Items.Count - 1)) { return }
-    $servers = [System.Collections.ArrayList]@(Load-Servers)
-    $envList = @($servers | Where-Object { $_.Environment -eq $script:ActiveEnv })
-    $selectedLabel = $script:lstServers.SelectedItem
-    $selectedName  = ($selectedLabel -split '  ')[0].Trim()
-    $currentSrv    = $envList | Where-Object { $_.Name -eq $selectedName } | Select-Object -First 1
-    $nextSrv       = $envList[$idx + 1]
-    $iCurrent = $servers.IndexOf($currentSrv)
-    $iNext    = $servers.IndexOf($nextSrv)
-    if ($iCurrent -ge 0 -and $iNext -ge 0) {
-        $tmp = $servers[$iCurrent]; $servers[$iCurrent] = $servers[$iNext]; $servers[$iNext] = $tmp
-        Save-Servers $servers.ToArray()
-        Refresh-ServerList -Filter $txtSearch.Text
-        $newLabel = Get-ServerDisplayLabel $currentSrv
-        $script:lstServers.SelectedItem = $newLabel
-    }
-})
-$form.Controls.Add($btnMoveDown)
-
 # â”€â”€ Action Buttons â”€â”€
 $buttonY = 340
 $buttonW = 145

@@ -112,15 +112,17 @@ $analysisFile = Join-Path $ExportDir "SVC_AnalysisReport_$Timestamp.csv"
 # ============================================================
 $cyberArkToken         = $null
 $cyberArkAuthAvailable = $false
+$cyberArkDisconnected  = $false
+$cyberArkAccounts      = @()
 
 try {
 
     # ----------------------------------------------------------
-    # CYBERARK AUTHENTICATION
+    # CYBERARK AUTHENTICATION & FETCH
     # Uses global config credentials: direct if both Username +
     # Password are non-blank, otherwise falls through to CCP.
     # ----------------------------------------------------------
-    Write-Log -Message "========== CYBERARK AUTHENTICATION ==========" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "========== CYBERARK AUTHENTICATION & FETCH ==========" -ScriptName $ScriptName -LogPath $LogPath
 
     try {
         $globalUsername = if ($config.Username) { $config.Username } else { "" }
@@ -143,10 +145,24 @@ try {
             -LogPath    $LogPath
 
         $cyberArkAuthAvailable = $true
-        Write-Log -Message "CyberArk authentication successful." -ScriptName $ScriptName -LogPath $LogPath
+        Write-Log -Message "CyberArk authentication successful. Fetching accounts early to prevent token expiry..." -ScriptName $ScriptName -LogPath $LogPath
+        
+        $cyberArkAccounts = Get-SVCCyberArkAccounts `
+            -BaseUrl           $BaseUrl `
+            -Token             $cyberArkToken `
+            -CacheDir          $ExportDir `
+            -TodayStr          $TodayStr `
+            -ScriptName        $ScriptName `
+            -LogPath           $LogPath `
+            -PersonalSafeRegex $cfgPersonalSafeRegex `
+            -Domains           $cfgDomains
+
+        Write-Log -Message "CyberArk data collection complete. Disconnecting early..." -ScriptName $ScriptName -LogPath $LogPath
+        Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
+        $cyberArkDisconnected = $true
     }
     catch {
-        Write-Log -Message "CyberArk authentication failed: $($_.Exception.Message). Continuing with AD-only analysis (InCyberArk will be Unknown)." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+        Write-Log -Message "CyberArk authentication or fetch failed: $($_.Exception.Message). Continuing with AD-only analysis (InCyberArk will be Unknown)." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
     }
 
     # ==========================================================
@@ -177,20 +193,7 @@ try {
     Write-Log -Message "========== PHASE 2: CYBERARK FETCH & ANALYSIS ==========" -ScriptName $ScriptName -LogPath $LogPath
     $phaseStart = Get-Date
 
-    $cyberArkAccounts = @()
-    $analysisReport   = [System.Collections.Generic.List[object]]::new()
-
-    if ($cyberArkAuthAvailable -and $cyberArkToken) {
-        $cyberArkAccounts = Get-SVCCyberArkAccounts `
-            -BaseUrl           $BaseUrl `
-            -Token             $cyberArkToken `
-            -CacheDir          $ExportDir `
-            -TodayStr          $TodayStr `
-            -ScriptName        $ScriptName `
-            -LogPath           $LogPath `
-            -PersonalSafeRegex $cfgPersonalSafeRegex `
-            -Domains           $cfgDomains
-
+    if ($cyberArkAuthAvailable -and $cyberArkAccounts.Count -ge 0) {
         $enrichedAccounts = Resolve-SVCCyberArkOnboarding `
             -ADAccounts       $serviceAccounts `
             -CyberArkAccounts $cyberArkAccounts `
@@ -404,7 +407,7 @@ catch {
     Write-Log -Message "Stack trace: $($_.ScriptStackTrace)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
 }
 finally {
-    if ($cyberArkAuthAvailable) {
+    if ($cyberArkAuthAvailable -and -not $cyberArkDisconnected) {
         Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
     }
 

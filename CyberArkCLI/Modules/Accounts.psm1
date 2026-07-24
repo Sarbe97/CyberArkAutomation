@@ -16,6 +16,7 @@ function Get-CACAccounts {
         [string]$Search,
         [string]$SafeName,
         [switch]$All,
+        [switch]$FailedAccounts,
         [int]$LimitPerPage = 1000
     )
 
@@ -26,14 +27,17 @@ function Get-CACAccounts {
         $searchQueries = @()
 
         # ---------- 1. BUILD QUERY LIST ----------
-        if ($All) {
-            $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $null }
+        if ($FailedAccounts) {
+            $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $null; Failed = $true }
+        }
+        elseif ($All) {
+            $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $null; Failed = $false }
         }
         elseif ($Search) {
-            $searchQueries += [PSCustomObject]@{ Search = $Search; Safe = $null }
+            $searchQueries += [PSCustomObject]@{ Search = $Search; Safe = $null; Failed = $false }
         }
         elseif ($SafeName) {
-            $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $SafeName }
+            $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $SafeName; Failed = $false }
         }
 
         # ---------- 2. INTERACTIVE MODE ----------
@@ -43,15 +47,16 @@ function Get-CACAccounts {
             Write-Host "2 = Search by safe name"
             Write-Host "3 = Batch search from CSV"
             Write-Host "4 = Fetch all accounts (no search criteria)"
+            Write-Host "5 = Fetch failed accounts (PolicyFailures)"
 
             switch (Read-Host "Enter choice") {
                 '1' {
                     $k = Read-Host "Enter search keywords"
-                    if ($k) { $searchQueries += [PSCustomObject]@{ Search = $k; Safe = $null } }
+                    if ($k) { $searchQueries += [PSCustomObject]@{ Search = $k; Safe = $null; Failed = $false } }
                 }
                 '2' {
                     $s = Read-Host "Enter safe name"
-                    if ($s) { $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $s } }
+                    if ($s) { $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $s; Failed = $false } }
                 }
                 '3' {
                     $p = Get-CACFilePath -Title "Select Search CSV" -Filter "CSV Files (*.csv)|*.csv"
@@ -64,18 +69,21 @@ function Get-CACAccounts {
                         $safeVal = if ($row.SafeName) { $row.SafeName } elseif ($row.Safe) { $row.Safe } else { $null }
 
                         if ($sVal) {
-                            $searchQueries += [PSCustomObject]@{ Search = $sVal; Safe = $null }
+                            $searchQueries += [PSCustomObject]@{ Search = $sVal; Safe = $null; Failed = $false }
                         }
                         if ($safeVal) {
-                            $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $safeVal }
+                            $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $safeVal; Failed = $false }
                         }
                     }
                 }
                 '4' {
-                    $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $null }
+                    $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $null; Failed = $false }
+                }
+                '5' {
+                    $searchQueries += [PSCustomObject]@{ Search = $null; Safe = $null; Failed = $true }
                 }
                 default {
-                    Write-Host "Invalid option. Please select 1, 2, 3, or 4." -ForegroundColor Yellow
+                    Write-Host "Invalid option. Please select 1, 2, 3, 4, or 5." -ForegroundColor Yellow
                     return
                 }
             }
@@ -113,6 +121,9 @@ function Get-CACAccounts {
                 }
                 if (-not [string]::IsNullOrWhiteSpace($query.Safe)) { 
                     $queryParams += "filter=safeName eq $([System.Web.HttpUtility]::UrlEncode($query.Safe))" 
+                }
+                if ($query.Failed) {
+                    $queryParams += "savedFilter=PolicyFailures"
                 }
                 if ($LimitPerPage) { 
                     $queryParams += "limit=$LimitPerPage" 
@@ -303,7 +314,7 @@ function Get-CACAccounts {
                 Accounts     = @($allResults | Where-Object { $_.Found -eq $true } | ForEach-Object { $_.Account })
                 Errors       = @($allResults | Where-Object { $_.Found -eq $false } | ForEach-Object { 
                         @{
-                            Query = @{ Search = $_.Query.Search; Safe = $_.Query.Safe }
+                            Query = @{ Search = $_.Query.Search; Safe = $_.Query.Safe; Failed = $_.Query.Failed }
                             Error = $_.Error
                         }
                     })

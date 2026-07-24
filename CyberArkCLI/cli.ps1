@@ -248,17 +248,18 @@ function Show-AccountMenu {
         Write-Host ""
         Write-Host "--- ACCOUNT MENU ---" -ForegroundColor Yellow
         Write-Host "1. Search Accounts (Keyword or Safe)"
-        Write-Host "2. Get Account Details by ID"
-        Write-Host "3. View Account Activity by ID"
-        Write-Host "4. Reconcile Account"
-        Write-Host "5. Change Password (CPM)"
-        Write-Host "6. Verify Password (CPM)"
-        Write-Host "7. Add New Account"
-        Write-Host "8. Delete Account"
-        Write-Host "9. Batch Delete Accounts"
-        Write-Host "10. Connect via PSM"
-        Write-Host "11. Batch Onboard Accounts (CSV)"
-        Write-Host "12. Secondary Account Onboarding (with Email)"
+        Write-Host "2. Get Failed Accounts (PolicyFailures)"
+        Write-Host "3. Get Account Details by ID"
+        Write-Host "4. View Account Activity by ID"
+        Write-Host "5. Reconcile Account"
+        Write-Host "6. Change Password (CPM)"
+        Write-Host "7. Verify Password (CPM)"
+        Write-Host "8. Add New Account"
+        Write-Host "9. Delete Account"
+        Write-Host "10. Batch Delete Accounts"
+        Write-Host "11. Connect via PSM"
+        Write-Host "12. Batch Onboard Accounts (CSV)"
+        Write-Host "13. Secondary Account Onboarding (with Email)"
         Write-Host "0. Back"
         Write-Host "===================================="
 
@@ -266,17 +267,18 @@ function Show-AccountMenu {
 
         switch ($choice) {
             '1' { Get-CACAccounts; Pause }
-            '2' { Get-CACAccountById; Pause }
-            '3' { Get-CACAccountActivity; Pause }
-            '4' { Invoke-CACAccountReconcile; Pause }
-            '5' { Invoke-CACAccountChange; Pause }
-            '6' { Invoke-CACAccountVerify; Pause }
-            '7' { New-CACAccount; Pause }
-            '8' { Remove-CACAccount; Pause }
-            '9' { Invoke-CACBatchAccountDeletion; Pause }
-            '10' { Invoke-CACPSMConnect; Pause }
-            '11' { Invoke-CACBatchAccountOnboarding; Pause }
-            '12' { Invoke-CACSecondaryAccountOnboarding; Pause }
+            '2' { Get-CACAccounts -FailedAccounts; Pause }
+            '3' { Get-CACAccountById; Pause }
+            '4' { Get-CACAccountActivity; Pause }
+            '5' { Invoke-CACAccountReconcile; Pause }
+            '6' { Invoke-CACAccountChange; Pause }
+            '7' { Invoke-CACAccountVerify; Pause }
+            '8' { New-CACAccount; Pause }
+            '9' { Remove-CACAccount; Pause }
+            '10' { Invoke-CACBatchAccountDeletion; Pause }
+            '11' { Invoke-CACPSMConnect; Pause }
+            '12' { Invoke-CACBatchAccountOnboarding; Pause }
+            '13' { Invoke-CACSecondaryAccountOnboarding; Pause }
             '0' { return }
 
             default {

@@ -287,6 +287,7 @@ try {
         $missingGroupList      = [System.Collections.Generic.List[object]]::new()
 
         $countManaged         = 0
+        $countOrphanedButManaged = 0
         $countNeedsAll        = 0
         $countNeedsOnboarding = 0
         $countMissingGroup    = 0
@@ -318,6 +319,7 @@ try {
                 { -not $hasPrimary        } { "MissingPrimary";       break }
                 { -not $primaryEnabled    } { "PrimaryDisabled";      break }
                 { -not $secondaryEnabled  } { "SecondaryDisabled";    break }
+                { $isOnboarded -and -not $primaryInGroup } { "OrphanedButManaged"; break }
                 { $isOnboarded            } { "Managed";              break }
                 { -not $primaryInGroup    } { "MissingGroupAccess";   break }
                 { $safeExists             } { "NeedsOnboarding";      break }
@@ -326,6 +328,7 @@ try {
 
             switch ($status) {
                 "Managed"              { $countManaged++ }
+                "OrphanedButManaged"   { $countOrphanedButManaged++ }
                 "NeedsAll"             { $countNeedsAll++ }
                 "NeedsOnboarding"      { $countNeedsOnboarding++ }
                 "MissingGroupAccess"   { $countMissingGroup++ }
@@ -371,7 +374,7 @@ try {
             if ($status -eq "MissingGroupAccess") { $missingGroupList.Add($reportRow) }
         }
 
-        Write-Log -Message "Analysis complete. Managed=$countManaged, NeedsAll=$countNeedsAll, NeedsOnboarding=$countNeedsOnboarding, MissingGroup=$countMissingGroup, PrimaryDisabled=$countPrimaryDisabled, MissingPrimary=$countMissingPrimary" -ScriptName $ScriptName -LogPath $LogPath
+        Write-Log -Message "Analysis complete. Managed=$countManaged, OrphanedButManaged=$countOrphanedButManaged, NeedsAll=$countNeedsAll, NeedsOnboarding=$countNeedsOnboarding, MissingGroup=$countMissingGroup, PrimaryDisabled=$countPrimaryDisabled, MissingPrimary=$countMissingPrimary" -ScriptName $ScriptName -LogPath $LogPath
 
         $phase2Duration = (Get-Date) - $phase2Start
         Write-Log -Message "Phase 2 (Analysis) completed in $([math]::Round($phase2Duration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
@@ -397,6 +400,7 @@ try {
                 $metricsHash = @{
                     TotalScanned          = $secondaryADAccounts.Count
                     CountManaged          = $countManaged
+                    CountOrphanedButManaged = $countOrphanedButManaged
                     CountNeedsAll         = $countNeedsAll
                     CountNeedsOnboarding  = $countNeedsOnboarding
                     CountMissingGroup     = $countMissingGroup
@@ -618,6 +622,7 @@ try {
             $totalSecondary         = $csvData.Count
             
             $countManaged           = @($csvData | Where-Object Status -eq "Managed").Count
+            $countOrphanedButManaged= @($csvData | Where-Object Status -eq "OrphanedButManaged").Count
             $countNeedsAll          = @($csvData | Where-Object Status -eq "NeedsAll").Count
             $countNeedsOnboarding   = @($csvData | Where-Object Status -eq "NeedsOnboarding").Count
             $countMissingGroup      = @($csvData | Where-Object Status -eq "MissingGroupAccess").Count
@@ -677,6 +682,7 @@ try {
             PlannedUserAlerts     = $plannedUsrAlrtCnt
             MissingPrimary        = $countMissingPrimary
             CountManaged          = $countManaged
+            CountOrphanedButManaged = $countOrphanedButManaged
             CountNeedsAll         = $countNeedsAll
             CountNeedsOnboarding  = $countNeedsOnboarding
             CountMissingGroup     = $countMissingGroup
@@ -720,6 +726,7 @@ try {
         $metricsHash = @{
             TotalScanned          = $totalSecondary
             CountManaged          = $countManaged
+            CountOrphanedButManaged = $countOrphanedButManaged
             CountNeedsAll         = $countNeedsAll
             CountNeedsOnboarding  = $countNeedsOnboarding
             CountMissingGroup     = $countMissingGroup

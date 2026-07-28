@@ -26,6 +26,7 @@ if (-not (Test-Path $ExportDir)) { New-Item -ItemType Directory -Path $ExportDir
 # Load Shared Utils + Modules
 # ------------------------
 . (Join-Path $SchedulerRoot "Utils.ps1")
+. (Join-Path $SchedulerRoot "SharePointUtils.ps1")
 . (Join-Path $FeatureRoot "Modules\DR_DataCollection.ps1")
 . (Join-Path $FeatureRoot "Modules\DR_Analytics.ps1")
 . (Join-Path $FeatureRoot "Modules\DR_Summary.ps1")
@@ -194,17 +195,15 @@ try {
     # Step 4: SharePoint Excel Update
     # ================================================================
     $SpConfig = $FeatureConfig.SharePoint
-    if ($null -ne $SpConfig -and $SpConfig.EnableSharePointUpload) {
+    if ($null -ne $SpConfig -and $SpConfig.Enabled) {
         try {
-            Update-SharePointDashboard `
-                -SharePointConfig    $SpConfig `
-                -SummaryRows         $SummaryRows `
-                -ExportDir           $ExportDir `
-                -FallbackCredential  $Credential `
-                -ManualLogin:$ManualLogin `
-                -ScriptName          $ScriptName `
-                -LogPath             $LogPath `
-                -GlobalCCPUrl        $config.CCP.Url
+            Publish-DRSharePointReport `
+                -GlobalConfig            $config `
+                -SharePointFeatureConfig $SpConfig `
+                -SummaryRows             $SummaryRows `
+                -ExportDir               $ExportDir `
+                -ScriptName              $ScriptName `
+                -LogPath                 $LogPath
         }
         catch {
             Write-Log -Message "SharePoint automation failed: $_" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath

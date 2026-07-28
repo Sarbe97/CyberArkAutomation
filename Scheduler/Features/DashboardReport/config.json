@@ -7,14 +7,10 @@
                 "RetentionDays": 30
             },
             "SharePoint": {
-                "EnableSharePointUpload": false,
-                "SiteUrl": "https://nisource.sharepoint.com/sites/ITPMO_Technology",
-                "FileRelativePath": "/sites/ITPMO_Technology/SPIdIQ/Project Documents/Project Deliverables/CyberArk_Wipro/Migration/DashboardCounts.xlsx",
-                "CCP": {
-                    "AppId": "CyberArkHealthCheck",
-                    "Safe": "PAM-Health",
-                    "Object": "SharePointServiceAccount"
-                }
+                "Enabled": true,
+                "FileName": "DashboardCounts.xlsx",
+                "SheetName": "DashboardCounts",
+                "FolderPath": "Project Deliverables/CyberArk_Wipro/Migration"
             },
             "MigratedSafeKeywords": [
                 "wi",

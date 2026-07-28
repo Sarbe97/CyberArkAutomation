@@ -30,6 +30,7 @@ function Publish-SAASharePointReport {
         $spDataRows.Add([PSCustomObject]@{ Metric = "Secondary Accounts"; Value = "" })
         $spDataRows.Add([PSCustomObject]@{ Metric = "Total Scanned"; Value = $Metrics.TotalScanned })
         $spDataRows.Add([PSCustomObject]@{ Metric = "Already Managed"; Value = $Metrics.CountManaged })
+        $spDataRows.Add([PSCustomObject]@{ Metric = "Orphaned But Managed"; Value = $Metrics.CountOrphanedButManaged })
         $spDataRows.Add([PSCustomObject]@{ Metric = "Needs Safe + Onboard"; Value = $Metrics.CountNeedsAll })
         $spDataRows.Add([PSCustomObject]@{ Metric = "Needs Onboarding Only"; Value = $Metrics.CountNeedsOnboarding })
 

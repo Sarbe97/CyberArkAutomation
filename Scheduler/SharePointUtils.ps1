@@ -476,42 +476,80 @@ function Update-SharePointExcel {
         ClearSheet    = $true
         AutoSize      = $true
         FreezeTopRow  = $true
-        BoldTopRow    = $true
         TableName     = $safeTableName
-        TableStyle    = "Medium9"
+        TableStyle    = "None"
         ErrorAction   = "Stop"
     }
     $ExportRows | Export-Excel @excelParams
 
-    # -- Apply section header styling if specified --
-    if ($SectionHeaders.Count -gt 0) {
-        $pkg = Open-ExcelPackage -Path $localTempXlsx
-        $ws  = $pkg.Workbook.Worksheets[$effectiveSheet]
-        Write-Host "[DBG] Styling: ws null=$($null -eq $ws)  Dimension null=$($null -eq $ws.Dimension)" -ForegroundColor Yellow
+    # -- Apply styling, formatting, and colors --
+    $pkg = Open-ExcelPackage -Path $localTempXlsx
+    $ws  = $pkg.Workbook.Worksheets[$effectiveSheet]
 
-        if ($ws -and $null -ne $ws.Dimension) {
-            $endCol     = $ws.Dimension.End.Column
-            $endRow     = $ws.Dimension.End.Row
-            $purpleDark = [System.Drawing.Color]::FromArgb(91, 74, 130)
-            $white      = [System.Drawing.Color]::White
-            for ($r = 2; $r -le $endRow; $r++) {
-                if ([string]$ws.Cells[$r, 1].Value -in $SectionHeaders) {
-                    $rng = $ws.Cells[$r, 1, $r, $endCol]
-                    $rng.Style.Font.Bold = $true
-                    $rng.Style.Font.Color.SetColor($white)
-                    $rng.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
-                    $rng.Style.Fill.BackgroundColor.SetColor($purpleDark)
+    if ($ws -and $null -ne $ws.Dimension) {
+        $endCol     = $ws.Dimension.End.Column
+        $endRow     = $ws.Dimension.End.Row
+        
+        # Format all data columns with thousand separators
+        if ($endCol -ge 2) {
+            $ws.Cells[2, 2, $endRow, $endCol].Style.Numberformat.Format = "#,##0"
+        }
+        
+        # Make the Metric column (Column A) bold
+        $ws.Cells[2, 1, $endRow, 1].Style.Font.Bold = $true
+
+        # --- Custom Theme Colors (Rose & Turquoise) ---
+        $colorWhite     = [System.Drawing.Color]::White
+        $colorHeader    = [System.Drawing.Color]::FromArgb(233, 132, 181) # E984B5 (Rose Pink)
+        $colorAltRow    = [System.Drawing.Color]::FromArgb(240, 251, 250) # F0FBFA (Soft Turquoise)
+        $colorSecHeader = [System.Drawing.Color]::FromArgb(69, 184, 172)  # 45B8AC (Turquoise)
+        
+        $green          = [System.Drawing.Color]::FromArgb(39, 174, 96) # Success Green
+        $red            = [System.Drawing.Color]::FromArgb(231, 76, 60) # Alert Red
+
+        # Style the Top Header Row
+        $headerRng = $ws.Cells[1, 1, 1, $endCol]
+        $headerRng.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+        $headerRng.Style.Fill.BackgroundColor.SetColor($colorHeader)
+        $headerRng.Style.Font.Color.SetColor($colorWhite)
+        $headerRng.Style.Font.Bold = $true
+
+        for ($r = 2; $r -le $endRow; $r++) {
+            $metricName = [string]$ws.Cells[$r, 1].Value
+            $rowRng = $ws.Cells[$r, 1, $r, $endCol]
+            
+            # Apply Alternating Row Colors
+            $rowRng.Style.Fill.PatternType = [OfficeOpenXml.Style.ExcelFillStyle]::Solid
+            if ($r % 2 -eq 0) {
+                $rowRng.Style.Fill.BackgroundColor.SetColor($colorAltRow)
+            } else {
+                $rowRng.Style.Fill.BackgroundColor.SetColor($colorWhite)
+            }
+            
+            # Section Header formatting overrides
+            if ($SectionHeaders.Count -gt 0 -and $metricName -in $SectionHeaders) {
+                $rowRng.Style.Font.Bold = $true
+                $rowRng.Style.Font.Color.SetColor($colorWhite)
+                $rowRng.Style.Fill.BackgroundColor.SetColor($colorSecHeader)
+            }
+
+            # Trend Colors (Red/Green) for Delta metrics
+            for ($c = 2; $c -le $endCol; $c++) {
+                $cellStr = [string]$ws.Cells[$r, $c].Value
+                if ($cellStr -match "^-\d+") {
+                    $ws.Cells[$r, $c].Style.Font.Color.SetColor($green)
+                    $ws.Cells[$r, $c].Style.Font.Bold = $true
+                } elseif ($cellStr -match "^\+\d+") {
+                    $ws.Cells[$r, $c].Style.Font.Color.SetColor($red)
+                    $ws.Cells[$r, $c].Style.Font.Bold = $true
                 }
             }
         }
-        else {
-            Write-Host "[DBG] WARNING: worksheet '$effectiveSheet' not found or empty after Export-Excel - skipping styling" -ForegroundColor Red
-        }
-
+        
         Close-ExcelPackage $pkg
-
+        
         if ($LogPath) {
-            Write-Log -Message "Section header styling applied to $($SectionHeaders.Count) header row(s)." -ScriptName $ScriptName -LogPath $LogPath
+            Write-Log -Message "Formatting and section header styling applied." -ScriptName $ScriptName -LogPath $LogPath
         }
     }
 

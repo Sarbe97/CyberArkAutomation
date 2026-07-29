@@ -734,6 +734,7 @@ try {
             CountSecondaryDisabled = $countSecondaryDisabled
             CountMissingPrimary   = $countMissingPrimary
             NewEPVUsersConsumed   = $newEpvUsersConsumedCnt
+            TotalEPVUsers         = $cyberArkUsers.Count
         }
 
         Publish-SAASharePointReport `

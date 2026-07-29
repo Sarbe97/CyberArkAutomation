@@ -124,12 +124,10 @@
                         <p style="margin:0 0 10px 0; font-size:12px; font-weight:bold; color:#444444; text-transform:uppercase; letter-spacing:0.5px;">EPV License Utilization</p>
                         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                             <tr>
-                                <td style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; color:#444444; width:60%;">Current LDAP EPVUsers</td>
-                                <td align="right" style="padding:9px 0; border-bottom:1px solid #ebebeb; font-size:13px; font-weight:bold; color:#222222; white-space:nowrap;">{{TotalEPVUsers}}</td>
-                            </tr>
-                            <tr>
-                                <td style="padding:9px 0; font-size:13px; color:#444444;">New Licenses to Consume</td>
-                                <td align="right" style="padding:9px 0; font-size:13px; font-weight:bold; color:#e74c3c; white-space:nowrap;">{{NewEPVUsersConsumed}}</td>
+                                <td style="padding:9px 0; font-size:13px; color:#444444; width:70%;">
+                                    Licenses to Consume (Existing)<br><span style="font-size:11px; color:#888888;">New EPV licenses required (Current LDAP Vault users)</span>
+                                </td>
+                                <td align="right" style="padding:9px 0; font-size:13px; font-weight:bold; color:#e74c3c; white-space:nowrap; vertical-align:top;">{{NewEPVUsersConsumed}} <span style="font-size:11px; color:#888888; font-weight:normal;">({{TotalEPVUsers}})</span></td>
                             </tr>
                         </table>
                     </td>

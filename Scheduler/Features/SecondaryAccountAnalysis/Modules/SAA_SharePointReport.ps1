@@ -46,7 +46,13 @@ function Publish-SAASharePointReport {
         if ($Metrics.ContainsKey("NewEPVUsersConsumed")) {
             $spSectionHeaders.Add("EPV Impact")
             $spDataRows.Add([PSCustomObject]@{ Metric = "EPV Impact"; Value = "" })
-            $spDataRows.Add([PSCustomObject]@{ Metric = "New EPV Users Consumed"; Value = $Metrics.NewEPVUsersConsumed })
+            
+            $epvDisplay = if ($Metrics.ContainsKey("TotalEPVUsers")) {
+                "$($Metrics.NewEPVUsersConsumed) ($($Metrics.TotalEPVUsers))"
+            } else {
+                $Metrics.NewEPVUsersConsumed
+            }
+            $spDataRows.Add([PSCustomObject]@{ Metric = "Licenses to Consume (Existing)"; Value = $epvDisplay })
         }
 
         Update-SharePointExcel `

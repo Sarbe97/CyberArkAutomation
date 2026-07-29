@@ -25,7 +25,7 @@ function Get-RawAccounts {
 
     while ($hasMore) {
         $uri   = "$BaseUrl/PasswordVault/api/Accounts?limit=$limit&offset=$offset"
-        $resp  = Invoke-CyberArkApi -Uri $uri
+        $resp  = Invoke-CyberArkApi -Uri $uri -TimeoutSec 120
         $batch = if ($resp.value) { $resp.value } else { @() }
 
         if ($batch.Count -gt 0) {
@@ -74,7 +74,7 @@ function Get-RawPendingDiscovered {
 
     while ($hasMore) {
         $uri   = "$BaseUrl/PasswordVault/API/DiscoveredAccounts/?limit=$limit&offset=$offset"
-        $resp  = Invoke-CyberArkApi -Uri $uri
+        $resp  = Invoke-CyberArkApi -Uri $uri -TimeoutSec 120
         $batch = if ($resp.value) { $resp.value } else { @() }
 
         if ($batch.Count -gt 0) {
@@ -115,7 +115,7 @@ function Get-RawPlatforms {
 
     Write-Log -Message "Fetching raw platforms from API..." -ScriptName $ScriptName -LogPath $LogPath
     $uri      = "$BaseUrl/PasswordVault/API/Platforms?active=true&limit=500"
-    $resp     = Invoke-CyberArkApi -Uri $uri
+    $resp     = Invoke-CyberArkApi -Uri $uri -TimeoutSec 120
     $batch    = if ($resp.Platforms) { $resp.Platforms } else { @() }
     $result   = @()
 
@@ -158,7 +158,7 @@ function Get-RawSafes {
 
     while ($hasMore) {
         $uri  = "$BaseUrl/PasswordVault/api/Safes?limit=$limit&offset=$offset"
-        $resp = Invoke-CyberArkApi -Uri $uri
+        $resp = Invoke-CyberArkApi -Uri $uri -TimeoutSec 120
         $batch = if ($resp.value) { $resp.value } elseif ($resp.Safes) { $resp.Safes } else { @() }
 
         if ($batch.Count -gt 0) {

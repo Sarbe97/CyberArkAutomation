@@ -223,29 +223,33 @@ try {
         if ($choice -ieq "Y" -or $choice -ieq "Yes") { $sendEmail = $true }
     }
 
-    if ($sendEmail) {
-        if ($config.Email -and $config.Email.SmtpServer -and $config.Email.To) {
+    $notifConfig = $FeatureConfig.Notifications
+    $sendReport = if ($notifConfig -and $null -ne $notifConfig.SendReportSummary) { $notifConfig.SendReportSummary } else { $true }
+
+    if ($sendEmail -and $sendReport) {
+        if ($config.Email -and $config.Email.SmtpServer) {
             try {
                 $filesToZip = @($invFile, $safesFile, $platsFile, $failFile, $comparisonFile, $failCompXls, $summaryFile, $discFile, $pendingDiscFile)
                 Send-DashboardEmail `
-                    -EmailConfig    $config.Email `
-                    -SummaryRows    $SummaryRows `
-                    -FilesToZip     $filesToZip `
-                    -FailCompXls    $failCompXls `
-                    -ExportDir      $ExportDir `
-                    -TodayStr       $TodayStr `
-                    -Timestamp      $timestamp `
-                    -RootPath       $FeatureRoot `
-                    -BaseOutputDir  $BaseOutputDir `
-                    -ScriptName     $ScriptName `
-                    -LogPath        $LogPath
+                    -EmailConfig         $config.Email `
+                    -NotificationsConfig $notifConfig `
+                    -SummaryRows         $SummaryRows `
+                    -FilesToZip          $filesToZip `
+                    -FailCompXls         $failCompXls `
+                    -ExportDir           $ExportDir `
+                    -TodayStr            $TodayStr `
+                    -Timestamp           $timestamp `
+                    -RootPath            $FeatureRoot `
+                    -BaseOutputDir       $BaseOutputDir `
+                    -ScriptName          $ScriptName `
+                    -LogPath             $LogPath
             }
             catch {
                 Write-Log -Message "Failed to send email notification: $_" -Level "WARNING" -ScriptName $ScriptName -LogPath $LogPath
             }
         }
         else {
-            Write-Log -Message "Email configuration missing in config.json. Skipping notification." -Level "WARNING" -ScriptName $ScriptName -LogPath $LogPath
+            Write-Log -Message "Email configuration (SmtpServer) missing in config.json. Skipping notification." -Level "WARNING" -ScriptName $ScriptName -LogPath $LogPath
         }
     }
 

@@ -52,7 +52,13 @@
                 "acc1",
                 "acc2",
                 "admin"
-            ]
+            ],
+            "Notifications": {
+                "AdminFrom": "",
+                "AdminTo": [ "pam-admins@company.com" ],
+                "AdminCC": [],
+                "SendReportSummary": true
+            }
         }
     }
 }

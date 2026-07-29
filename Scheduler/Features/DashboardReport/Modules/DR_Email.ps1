@@ -10,6 +10,8 @@ function Send-DashboardEmail {
         [Parameter(Mandatory=$true)]
         [PSObject]$EmailConfig,              # config.Email object
 
+        [PSObject]$NotificationsConfig,      # Feature-specific notification config
+
         [Parameter(Mandatory=$true)]
         [PSCustomObject[]]$SummaryRows,
 
@@ -113,11 +115,27 @@ function Send-DashboardEmail {
     }
 
     $SmtpServer  = $EmailConfig.SmtpServer
-    $From        = $EmailConfig.From
-    $To          = $EmailConfig.To -join ","
+    
+    $From = if ($NotificationsConfig -and $NotificationsConfig.AdminFrom) { $NotificationsConfig.AdminFrom } else { $EmailConfig.From }
+    
+    $To = if ($NotificationsConfig -and $NotificationsConfig.AdminTo -and $NotificationsConfig.AdminTo.Count -gt 0) {
+        $NotificationsConfig.AdminTo -join ","
+    } else {
+        $EmailConfig.To -join ","
+    }
+    
+    $Cc = $null
+    if ($NotificationsConfig -and $NotificationsConfig.AdminCC -and $NotificationsConfig.AdminCC.Count -gt 0) {
+        $Cc = $NotificationsConfig.AdminCC -join ","
+    }
+
     $Attachments = @($zipFile, $FailCompXls)
 
     Write-Log -Message "Sending email to $To via $SmtpServer..." -ScriptName $ScriptName -LogPath $LogPath
-    Send-MailMessage -SmtpServer $SmtpServer -From $From -To $To -Subject $Subject -Body $Body -BodyAsHtml -Attachments $Attachments
+    if ($Cc) {
+        Send-MailMessage -SmtpServer $SmtpServer -From $From -To $To -Cc $Cc -Subject $Subject -Body $Body -BodyAsHtml -Attachments $Attachments
+    } else {
+        Send-MailMessage -SmtpServer $SmtpServer -From $From -To $To -Subject $Subject -Body $Body -BodyAsHtml -Attachments $Attachments
+    }
     Write-Log -Message "Email sent successfully." -ScriptName $ScriptName -LogPath $LogPath
 }

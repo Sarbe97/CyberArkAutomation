@@ -21,7 +21,42 @@
       "PersonalSafe": {
         "NamingPatternRegex": "^S-A-PR-WI-U\\d{6}$",
         "_Comment_Extraction": "Regex capture group used to extract the primary owner's username from the safe name",
-        "OwnerExtractionRegex": "^S-A-PR-WI-(U\\d{6})$"
+        "OwnerExtractionRegex": "^S-A-PR-WI-(U\\d{6})$",
+        "IgnoredMembers": [ "PasswordManager", "VaultInternal", "Administrator", "Master", "System", "Notification Engine", "Auditor", "Batch" ],
+        "Members": [
+          {
+            "Name": "CyberArk Admins",
+            "Type": "Group",
+            "MemberSource": "Vault",
+            "PermissionSet": "VAULT_ADMIN"
+          },
+          {
+            "Name": "{PrimaryAccount}",
+            "Type": "User",
+            "MemberSource": "Domain",
+            "PermissionSet": "USER_ACCESS"
+          }
+        ]
+      },
+
+      "_Comment_SafePermissionSets": "Defines valid permission sets to check against the safe members.",
+      "SafePermissionSets": {
+        "VAULT_ADMIN": [
+          "ManageSafe",
+          "ManageSafeMembers",
+          "BackupSafe",
+          "ViewAuditLog",
+          "ViewSafeMembers",
+          "AccessWithoutConfirmation",
+          "UnlockAccounts",
+          "MoveAccountsAndFolders"
+        ],
+        "USER_ACCESS": [
+          "UseAccounts",
+          "ListAccounts",
+          "RetrieveAccounts",
+          "InitiateCPMAccountManagementOperations"
+        ]
       },
 
       "PrimaryAccount": {

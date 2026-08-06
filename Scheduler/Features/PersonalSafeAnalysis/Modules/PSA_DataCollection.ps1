@@ -122,8 +122,9 @@ function Get-PSASafeMembers {
 
         foreach ($m in $memberList) {
             $members.Add([PSCustomObject]@{
-                MemberName = $m.memberName
-                MemberType = $m.memberType
+                MemberName  = $m.memberName
+                MemberType  = $m.memberType
+                Permissions = if ($null -ne $m.permissions) { $m.permissions | ConvertTo-Json -Compress -Depth 5 } else { "{}" }
             })
         }
     }

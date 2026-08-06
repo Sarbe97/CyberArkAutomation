@@ -152,9 +152,9 @@ try {
             foreach ($row in $cachedData) {
                 $sName = $row.SafeName.ToUpper()
                 if (-not $safeMembersMap.ContainsKey($sName)) {
-                    $safeMembersMap[$sName] = [System.Collections.Generic.List[string]]::new()
+                    $safeMembersMap[$sName] = [System.Collections.Generic.List[object]]::new()
                 }
-                $safeMembersMap[$sName].Add($row.MemberName)
+                $safeMembersMap[$sName].Add($row)
             }
         }
     }
@@ -179,8 +179,8 @@ try {
         
         if ($isMembersCached) {
             if ($ownerUid -and $safeMembersMap.ContainsKey($safeUpper)) {
-                foreach ($mName in $safeMembersMap[$safeUpper]) {
-                    if ($mName -eq $ownerUid) {
+                foreach ($mObj in $safeMembersMap[$safeUpper]) {
+                    if ($mObj.MemberName -eq $ownerUid) {
                         $isMember = $true
                         break
                     }
@@ -190,11 +190,19 @@ try {
             # Live query
             $members = Get-PSASafeMembers -BaseUrl $BaseUrl -SafeName $safe.SafeName -ScriptName $ScriptName -LogPath $LogPath
             foreach ($m in $members) {
-                $membersCacheList.Add([PSCustomObject]@{
-                    SafeName   = $safe.SafeName
-                    MemberName = $m.MemberName
-                    MemberType = $m.MemberType
-                })
+                $mObj = [PSCustomObject]@{
+                    SafeName    = $safe.SafeName
+                    MemberName  = $m.MemberName
+                    MemberType  = $m.MemberType
+                    Permissions = $m.Permissions
+                }
+                $membersCacheList.Add($mObj)
+                
+                if (-not $safeMembersMap.ContainsKey($safeUpper)) {
+                    $safeMembersMap[$safeUpper] = [System.Collections.Generic.List[object]]::new()
+                }
+                $safeMembersMap[$safeUpper].Add($mObj)
+
                 if ($ownerUid -and $m.MemberName -eq $ownerUid) {
                     $isMember = $true
                 }
@@ -316,6 +324,161 @@ try {
     Write-Log -Message "Discovery and Analysis completed in $([math]::Round($phaseDuration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
 
     # ==========================================================
+    # PHASE 2.5 — MEMBERSHIP & PERMISSION VALIDATION
+    # ==========================================================
+    Write-Log -Message "========== PHASE 2.5: PERMISSION VALIDATION ==========" -ScriptName $ScriptName -LogPath $LogPath
+    $permissionReport = [System.Collections.Generic.List[object]]::new()
+    $permReportFileCsv = Join-Path $ExportDir "PSA_PermissionAnalysisReport_$Timestamp.csv"
+    $permReportFileHtml = Join-Path $ExportDir "PSA_PermissionAnalysisReport_$Timestamp.html"
+    
+    $ignoredMembersSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    if ($cfgSafe.IgnoredMembers) {
+        foreach ($ign in $cfgSafe.IgnoredMembers) {
+            [void]$ignoredMembersSet.Add($ign)
+        }
+    }
+    
+    foreach ($safe in $personalSafes) {
+        $data = $safeDataMap[$safe.SafeName]
+        $ownerUid = $data.OwnerUid
+        $safeUpper = $safe.SafeName.ToUpper()
+        
+        $actualMembers = if ($safeMembersMap.ContainsKey($safeUpper)) { @($safeMembersMap[$safeUpper]) } else { @() }
+        
+        $expectedMembersMap = @{}
+        if ($cfgSafe.Members) {
+            foreach ($cfgMember in $cfgSafe.Members) {
+                $expectedName = $cfgMember.Name -replace '\{PrimaryAccount\}', $ownerUid
+                if (-not [string]::IsNullOrWhiteSpace($expectedName)) {
+                    $expectedMembersMap[$expectedName] = $cfgMember
+                }
+            }
+        }
+        
+        $foundExpectedSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        
+        foreach ($actualMem in $actualMembers) {
+            $mName = $actualMem.MemberName
+            
+            if ($expectedMembersMap.ContainsKey($mName)) {
+                [void]$foundExpectedSet.Add($mName)
+                $cfgMember = $expectedMembersMap[$mName]
+                $permSetKey = $cfgMember.PermissionSet
+                
+                $expectedPermsList = if ($featureConfig.SafePermissionSets.$permSetKey) { $featureConfig.SafePermissionSets.$permSetKey } else { @() }
+                $expectedPerms = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+                foreach ($p in $expectedPermsList) { [void]$expectedPerms.Add($p) }
+                
+                $actualPermsList = [System.Collections.Generic.List[string]]::new()
+                if ($actualMem.Permissions -and $actualMem.Permissions -ne "{}") {
+                    try {
+                        $pObj = $actualMem.Permissions | ConvertFrom-Json
+                        foreach ($prop in $pObj.psobject.properties) {
+                            if ($prop.Value -eq $true) {
+                                $actualPermsList.Add($prop.Name)
+                            }
+                        }
+                    } catch {}
+                }
+                
+                $missing = [System.Collections.Generic.List[string]]::new()
+                foreach ($ep in $expectedPermsList) {
+                    $found = $false
+                    foreach ($ap in $actualPermsList) {
+                        if ($ap -ieq $ep) { $found = $true; break }
+                    }
+                    if (-not $found) { $missing.Add($ep) }
+                }
+                
+                $extra = [System.Collections.Generic.List[string]]::new()
+                foreach ($ap in $actualPermsList) {
+                    if (-not $expectedPerms.Contains($ap)) {
+                        $extra.Add($ap)
+                    }
+                }
+                
+                $status = if ($missing.Count -eq 0 -and $extra.Count -eq 0) { "Matched" } else { "Not Matched" }
+                
+                $permissionReport.Add([PSCustomObject]@{
+                    SafeName           = $safe.SafeName
+                    MemberName         = $mName
+                    Status             = $status
+                    MemberState        = "Expected"
+                    ExpectedSet        = $permSetKey
+                    MissingPermissions = ($missing -join ", ")
+                    ExtraPermissions   = ($extra -join ", ")
+                })
+                
+            } else {
+                if (-not $ignoredMembersSet.Contains($mName)) {
+                    $permissionReport.Add([PSCustomObject]@{
+                        SafeName           = $safe.SafeName
+                        MemberName         = $mName
+                        Status             = "Not Matched"
+                        MemberState        = "Extra Unexpected"
+                        ExpectedSet        = "None"
+                        MissingPermissions = ""
+                        ExtraPermissions   = "ALL"
+                    })
+                }
+            }
+        }
+        
+        foreach ($eName in $expectedMembersMap.Keys) {
+            if (-not $foundExpectedSet.Contains($eName)) {
+                $permissionReport.Add([PSCustomObject]@{
+                    SafeName           = $safe.SafeName
+                    MemberName         = $eName
+                    Status             = "Not Matched"
+                    MemberState        = "Absent"
+                    ExpectedSet        = $expectedMembersMap[$eName].PermissionSet
+                    MissingPermissions = "ALL"
+                    ExtraPermissions   = ""
+                })
+            }
+        }
+    }
+
+    if ($permissionReport.Count -gt 0) {
+        $permissionReport | Export-Csv -Path $permReportFileCsv -NoTypeInformation -Encoding UTF8
+        Write-Log -Message "Permission Analysis CSV report saved: $permReportFileCsv" -ScriptName $ScriptName -LogPath $LogPath
+        
+        $html = "<html><head><style>
+        body { font-family: Arial, sans-serif; font-size: 14px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .matched { color: green; font-weight: bold; }
+        .not-matched { color: red; font-weight: bold; }
+        .extra-mem { color: #d9534f; font-weight: bold; }
+        .absent-mem { color: #d9534f; font-weight: bold; }
+        .missing-perm { color: #d9534f; }
+        .extra-perm { color: #f0ad4e; }
+        </style></head><body><h2>Personal Safe Member & Permission Analysis</h2><table>"
+        
+        $html += "<tr><th>Safe Name</th><th>Member Name</th><th>Status</th><th>Member State</th><th>Expected Set</th><th>Missing Permissions</th><th>Extra Permissions</th></tr>"
+        
+        foreach ($row in $permissionReport) {
+            $statusClass = if ($row.Status -eq "Matched") { "matched" } else { "not-matched" }
+            $stateClass = if ($row.MemberState -eq "Extra Unexpected") { "extra-mem" } elseif ($row.MemberState -eq "Absent") { "absent-mem" } else { "" }
+            
+            $html += "<tr>"
+            $html += "<td>$($row.SafeName)</td>"
+            $html += "<td>$($row.MemberName)</td>"
+            $html += "<td class='$statusClass'>$($row.Status)</td>"
+            $html += "<td class='$stateClass'>$($row.MemberState)</td>"
+            $html += "<td>$($row.ExpectedSet)</td>"
+            $html += "<td class='missing-perm'>$($row.MissingPermissions)</td>"
+            $html += "<td class='extra-perm'>$($row.ExtraPermissions)</td>"
+            $html += "</tr>"
+        }
+        $html += "</table></body></html>"
+        
+        $html | Out-File -FilePath $permReportFileHtml -Encoding UTF8
+        Write-Log -Message "Permission Analysis HTML report saved: $permReportFileHtml" -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    # ==========================================================
     # PHASE 3 — EXPORT REPORTS
     # ==========================================================
     $blankSafesCount = 0
@@ -346,6 +509,10 @@ try {
         if ($blankSafesCount -gt 0) {
             $attachedHtml += "`n<p style=`"margin:2px 0; font-size:12px; color:#555555;`">&#8250; PSA_BlankSafesReport.csv</p>"
         }
+        if ($permissionReport.Count -gt 0) {
+            $attachedHtml += "`n<p style=`"margin:2px 0; font-size:12px; color:#555555;`">&#8250; PSA_PermissionAnalysisReport_$Timestamp.csv</p>"
+            $attachedHtml += "`n<p style=`"margin:2px 0; font-size:12px; color:#555555;`">&#8250; PSA_PermissionAnalysisReport_$Timestamp.html</p>"
+        }
 
         $summaryTokens = @{
             EffectiveMode           = $effectiveMode
@@ -365,10 +532,17 @@ try {
             AttachedReportsHtml     = $attachedHtml
         }
 
+        $additionalAtt = @()
+        if ($permissionReport.Count -gt 0) {
+            $additionalAtt += $permReportFileCsv
+            $additionalAtt += $permReportFileHtml
+        }
+
         Send-PSARunSummary `
             -Tokens              $summaryTokens `
             -AnalysisReportFile  $analysisFile `
             -BlankSafesReportFile $blankSafesFile `
+            -AdditionalAttachments $additionalAtt `
             -GlobalEmailConfig   $config.Email `
             -AdminTo             $cfgNotif.AdminTo `
             -AdminCC             $cfgNotif.AdminCC `

@@ -7,28 +7,28 @@ param (
 # ============================================================
 # Script Identity
 # ============================================================
-$ScriptName    = "PSA_Analysis"
-$FeatureRoot   = $PSScriptRoot
+$ScriptName = "PSA_Analysis"
+$FeatureRoot = $PSScriptRoot
 $SchedulerRoot = Split-Path -Parent (Split-Path -Parent $FeatureRoot)
-$ConfigPath    = Join-Path $FeatureRoot "config.json"
+$ConfigPath = Join-Path $FeatureRoot "config.json"
 
 # ============================================================
 # Setup Paths — Logs & Output
 # ============================================================
-$TodayStr   = Get-Date -Format "yyyyMMdd"
-$Timestamp  = Get-Date -Format "yyyyMMdd_HHmmss"
-$LogDir     = Join-Path $FeatureRoot "Logs"
+$TodayStr = Get-Date -Format "yyyyMMdd"
+$Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$LogDir = Join-Path $FeatureRoot "Logs"
 if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null }
-$LogPath    = Join-Path $LogDir "$ScriptName-$TodayStr.log"
+$LogPath = Join-Path $LogDir "$ScriptName-$TodayStr.log"
 
 $BaseOutputDir = Join-Path $FeatureRoot "Output"
-$ExportDir     = Join-Path $BaseOutputDir $TodayStr
+$ExportDir = Join-Path $BaseOutputDir $TodayStr
 if (-not (Test-Path $ExportDir)) { New-Item -ItemType Directory -Path $ExportDir -Force | Out-Null }
 
 # --- Clear Cache if ForceRefresh ---
 if ($FeatureConfig.ForceRefresh) {
-    Write-Log -Message "ForceRefresh is enabled in config. Clearing all files from daily export directory..." -ScriptName $ScriptName -LogPath $LogPath
-    Remove-Item -Path "$ExportDir\*" -Force -Recurse -ErrorAction SilentlyContinue
+    Write-Log -Message "ForceRefresh is enabled in config. Removing existing daily cache files..." -ScriptName $ScriptName -LogPath $LogPath
+    Get-ChildItem -Path $ExportDir -Filter "*_$TodayStr.csv" | Where-Object { $_.Name -match "^(RawCache_|Filtered_|SmartIDs_)" } | Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
 # ============================================================
@@ -57,11 +57,11 @@ if (-not (Test-Path $ConfigPath)) {
     exit 1
 }
 
-$config          = Get-Content $GlobalConfigPath -Raw | ConvertFrom-Json
+$config = Get-Content $GlobalConfigPath -Raw | ConvertFrom-Json
 $featureSettings = (Get-Content $ConfigPath -Raw | ConvertFrom-Json).Features
 $config | Add-Member -MemberType NoteProperty -Name "Features" -Value $featureSettings -Force
 
-$BaseUrl       = $config.BaseUrl
+$BaseUrl = $config.BaseUrl
 $featureConfig = $config.Features.PersonalSafeAnalysis
 
 Write-Log -Message "Config loaded. BaseUrl: $BaseUrl" -ScriptName $ScriptName -LogPath $LogPath
@@ -75,20 +75,20 @@ if ($null -eq $featureConfig -or -not $featureConfig.Enabled) {
 # Resolve Effective Mode
 # ============================================================
 $effectiveMode = if ($Mode) { $Mode } `
-                 elseif ($featureConfig.Mode) { $featureConfig.Mode } `
-                 else { "Analysis" }
+    elseif ($featureConfig.Mode) { $featureConfig.Mode } `
+    else { "Analysis" }
 
 Write-Log -Message "Effective execution mode: $effectiveMode" -ScriptName $ScriptName -LogPath $LogPath
 
 # ============================================================
 # Load Feature Settings
 # ============================================================
-$cfgSafe          = $featureConfig.PersonalSafe
-$cfgPrimary       = $featureConfig.PrimaryAccount
-$cfgDomains       = $featureConfig.Domains
-$cfgExclusions    = $featureConfig.Exclusions
-$cfgNotif         = $featureConfig.Notifications
-$templatesPath    = Join-Path $FeatureRoot "Templates"
+$cfgSafe = $featureConfig.PersonalSafe
+$cfgPrimary = $featureConfig.PrimaryAccount
+$cfgDomains = $featureConfig.Domains
+$cfgExclusions = $featureConfig.Exclusions
+$cfgNotif = $featureConfig.Notifications
+$templatesPath = Join-Path $FeatureRoot "Templates"
 
 $cacheSafes = Join-Path $ExportDir "RawCache_PersonalSafes_$TodayStr.csv"
 $cacheAccounts = Join-Path $ExportDir "RawCache_AllAccounts_$TodayStr.csv"
@@ -152,9 +152,9 @@ try {
             foreach ($row in $cachedData) {
                 $sName = $row.SafeName.ToUpper()
                 if (-not $safeMembersMap.ContainsKey($sName)) {
-                    $safeMembersMap[$sName] = [System.Collections.Generic.List[object]]::new()
+                    $safeMembersMap[$sName] = [System.Collections.Generic.List[string]]::new()
                 }
-                $safeMembersMap[$sName].Add($row)
+                $safeMembersMap[$sName].Add($row.MemberName)
             }
         }
     }
@@ -179,30 +179,23 @@ try {
         
         if ($isMembersCached) {
             if ($ownerUid -and $safeMembersMap.ContainsKey($safeUpper)) {
-                foreach ($mObj in $safeMembersMap[$safeUpper]) {
-                    if ($mObj.MemberName -eq $ownerUid) {
+                foreach ($mName in $safeMembersMap[$safeUpper]) {
+                    if ($mName -eq $ownerUid) {
                         $isMember = $true
                         break
                     }
                 }
             }
-        } else {
+        }
+        else {
             # Live query
             $members = Get-PSASafeMembers -BaseUrl $BaseUrl -SafeName $safe.SafeName -ScriptName $ScriptName -LogPath $LogPath
             foreach ($m in $members) {
-                $mObj = [PSCustomObject]@{
-                    SafeName    = $safe.SafeName
-                    MemberName  = $m.MemberName
-                    MemberType  = $m.MemberType
-                    Permissions = $m.Permissions
-                }
-                $membersCacheList.Add($mObj)
-                
-                if (-not $safeMembersMap.ContainsKey($safeUpper)) {
-                    $safeMembersMap[$safeUpper] = [System.Collections.Generic.List[object]]::new()
-                }
-                $safeMembersMap[$safeUpper].Add($mObj)
-
+                $membersCacheList.Add([PSCustomObject]@{
+                        SafeName   = $safe.SafeName
+                        MemberName = $m.MemberName
+                        MemberType = $m.MemberType
+                    })
                 if ($ownerUid -and $m.MemberName -eq $ownerUid) {
                     $isMember = $true
                 }
@@ -284,166 +277,181 @@ try {
             if ($ownerStatus -eq "Enabled") {
                 $status = "Member_Enabled"
                 $cntMember_Enabled++
-            } elseif ($ownerStatus -eq "Disabled") {
+            }
+            elseif ($ownerStatus -eq "Disabled") {
                 $status = "Member_Disabled"
                 $cntMember_Disabled++
-            } else {
+            }
+            else {
                 $status = "Member_NotFound"
                 $cntMember_NotFound++
             }
-        } else {
+        }
+        else {
             if ($ownerStatus -eq "Enabled") {
                 $status = "NotMember_Enabled"
                 $cntNotMember_Enabled++
-            } elseif ($ownerStatus -eq "Disabled") {
+            }
+            elseif ($ownerStatus -eq "Disabled") {
                 $status = "NotMember_Disabled"
                 $cntNotMember_Disabled++
-            } else {
+            }
+            else {
                 $status = "NotMember_NotFound"
                 $cntNotMember_NotFound++
             }
         }
 
         $analysisReport.Add([PSCustomObject]@{
-            SafeName          = $safe.SafeName
-            Creator           = $data.Creator
-            CreationDate      = $data.CreationTime
-            ManagingCPM       = $data.ManagingCPM
-            OwnerUid          = $ownerUid
-            OwnerIsSafeMember = if ($isMember) { "Yes" } else { "No" }
-            OwnerInAD         = $ownerInAD
-            OwnerADStatus     = $ownerStatus
-            OwnerFullName     = $fullName
-            OwnerEmail        = $email
-            AccountCount      = $data.AccountCount
-            Status            = $status
-        })
+                SafeName          = $safe.SafeName
+                Creator           = $data.Creator
+                CreationDate      = $data.CreationTime
+                ManagingCPM       = $data.ManagingCPM
+                OwnerUid          = $ownerUid
+                OwnerIsSafeMember = if ($isMember) { "Yes" } else { "No" }
+                OwnerInAD         = $ownerInAD
+                OwnerADStatus     = $ownerStatus
+                OwnerFullName     = $fullName
+                OwnerEmail        = $email
+                AccountCount      = $data.AccountCount
+                Status            = $status
+            })
     }
 
     $phaseDuration = (Get-Date) - $phaseStart
     Write-Log -Message "Discovery and Analysis completed in $([math]::Round($phaseDuration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
 
     # ==========================================================
-    # PHASE 2.5 — MEMBERSHIP & PERMISSION VALIDATION
+    # PHASE 3 — EXPORT REPORTS
     # ==========================================================
-    Write-Log -Message "========== PHASE 2.5: PERMISSION VALIDATION ==========" -ScriptName $ScriptName -LogPath $LogPath
-    $permissionReport = [System.Collections.Generic.List[object]]::new()
-    $permReportFileCsv = Join-Path $ExportDir "PSA_PermissionAnalysisReport_$Timestamp.csv"
-    $permReportFileHtml = Join-Path $ExportDir "PSA_PermissionAnalysisReport_$Timestamp.html"
+    $blankSafesCount = 0
+    if ($analysisReport.Count -gt 0) {
+        $analysisReport | Export-Csv -Path $analysisFile -NoTypeInformation -Encoding UTF8
+        Write-Log -Message "Analysis report saved: $analysisFile" -ScriptName $ScriptName -LogPath $LogPath
+
+        $blankSafes = $analysisReport | Where-Object { $_.AccountCount -eq 0 }
+        # PHASE 2.5 — MEMBERSHIP & PERMISSION VALIDATION
+        # ==========================================================
+        Write-Log -Message "========== PHASE 2.5: PERMISSION VALIDATION ==========" -ScriptName $ScriptName -LogPath $LogPath
+        $permissionReport = [System.Collections.Generic.List[object]]::new()
+        $permReportFileCsv = Join-Path $ExportDir "PSA_PermissionAnalysisReport_$Timestamp.csv"
+        $permReportFileHtml = Join-Path $ExportDir "PSA_PermissionAnalysisReport_$Timestamp.html"
     
-    $ignoredMembersSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    if ($cfgSafe.IgnoredMembers) {
-        foreach ($ign in $cfgSafe.IgnoredMembers) {
-            [void]$ignoredMembersSet.Add($ign)
-        }
-    }
-    
-    foreach ($safe in $personalSafes) {
-        $data = $safeDataMap[$safe.SafeName]
-        $ownerUid = $data.OwnerUid
-        $safeUpper = $safe.SafeName.ToUpper()
-        
-        $actualMembers = if ($safeMembersMap.ContainsKey($safeUpper)) { @($safeMembersMap[$safeUpper]) } else { @() }
-        
-        $expectedMembersMap = @{}
-        if ($cfgSafe.Members) {
-            foreach ($cfgMember in $cfgSafe.Members) {
-                $expectedName = $cfgMember.Name -replace '\{PrimaryAccount\}', $ownerUid
-                if (-not [string]::IsNullOrWhiteSpace($expectedName)) {
-                    $expectedMembersMap[$expectedName] = $cfgMember
-                }
+        $ignoredMembersSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        if ($cfgSafe.IgnoredMembers) {
+            foreach ($ign in $cfgSafe.IgnoredMembers) {
+                [void]$ignoredMembersSet.Add($ign)
             }
         }
+    
+        foreach ($safe in $personalSafes) {
+            $data = $safeDataMap[$safe.SafeName]
+            $ownerUid = $data.OwnerUid
+            $safeUpper = $safe.SafeName.ToUpper()
         
-        $foundExpectedSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+            $actualMembers = if ($safeMembersMap.ContainsKey($safeUpper)) { @($safeMembersMap[$safeUpper]) } else { @() }
         
-        foreach ($actualMem in $actualMembers) {
-            $mName = $actualMem.MemberName
+            $expectedMembersMap = @{}
+            if ($cfgSafe.Members) {
+                foreach ($cfgMember in $cfgSafe.Members) {
+                    $expectedName = $cfgMember.Name -replace '\{PrimaryAccount\}', $ownerUid
+                    if (-not [string]::IsNullOrWhiteSpace($expectedName)) {
+                        $expectedMembersMap[$expectedName] = $cfgMember
+                    }
+                }
+            }
+        
+            $foundExpectedSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        
+            foreach ($actualMem in $actualMembers) {
+                $mName = $actualMem.MemberName
             
-            if ($expectedMembersMap.ContainsKey($mName)) {
-                [void]$foundExpectedSet.Add($mName)
-                $cfgMember = $expectedMembersMap[$mName]
-                $permSetKey = $cfgMember.PermissionSet
+                if ($expectedMembersMap.ContainsKey($mName)) {
+                    [void]$foundExpectedSet.Add($mName)
+                    $cfgMember = $expectedMembersMap[$mName]
+                    $permSetKey = $cfgMember.PermissionSet
                 
-                $expectedPermsList = if ($featureConfig.SafePermissionSets.$permSetKey) { $featureConfig.SafePermissionSets.$permSetKey } else { @() }
-                $expectedPerms = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-                foreach ($p in $expectedPermsList) { [void]$expectedPerms.Add($p) }
+                    $expectedPermsList = if ($featureConfig.SafePermissionSets.$permSetKey) { $featureConfig.SafePermissionSets.$permSetKey } else { @() }
+                    $expectedPerms = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+                    foreach ($p in $expectedPermsList) { [void]$expectedPerms.Add($p) }
                 
-                $actualPermsList = [System.Collections.Generic.List[string]]::new()
-                if ($actualMem.Permissions -and $actualMem.Permissions -ne "{}") {
-                    try {
-                        $pObj = $actualMem.Permissions | ConvertFrom-Json
-                        foreach ($prop in $pObj.psobject.properties) {
-                            if ($prop.Value -eq $true) {
-                                $actualPermsList.Add($prop.Name)
+                    $actualPermsList = [System.Collections.Generic.List[string]]::new()
+                    if ($actualMem.Permissions -and $actualMem.Permissions -ne "{}") {
+                        try {
+                            $pObj = $actualMem.Permissions | ConvertFrom-Json
+                            foreach ($prop in $pObj.psobject.properties) {
+                                if ($prop.Value -eq $true) {
+                                    $actualPermsList.Add($prop.Name)
+                                }
                             }
                         }
-                    } catch {}
-                }
+                        catch {}
+                    }
                 
-                $missing = [System.Collections.Generic.List[string]]::new()
-                foreach ($ep in $expectedPermsList) {
-                    $found = $false
+                    $missing = [System.Collections.Generic.List[string]]::new()
+                    foreach ($ep in $expectedPermsList) {
+                        $found = $false
+                        foreach ($ap in $actualPermsList) {
+                            if ($ap -ieq $ep) { $found = $true; break }
+                        }
+                        if (-not $found) { $missing.Add($ep) }
+                    }
+                
+                    $extra = [System.Collections.Generic.List[string]]::new()
                     foreach ($ap in $actualPermsList) {
-                        if ($ap -ieq $ep) { $found = $true; break }
+                        if (-not $expectedPerms.Contains($ap)) {
+                            $extra.Add($ap)
+                        }
                     }
-                    if (-not $found) { $missing.Add($ep) }
-                }
                 
-                $extra = [System.Collections.Generic.List[string]]::new()
-                foreach ($ap in $actualPermsList) {
-                    if (-not $expectedPerms.Contains($ap)) {
-                        $extra.Add($ap)
-                    }
-                }
+                    $status = if ($missing.Count -eq 0 -and $extra.Count -eq 0) { "Matched" } else { "Not Matched" }
                 
-                $status = if ($missing.Count -eq 0 -and $extra.Count -eq 0) { "Matched" } else { "Not Matched" }
-                
-                $permissionReport.Add([PSCustomObject]@{
-                    SafeName           = $safe.SafeName
-                    MemberName         = $mName
-                    Status             = $status
-                    MemberState        = "Expected"
-                    ExpectedSet        = $permSetKey
-                    MissingPermissions = ($missing -join ", ")
-                    ExtraPermissions   = ($extra -join ", ")
-                })
-                
-            } else {
-                if (-not $ignoredMembersSet.Contains($mName)) {
                     $permissionReport.Add([PSCustomObject]@{
-                        SafeName           = $safe.SafeName
-                        MemberName         = $mName
-                        Status             = "Not Matched"
-                        MemberState        = "Extra Unexpected"
-                        ExpectedSet        = "None"
-                        MissingPermissions = ""
-                        ExtraPermissions   = "ALL"
-                    })
+                            SafeName           = $safe.SafeName
+                            MemberName         = $mName
+                            Status             = $status
+                            MemberState        = "Expected"
+                            ExpectedSet        = $permSetKey
+                            MissingPermissions = ($missing -join ", ")
+                            ExtraPermissions   = ($extra -join ", ")
+                        })
+                
+                }
+                else {
+                    if (-not $ignoredMembersSet.Contains($mName)) {
+                        $permissionReport.Add([PSCustomObject]@{
+                                SafeName           = $safe.SafeName
+                                MemberName         = $mName
+                                Status             = "Not Matched"
+                                MemberState        = "Extra Unexpected"
+                                ExpectedSet        = "None"
+                                MissingPermissions = ""
+                                ExtraPermissions   = "ALL"
+                            })
+                    }
+                }
+            }
+        
+            foreach ($eName in $expectedMembersMap.Keys) {
+                if (-not $foundExpectedSet.Contains($eName)) {
+                    $permissionReport.Add([PSCustomObject]@{
+                            SafeName           = $safe.SafeName
+                            MemberName         = $eName
+                            Status             = "Not Matched"
+                            MemberState        = "Absent"
+                            ExpectedSet        = $expectedMembersMap[$eName].PermissionSet
+                            MissingPermissions = "ALL"
+                            ExtraPermissions   = ""
+                        })
                 }
             }
         }
-        
-        foreach ($eName in $expectedMembersMap.Keys) {
-            if (-not $foundExpectedSet.Contains($eName)) {
-                $permissionReport.Add([PSCustomObject]@{
-                    SafeName           = $safe.SafeName
-                    MemberName         = $eName
-                    Status             = "Not Matched"
-                    MemberState        = "Absent"
-                    ExpectedSet        = $expectedMembersMap[$eName].PermissionSet
-                    MissingPermissions = "ALL"
-                    ExtraPermissions   = ""
-                })
-            }
-        }
-    }
 
-    if ($permissionReport.Count -gt 0) {
-        $permissionReport | Export-Csv -Path $permReportFileCsv -NoTypeInformation -Encoding UTF8
-        Write-Log -Message "Permission Analysis CSV report saved: $permReportFileCsv" -ScriptName $ScriptName -LogPath $LogPath
+        if ($permissionReport.Count -gt 0) {
+            $permissionReport | Export-Csv -Path $permReportFileCsv -NoTypeInformation -Encoding UTF8
+            Write-Log -Message "Permission Analysis CSV report saved: $permReportFileCsv" -ScriptName $ScriptName -LogPath $LogPath
         
-        $html = "<html><head><style>
+            $html = "<html><head><style>
         body { font-family: Arial, sans-serif; font-size: 14px; }
         table { border-collapse: collapse; width: 100%; margin-top: 20px; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
@@ -456,54 +464,55 @@ try {
         .extra-perm { color: #f0ad4e; }
         </style></head><body><h2>Personal Safe Member & Permission Analysis</h2><table>"
         
-        $html += "<tr><th>Safe Name</th><th>Member Name</th><th>Status</th><th>Member State</th><th>Expected Set</th><th>Missing Permissions</th><th>Extra Permissions</th></tr>"
+            $html += "<tr><th>Safe Name</th><th>Member Name</th><th>Status</th><th>Member State</th><th>Expected Set</th><th>Missing Permissions</th><th>Extra Permissions</th></tr>"
         
-        foreach ($row in $permissionReport) {
-            $statusClass = if ($row.Status -eq "Matched") { "matched" } else { "not-matched" }
-            $stateClass = if ($row.MemberState -eq "Extra Unexpected") { "extra-mem" } elseif ($row.MemberState -eq "Absent") { "absent-mem" } else { "" }
+            foreach ($row in $permissionReport) {
+                $statusClass = if ($row.Status -eq "Matched") { "matched" } else { "not-matched" }
+                $stateClass = if ($row.MemberState -eq "Extra Unexpected") { "extra-mem" } elseif ($row.MemberState -eq "Absent") { "absent-mem" } else { "" }
             
-            $html += "<tr>"
-            $html += "<td>$($row.SafeName)</td>"
-            $html += "<td>$($row.MemberName)</td>"
-            $html += "<td class='$statusClass'>$($row.Status)</td>"
-            $html += "<td class='$stateClass'>$($row.MemberState)</td>"
-            $html += "<td>$($row.ExpectedSet)</td>"
-            $html += "<td class='missing-perm'>$($row.MissingPermissions)</td>"
-            $html += "<td class='extra-perm'>$($row.ExtraPermissions)</td>"
-            $html += "</tr>"
-        }
-        $html += "</table></body></html>"
+                $html += "<tr>"
+                $html += "<td>$($row.SafeName)</td>"
+                $html += "<td>$($row.MemberName)</td>"
+                $html += "<td class='$statusClass'>$($row.Status)</td>"
+                $html += "<td class='$stateClass'>$($row.MemberState)</td>"
+                $html += "<td>$($row.ExpectedSet)</td>"
+                $html += "<td class='missing-perm'>$($row.MissingPermissions)</td>"
+                $html += "<td class='extra-perm'>$($row.ExtraPermissions)</td>"
+                $html += "</tr>"
+            }
+            $html += "</table></body></html>"
         
-        $html | Out-File -FilePath $permReportFileHtml -Encoding UTF8
-        Write-Log -Message "Permission Analysis HTML report saved: $permReportFileHtml" -ScriptName $ScriptName -LogPath $LogPath
-    }
-
-    # ==========================================================
-    # PHASE 3 — EXPORT REPORTS
-    # ==========================================================
-    $blankSafesCount = 0
-    if ($analysisReport.Count -gt 0) {
-        $analysisReport | Export-Csv -Path $analysisFile -NoTypeInformation -Encoding UTF8
-        Write-Log -Message "Analysis report saved: $analysisFile" -ScriptName $ScriptName -LogPath $LogPath
-
-        $blankSafes = $analysisReport | Where-Object { $_.AccountCount -eq 0 }
-        $blankSafesCount = if ($null -eq $blankSafes) { 0 } elseif ($blankSafes -is [array]) { $blankSafes.Count } else { 1 }
-        
-        if ($blankSafesCount -gt 0) {
-            $blankSafes | Export-Csv -Path $blankSafesFile -NoTypeInformation -Encoding UTF8
-            Write-Log -Message "Blank safes report saved: $blankSafesFile" -ScriptName $ScriptName -LogPath $LogPath
+            $html | Out-File -FilePath $permReportFileHtml -Encoding UTF8
+            Write-Log -Message "Permission Analysis HTML report saved: $permReportFileHtml" -ScriptName $ScriptName -LogPath $LogPath
         }
-    } else {
-        Write-Log -Message "No personal safes matched. Analysis report not generated." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
-    }
 
-    # ==========================================================
-    # PHASE 4 — SUMMARY EMAIL
-    # ==========================================================
-    Write-Log -Message "========== PHASE 4: RUN SUMMARY EMAIL ==========" -ScriptName $ScriptName -LogPath $LogPath
+        # ==========================================================
+        # PHASE 3 — EXPORT REPORTS
+        # ==========================================================
+        $blankSafesCount = 0
+        if ($analysisReport.Count -gt 0) {
+            $analysisReport | Export-Csv -Path $analysisFile -NoTypeInformation -Encoding UTF8
+            Write-Log -Message "Analysis report saved: $analysisFile" -ScriptName $ScriptName -LogPath $LogPath
 
-    $modeTitle = "Analysis Run Complete"
-    $modeBanner = "ANALYSIS COMPLETE - Read-only analysis finished."
+            $blankSafes = $analysisReport | Where-Object { $_.AccountCount -eq 0 }
+            $blankSafesCount = if ($null -eq $blankSafes) { 0 } elseif ($blankSafes -is [array]) { $blankSafes.Count } else { 1 }
+        
+            if ($blankSafesCount -gt 0) {
+                $blankSafes | Export-Csv -Path $blankSafesFile -NoTypeInformation -Encoding UTF8
+                Write-Log -Message "Blank safes report saved: $blankSafesFile" -ScriptName $ScriptName -LogPath $LogPath
+            }
+        }
+        else {
+            Write-Log -Message "No personal safes matched. Analysis report not generated." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+        }
+
+        # ==========================================================
+        # PHASE 4 — SUMMARY EMAIL
+        # ==========================================================
+        Write-Log -Message "========== PHASE 4: RUN SUMMARY EMAIL ==========" -ScriptName $ScriptName -LogPath $LogPath
+
+        $modeTitle = "Analysis Run Complete"
+        $modeBanner = "ANALYSIS COMPLETE - Read-only analysis finished."
 
         $attachedHtml = "<p style=`"margin:2px 0; font-size:12px; color:#555555;`">&#8250; PSA_AnalysisReport.csv</p>"
         if ($blankSafesCount -gt 0) {
@@ -543,69 +552,83 @@ try {
             -AnalysisReportFile  $analysisFile `
             -BlankSafesReportFile $blankSafesFile `
             -AdditionalAttachments $additionalAtt `
-            -GlobalEmailConfig   $config.Email `
-            -AdminTo             $cfgNotif.AdminTo `
-            -AdminCC             $cfgNotif.AdminCC `
-            -TemplatesPath       $templatesPath `
-            -ScriptName          $ScriptName `
-            -LogPath             $LogPath `
-            -FromOverride        $cfgNotif.AdminFrom
-
-    # ==========================================================
-    # PHASE 5: SHAREPOINT UPLOAD
-    # ==========================================================
-    $cfgSP = $featureConfig.SharePoint
-    if ($null -ne $cfgSP -and $cfgSP.Enabled -and $null -ne $config.SharePoint) {
-        Write-Log -Message "========== PHASE 5: SHAREPOINT UPLOAD ==========" -ScriptName $ScriptName -LogPath $LogPath
+            # ==========================================================
+            # PHASE 5: SHAREPOINT UPLOAD
+        # ==========================================================
+        $cfgSP = $featureConfig.SharePoint
+        if ($null -ne $cfgSP -and $cfgSP.Enabled -and $null -ne $config.SharePoint) {
+            Write-Log -Message "========== PHASE 5: SHAREPOINT UPLOAD ==========" -ScriptName $ScriptName -LogPath $LogPath
         
-        $metricsHash = @{
-            TotalSafes          = $totalSafes
-            TotalAccounts       = $totalAccounts
-            BlankSafesCount     = $blankSafesCount
-            MemberEnabled       = $cntMember_Enabled
-            MemberDisabled      = $cntMember_Disabled
-            MemberNotFound      = $cntMember_NotFound
-            NotMemberEnabled    = $cntNotMember_Enabled
-            NotMemberDisabled   = $cntNotMember_Disabled
-            NotMemberNotFound   = $cntNotMember_NotFound
+            $metricsHash = @{
+                TotalSafes        = $totalSafes
+                TotalAccounts     = $totalAccounts
+                BlankSafesCount   = $blankSafesCount
+                MemberEnabled     = $cntMember_Enabled
+                MemberDisabled    = $cntMember_Disabled
+                MemberNotFound    = $cntMember_NotFound
+                NotMemberEnabled  = $cntNotMember_Enabled
+                NotMemberDisabled = $cntNotMember_Disabled
+                NotMemberNotFound = $cntNotMember_NotFound
+            }
+
+            Publish-PSASharePointReport `
+                -GlobalConfig            $config `
+                -SharePointFeatureConfig $cfgSP `
+                -Metrics                 $metricsHash `
+                -ExportDir               $ExportDir `
+                -ScriptName              $ScriptName `
+                -LogPath                 $LogPath
         }
 
-        Publish-PSASharePointReport `
-            -GlobalConfig            $config `
-            -SharePointFeatureConfig $cfgSP `
-            -Metrics                 $metricsHash `
-            -ExportDir               $ExportDir `
-            -ScriptName              $ScriptName `
-            -LogPath                 $LogPath
+        # ==========================================================
+        # PHASE 6: CLEANUP
+        # ==========================================================
+        $cfgCleanup = $featureConfig.Cleanup
+        if ($null -ne $cfgCleanup -and $cfgCleanup.Enabled -and $cfgCleanup.RetentionDays -gt 0) {
+            Write-Log -Message "========== PHASE 5: CLEANUP ==========" -ScriptName $ScriptName -LogPath $LogPath
+            $cutoffDate = (Get-Date).AddDays(-$cfgCleanup.RetentionDays)
+            Write-Log -Message "Cleaning up logs and output older than $($cfgCleanup.RetentionDays) days ($cutoffDate)..." -ScriptName $ScriptName -LogPath $LogPath
+
+            if (Test-Path $LogDir) {
+                $oldLogs = Get-ChildItem -Path $LogDir -Filter "*.log" | Where-Object { $_.LastWriteTime -lt $cutoffDate }
+                foreach ($log in $oldLogs) {
+                    Remove-Item -Path $log.FullName -Force -ErrorAction SilentlyContinue
+                }
+                Write-Log -Message "Removed $($oldLogs.Count) old log files." -ScriptName $ScriptName -LogPath $LogPath
+            }
+
+            if (Test-Path $BaseOutputDir) {
+                $oldOutputs = Get-ChildItem -Path $BaseOutputDir -Directory | Where-Object { $_.LastWriteTime -lt $cutoffDate }
+                foreach ($dir in $oldOutputs) {
+                    Remove-Item -Path $dir.FullName -Recurse -Force -ErrorAction SilentlyContinue
+                }
+                Write-Log -Message "Removed $($oldOutputs.Count) old output directories." -ScriptName $ScriptName -LogPath $LogPath
+            }
+        }
+
+    }
+    catch {
+        Write-Log -Message "PersonalSafeAnalysis failed: $($_.Exception.Message)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
+        Write-Log -Message "Stack trace: $($_.ScriptStackTrace)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
+    }
+    finally {
+        if (-not $cyberArkDisconnected) {
+            Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
+        }
+        $overallDuration = (Get-Date) - $overallStartTime
+        Write-Log -Message "Execution completed in $([math]::Round($overallDuration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
+        Write-Log -Message "Execution completed (mode: $effectiveMode)" -ScriptName $ScriptName -LogPath $LogPath
     }
 
-    # ==========================================================
-    # PHASE 6: CLEANUP
-    # ==========================================================
-    $cfgCleanup = $featureConfig.Cleanup
-    if ($null -ne $cfgCleanup -and $cfgCleanup.Enabled -and $cfgCleanup.RetentionDays -gt 0) {
-        Write-Log -Message "========== PHASE 5: CLEANUP ==========" -ScriptName $ScriptName -LogPath $LogPath
-        $cutoffDate = (Get-Date).AddDays(-$cfgCleanup.RetentionDays)
-        Write-Log -Message "Cleaning up logs and output older than $($cfgCleanup.RetentionDays) days ($cutoffDate)..." -ScriptName $ScriptName -LogPath $LogPath
-
-        if (Test-Path $LogDir) {
-            $oldLogs = Get-ChildItem -Path $LogDir -Filter "*.log" | Where-Object { $_.LastWriteTime -lt $cutoffDate }
-            foreach ($log in $oldLogs) {
-                Remove-Item -Path $log.FullName -Force -ErrorAction SilentlyContinue
-            }
-            Write-Log -Message "Removed $($oldLogs.Count) old log files." -ScriptName $ScriptName -LogPath $LogPath
+    finally {
+        if (-not $cyberArkDisconnected) {
+            Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
         }
-
-        if (Test-Path $BaseOutputDir) {
-            $oldOutputs = Get-ChildItem -Path $BaseOutputDir -Directory | Where-Object { $_.LastWriteTime -lt $cutoffDate }
-            foreach ($dir in $oldOutputs) {
-                Remove-Item -Path $dir.FullName -Recurse -Force -ErrorAction SilentlyContinue
-            }
-            Write-Log -Message "Removed $($oldOutputs.Count) old output directories." -ScriptName $ScriptName -LogPath $LogPath
-        }
+        $overallDuration = (Get-Date) - $overallStartTime
+        Write-Log -Message "Execution completed in $([math]::Round($overallDuration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
+        Write-Log -Message "Execution completed (mode: $effectiveMode)" -ScriptName $ScriptName -LogPath $LogPath
     }
 
-}
 catch {
     Write-Log -Message "PersonalSafeAnalysis failed: $($_.Exception.Message)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
     Write-Log -Message "Stack trace: $($_.ScriptStackTrace)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath

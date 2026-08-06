@@ -607,28 +607,7 @@ try {
         }
 
     }
-    catch {
-        Write-Log -Message "PersonalSafeAnalysis failed: $($_.Exception.Message)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
-        Write-Log -Message "Stack trace: $($_.ScriptStackTrace)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
-    }
-    finally {
-        if (-not $cyberArkDisconnected) {
-            Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
-        }
-        $overallDuration = (Get-Date) - $overallStartTime
-        Write-Log -Message "Execution completed in $([math]::Round($overallDuration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
-        Write-Log -Message "Execution completed (mode: $effectiveMode)" -ScriptName $ScriptName -LogPath $LogPath
-    }
-
-    finally {
-        if (-not $cyberArkDisconnected) {
-            Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
-        }
-        $overallDuration = (Get-Date) - $overallStartTime
-        Write-Log -Message "Execution completed in $([math]::Round($overallDuration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
-        Write-Log -Message "Execution completed (mode: $effectiveMode)" -ScriptName $ScriptName -LogPath $LogPath
-    }
-
+}
 catch {
     Write-Log -Message "PersonalSafeAnalysis failed: $($_.Exception.Message)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
     Write-Log -Message "Stack trace: $($_.ScriptStackTrace)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
@@ -641,4 +620,3 @@ finally {
     Write-Log -Message "Execution completed in $([math]::Round($overallDuration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
     Write-Log -Message "Execution completed (mode: $effectiveMode)" -ScriptName $ScriptName -LogPath $LogPath
 }
-

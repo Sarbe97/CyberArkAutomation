@@ -25,6 +25,12 @@ $BaseOutputDir = Join-Path $FeatureRoot "Output"
 $ExportDir     = Join-Path $BaseOutputDir $TodayStr
 if (-not (Test-Path $ExportDir)) { New-Item -ItemType Directory -Path $ExportDir -Force | Out-Null }
 
+# --- Clear Cache if ForceRefresh ---
+if ($FeatureConfig.ForceRefresh) {
+    Write-Log -Message "ForceRefresh is enabled in config. Clearing all files from daily export directory..." -ScriptName $ScriptName -LogPath $LogPath
+    Remove-Item -Path "$ExportDir\*" -Force -Recurse -ErrorAction SilentlyContinue
+}
+
 # ============================================================
 # Load Shared Utils + Feature Modules
 # ============================================================
@@ -439,3 +445,4 @@ finally {
     Write-Log -Message "Execution completed in $([math]::Round($overallDuration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
     Write-Log -Message "Execution completed (mode: $effectiveMode)" -ScriptName $ScriptName -LogPath $LogPath
 }
+

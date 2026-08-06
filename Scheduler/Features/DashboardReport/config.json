@@ -2,6 +2,7 @@
     "Features": {
         "DashboardReport": {
             "Enabled": true,
+            "ForceRefresh": false,
             "Cleanup": {
                 "Enabled": true,
                 "RetentionDays": 30

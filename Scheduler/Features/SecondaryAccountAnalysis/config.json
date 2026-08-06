@@ -2,6 +2,7 @@
   "Features": {
     "SecondaryAccountAnalysis": {
       "Enabled": true,
+      "ForceRefresh": false,
 
       "_Comment_Mode": "Supported values: Discovery | Analysis | Onboarding | Simulation",
       "Mode": "Simulation",
@@ -195,3 +196,4 @@
     }
   }
 }
+

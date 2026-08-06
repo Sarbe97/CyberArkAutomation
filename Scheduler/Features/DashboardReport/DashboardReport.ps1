@@ -97,6 +97,11 @@ try {
     $rawSafesCache      = Join-Path $ExportDir "RawCache_Safes_$TodayStr.csv"
     $rawPendingDiscCache= Join-Path $ExportDir "RawCache_PendingDiscovered_$TodayStr.csv"
 
+    if ($FeatureConfig.ForceRefresh) {
+        Write-Log -Message "ForceRefresh is enabled in config. Clearing all files from daily export directory..." -ScriptName $ScriptName -LogPath $LogPath
+        Remove-Item -Path "$ExportDir\*" -Force -Recurse -ErrorAction SilentlyContinue
+    }
+
     $invFile        = Join-Path $ExportDir "DashboardInventoryDetails_$timestamp.csv"
     $safesFile      = Join-Path $ExportDir "DashboardSafesDetails_$timestamp.csv"
     $platsFile      = Join-Path $ExportDir "DashboardPlatformsDetails_$timestamp.csv"

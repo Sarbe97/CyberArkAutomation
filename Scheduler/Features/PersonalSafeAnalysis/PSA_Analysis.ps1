@@ -406,6 +406,15 @@ try {
                     catch {}
                 }
 
+                # --- DEBUG BLOCK FOR FIRST MEMBER ---
+                if (-not $script:HasLoggedDebug) {
+                    Write-Log -Message "DEBUG: Checking first member: $mName in safe: $($safe.SafeName)" -ScriptName $ScriptName -LogPath $LogPath
+                    Write-Log -Message "DEBUG: Raw Permissions JSON: $($actualMem.Permissions)" -ScriptName $ScriptName -LogPath $LogPath
+                    Write-Log -Message "DEBUG: Parsed Actual Permissions Set: $(($actualPermsSet -join ', '))" -ScriptName $ScriptName -LogPath $LogPath
+                    $script:HasLoggedDebug = $true
+                }
+                # ------------------------------------
+
                 if ($expectedMembersMap.ContainsKey($mName)) {
                     [void]$foundExpectedSet.Add($mName)
                     $cfgMember = $expectedMembersMap[$mName]
@@ -521,20 +530,20 @@ try {
                         # Absent member: highlight expected perms as missing, rest as off
                         if ($isExpected) {
                             $cellClass = "perm-missing"
-                            $cellText  = "MISSING"
+                            $cellText  = "False"
                         } else {
                             $cellClass = "perm-off"
-                            $cellText  = "-"
+                            $cellText  = "False"
                         }
                     }
                     elseif ($row.MemberState -eq "Extra Unexpected") {
                         # Unexpected member: all True perms are extra
                         if ($isTrue) {
                             $cellClass = "perm-extra"
-                            $cellText  = "EXTRA"
+                            $cellText  = "True"
                         } else {
                             $cellClass = "perm-off"
-                            $cellText  = "-"
+                            $cellText  = "False"
                         }
                     }
                     else {
@@ -545,11 +554,11 @@ try {
                         }
                         elseif ($isExpected -and -not $isTrue) {
                             $cellClass = "perm-missing"
-                            $cellText  = "MISSING"
+                            $cellText  = "False"
                         }
                         elseif (-not $isExpected -and $isTrue) {
                             $cellClass = "perm-extra"
-                            $cellText  = "EXTRA"
+                            $cellText  = "True"
                         }
                         else {
                             $cellClass = "perm-off"

@@ -331,17 +331,9 @@ try {
     Write-Log -Message "Discovery and Analysis completed in $([math]::Round($phaseDuration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
 
     # ==========================================================
-    # PHASE 3 — EXPORT REPORTS
+    # PHASE 2.5 — MEMBERSHIP & PERMISSION VALIDATION
     # ==========================================================
-    $blankSafesCount = 0
-    if ($analysisReport.Count -gt 0) {
-        $analysisReport | Export-Csv -Path $analysisFile -NoTypeInformation -Encoding UTF8
-        Write-Log -Message "Analysis report saved: $analysisFile" -ScriptName $ScriptName -LogPath $LogPath
-
-        $blankSafes = $analysisReport | Where-Object { $_.AccountCount -eq 0 }
-        # PHASE 2.5 — MEMBERSHIP & PERMISSION VALIDATION
-        # ==========================================================
-        Write-Log -Message "========== PHASE 2.5: PERMISSION VALIDATION ==========" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "========== PHASE 2.5: PERMISSION VALIDATION ==========" -ScriptName $ScriptName -LogPath $LogPath
         $permissionReport = [System.Collections.Generic.List[object]]::new()
         $permReportFileCsv = Join-Path $ExportDir "PSA_PermissionAnalysisReport_$Timestamp.csv"
         $permReportFileHtml = Join-Path $ExportDir "PSA_PermissionAnalysisReport_$Timestamp.html"
@@ -747,7 +739,6 @@ try {
             }
         }
 
-    }
 }
 catch {
     Write-Log -Message "PersonalSafeAnalysis failed: $($_.Exception.Message)" -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath

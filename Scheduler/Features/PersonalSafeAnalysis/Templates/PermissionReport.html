@@ -1,0 +1,47 @@
+<html>
+<head>
+<style>
+    body { font-family: Arial, sans-serif; font-size: 13px; margin: 20px; }
+    h2 { color: #333; }
+    table { border-collapse: collapse; margin-top: 15px; }
+    th, td { border: 1px solid #ccc; padding: 5px 8px; text-align: center; white-space: nowrap; }
+    th { background-color: #4a4a4a; color: #fff; font-size: 12px; }
+    th.perm-col { writing-mode: vertical-rl; text-orientation: mixed; max-width: 30px; padding: 8px 4px; }
+    td.safe-name, td.member-name, td.member-state, td.expected-set, td.status-col { text-align: left; }
+    .status-matched { color: #2e7d32; font-weight: bold; }
+    .status-not-matched { color: #c62828; font-weight: bold; }
+    .state-expected { color: #333; }
+    .state-extra { color: #d9534f; font-weight: bold; }
+    .state-absent { color: #d9534f; font-weight: bold; }
+    .perm-correct   { background-color: #c8e6c9; color: #2e7d32; font-weight: bold; }
+    .perm-missing   { background-color: #ffcdd2; color: #c62828; font-weight: bold; }
+    .perm-extra     { background-color: #ffe0b2; color: #e65100; font-weight: bold; }
+    .perm-off       { background-color: #f5f5f5; color: #999; }
+    .legend { margin-top: 20px; font-size: 12px; }
+    .legend td { border: 1px solid #ccc; padding: 4px 10px; }
+    .legend-label { font-weight: bold; text-align: left; }
+</style>
+</head>
+<body>
+<h2>Personal Safe Member &amp; Permission Analysis</h2>
+<table>
+<tr>
+    <th>Safe Name</th>
+    <th>Member Name</th>
+    <th>State</th>
+    <th>Expected Set</th>
+{{TABLE_HEADERS}}
+    <th>Status</th>
+</tr>
+{{TABLE_ROWS}}
+</table>
+
+<h3>Legend</h3>
+<table class="legend">
+<tr><td class="perm-correct legend-label">True</td><td>Permission is expected and correctly granted</td></tr>
+<tr><td class="perm-missing legend-label">MISSING</td><td>Permission is expected but NOT granted (needs remediation)</td></tr>
+<tr><td class="perm-extra legend-label">EXTRA</td><td>Permission is granted but NOT expected (review for removal)</td></tr>
+<tr><td class="perm-off legend-label">False / -</td><td>Permission is not expected and not granted (normal)</td></tr>
+</table>
+</body>
+</html>

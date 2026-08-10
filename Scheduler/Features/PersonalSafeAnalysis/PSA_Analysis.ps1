@@ -486,45 +486,14 @@ try {
                 }
             }
 
-            $html = @"
-<html>
-<head>
-<style>
-    body { font-family: Arial, sans-serif; font-size: 13px; margin: 20px; }
-    h2 { color: #333; }
-    table { border-collapse: collapse; margin-top: 15px; }
-    th, td { border: 1px solid #ccc; padding: 5px 8px; text-align: center; white-space: nowrap; }
-    th { background-color: #4a4a4a; color: #fff; font-size: 12px; }
-    th.perm-col { writing-mode: vertical-rl; text-orientation: mixed; max-width: 30px; padding: 8px 4px; }
-    td.safe-name, td.member-name, td.member-state, td.expected-set, td.status-col { text-align: left; }
-    .status-matched { color: #2e7d32; font-weight: bold; }
-    .status-not-matched { color: #c62828; font-weight: bold; }
-    .state-expected { color: #333; }
-    .state-extra { color: #d9534f; font-weight: bold; }
-    .state-absent { color: #d9534f; font-weight: bold; }
-    .perm-correct   { background-color: #c8e6c9; color: #2e7d32; font-weight: bold; }
-    .perm-missing   { background-color: #ffcdd2; color: #c62828; font-weight: bold; }
-    .perm-extra     { background-color: #ffe0b2; color: #e65100; font-weight: bold; }
-    .perm-off       { background-color: #f5f5f5; color: #999; }
-    .legend { margin-top: 20px; font-size: 12px; }
-    .legend td { border: 1px solid #ccc; padding: 4px 10px; }
-    .legend-label { font-weight: bold; text-align: left; }
-</style>
-</head>
-<body>
-<h2>Personal Safe Member &amp; Permission Analysis</h2>
-<table>
-<tr>
-    <th>Safe Name</th>
-    <th>Member Name</th>
-    <th>State</th>
-    <th>Expected Set</th>
-"@
+            # Build Headers
+            $headersBuilder = [System.Text.StringBuilder]::new()
             foreach ($perm in $allPermissionColumns) {
-                $html += "    <th class='perm-col'>$perm</th>`n"
+                [void]$headersBuilder.AppendLine("    <th class='perm-col'>$perm</th>")
             }
-            $html += "    <th>Status</th>`n</tr>`n"
 
+            # Build Rows
+            $rowsBuilder = [System.Text.StringBuilder]::new()
             foreach ($row in $permissionReport) {
                 $statusClass = if ($row.Status -eq "Matched") { "status-matched" } else { "status-not-matched" }
                 $stateClass = switch ($row.MemberState) {
@@ -537,11 +506,11 @@ try {
                 # Resolve the expected permission set for this member
                 $memberExpectedPerms = if ($expectedSetsLookup.ContainsKey($row.ExpectedSet)) { $expectedSetsLookup[$row.ExpectedSet] } else { $null }
 
-                $html += "<tr>`n"
-                $html += "    <td class='safe-name'>$($row.SafeName)</td>`n"
-                $html += "    <td class='member-name'>$($row.MemberName)</td>`n"
-                $html += "    <td class='member-state $stateClass'>$($row.MemberState)</td>`n"
-                $html += "    <td class='expected-set'>$($row.ExpectedSet)</td>`n"
+                [void]$rowsBuilder.AppendLine("<tr>")
+                [void]$rowsBuilder.AppendLine("    <td class='safe-name'>$($row.SafeName)</td>")
+                [void]$rowsBuilder.AppendLine("    <td class='member-name'>$($row.MemberName)</td>")
+                [void]$rowsBuilder.AppendLine("    <td class='member-state $stateClass'>$($row.MemberState)</td>")
+                [void]$rowsBuilder.AppendLine("    <td class='expected-set'>$($row.ExpectedSet)</td>")
 
                 foreach ($perm in $allPermissionColumns) {
                     $val = $row.$perm
@@ -588,27 +557,23 @@ try {
                         }
                     }
 
-                    $html += "    <td class='$cellClass'>$cellText</td>`n"
+                    [void]$rowsBuilder.AppendLine("    <td class='$cellClass'>$cellText</td>")
                 }
 
-                $html += "    <td class='status-col $statusClass'>$($row.Status)</td>`n"
-                $html += "</tr>`n"
+                [void]$rowsBuilder.AppendLine("    <td class='status-col $statusClass'>$($row.Status)</td>")
+                [void]$rowsBuilder.AppendLine("</tr>")
             }
 
-            $html += @"
-</table>
-
-<h3>Legend</h3>
-<table class="legend">
-<tr><td class="perm-correct legend-label">True</td><td>Permission is expected and correctly granted</td></tr>
-<tr><td class="perm-missing legend-label">MISSING</td><td>Permission is expected but NOT granted (needs remediation)</td></tr>
-<tr><td class="perm-extra legend-label">EXTRA</td><td>Permission is granted but NOT expected (review for removal)</td></tr>
-<tr><td class="perm-off legend-label">False / -</td><td>Permission is not expected and not granted (normal)</td></tr>
-</table>
-</body></html>
-"@
-            $html | Out-File -FilePath $permReportFileHtml -Encoding UTF8
-            Write-Log -Message "Permission Analysis HTML report saved: $permReportFileHtml" -ScriptName $ScriptName -LogPath $LogPath
+            # Load Template and inject content
+            $reportTemplatePath = Join-Path $templatesPath "PermissionReport.html"
+            if (Test-Path $reportTemplatePath) {
+                $templateContent = Get-Content -Path $reportTemplatePath -Raw
+                $finalHtml = $templateContent.Replace("{{TABLE_HEADERS}}", $headersBuilder.ToString()).Replace("{{TABLE_ROWS}}", $rowsBuilder.ToString())
+                $finalHtml | Out-File -FilePath $permReportFileHtml -Encoding UTF8
+                Write-Log -Message "Permission Analysis HTML report saved: $permReportFileHtml" -ScriptName $ScriptName -LogPath $LogPath
+            } else {
+                Write-Log -Message "PermissionReport.html template not found in $templatesPath" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+            }
         }
 
         # ==========================================================

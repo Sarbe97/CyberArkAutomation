@@ -651,8 +651,14 @@ $btnRDP.Add_Click({
                         Write-RDPLog "No password available to copy."
                     }
 
-                    Write-RDPLog "Launching mstsc.exe..."
-                    Start-Process mstsc.exe -ArgumentList "/v:$hostName"
+                    $username = $script:Credentials[$script:ActiveEnv].UserName
+                    Write-RDPLog "Username: $username"
+                    
+                    $rdpFile = Join-Path $env:TEMP "ServerNavigator_$hostName.rdp"
+                    "full address:s:$hostName`nusername:s:$username" | Set-Content $rdpFile -Encoding ASCII
+
+                    Write-RDPLog "Launching mstsc.exe with RDP file..."
+                    Start-Process mstsc.exe -ArgumentList "`"$rdpFile`""
                     Write-RDPLog "mstsc.exe launched successfully."
                 }
                 catch {
@@ -678,6 +684,30 @@ $btnRefresh.FlatStyle = "Flat"
 $btnRefresh.Cursor = "Hand"
 $btnRefresh.Add_Click({ Refresh-ServerList -Filter $txtSearch.Text })
 $form.Controls.Add($btnRefresh)
+
+$btnCopyHost = New-Object System.Windows.Forms.Button
+$btnCopyHost.Text = "Copy Hostname"
+$btnCopyHost.Size = New-Object System.Drawing.Size(145, 34)
+$btnCopyHost.Location = New-Object System.Drawing.Point(330, 340)
+$btnCopyHost.FlatStyle = "Flat"
+$btnCopyHost.Cursor = "Hand"
+$btnCopyHost.Add_Click({
+    $server = Get-SelectedServer
+    if ($server) {
+        $address = $server.SharePath
+        if ($address -like "\\*") {
+            $hostName = $address.TrimStart('\').Split('\')[0]
+            [System.Windows.Forms.Clipboard]::SetText($hostName)
+            Update-StatusBar "Hostname '$hostName' copied to clipboard." "Info"
+        } else {
+            [System.Windows.Forms.Clipboard]::SetText($server.Name)
+            Update-StatusBar "Server name '$($server.Name)' copied to clipboard." "Info"
+        }
+    } else {
+        [System.Windows.Forms.MessageBox]::Show("Please select a server.", "No Selection", "OK", "Information")
+    }
+})
+$form.Controls.Add($btnCopyHost)
 
 # Row 2 - Management Actions
 $row2Y = $buttonY + $buttonH + $buttonGap
@@ -969,9 +999,19 @@ $btnSwitchUser.FlatStyle = "Flat"
 $btnSwitchUser.Cursor = "Hand"
 $btnSwitchUser.Font = New-Object System.Drawing.Font("Segoe UI", 8.5)
 $btnSwitchUser.Add_Click({
-        $cred = Get-SessionCredential -Environment $script:ActiveEnv -ExitOnCancel $false
-        if ($null -ne $cred) {
-            $script:Credentials[$script:ActiveEnv] = $cred
+        $envs = @($script:Servers | Select-Object -ExpandProperty Environment -Unique)
+        if ($envs.Count -eq 0) { $envs = @("PROD") }
+        if ($envs -notcontains $script:ActiveEnv) { $envs += $script:ActiveEnv }
+        
+        $credObj = Get-SessionCredential -AvailableEnvironments $envs -InitialEnvironment $script:ActiveEnv -ExitOnCancel $false
+        if ($null -ne $credObj) {
+            $script:ActiveEnv = $credObj.Environment
+            $script:Credentials[$script:ActiveEnv] = $credObj.Credential
+            if ($cmbEnv) { 
+                $script:InEnvSwitch = $true
+                $cmbEnv.SelectedItem = $script:ActiveEnv
+                $script:InEnvSwitch = $false
+            }
             Refresh-ServerList -Filter $txtSearch.Text
             Update-StatusBar "Switched user to: $($script:Credentials[$script:ActiveEnv].UserName)" "OK"
         }

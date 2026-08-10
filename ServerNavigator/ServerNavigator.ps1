@@ -181,7 +181,7 @@ function Get-SessionCredential {
     $txtUser.Size = New-Object System.Drawing.Size(250, 23)
     $loginForm.Controls.Add($txtUser)
 
-    $cmbEnvLogin.Add_TextChanged({
+    $updateCredentialsAction = {
         $env = $cmbEnvLogin.Text
         if ([string]::IsNullOrWhiteSpace($env)) { return }
         $loginForm.Text = "Server Navigator - Login ($env)"
@@ -193,10 +193,11 @@ function Get-SessionCredential {
         } else {
             $txtUser.Text = "$expectedDomain\$env:USERNAME"
         }
-    })
+    }
+    $cmbEnvLogin.Add_TextChanged($updateCredentialsAction)
     
     # Trigger initially
-    $cmbEnvLogin.SelectedIndex = $cmbEnvLogin.SelectedIndex
+    & $updateCredentialsAction
 
     $lblPass = New-Object System.Windows.Forms.Label
     $lblPass.Text = "Password:"

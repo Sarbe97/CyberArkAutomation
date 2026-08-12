@@ -237,6 +237,87 @@ function Get-GraphFile {
 }
 
 # -------------------------------------------------------
+# Get-GraphItemMetadata
+# Gets metadata for an item on SharePoint via Graph.
+# GET /drives/{driveId}/root:/{path}
+# Returns the metadata object if found, $null if not.
+# -------------------------------------------------------
+function Get-GraphItemMetadata {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DriveId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ItemPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$AccessToken,
+
+        [string]$ScriptName = "SharePoint",
+        [string]$LogPath
+    )
+
+    $encodedPath = $ItemPath -replace ' ', '%20'
+    $graphUrl = "https://graph.microsoft.com/v1.0/drives/$DriveId/root:/$encodedPath"
+    $headers = @{ Authorization = "Bearer $AccessToken" }
+
+    try {
+        $response = Invoke-RestMethod -Uri $graphUrl -Headers $headers -ErrorAction Stop
+        return $response
+    }
+    catch {
+        $statusCode = $null
+        if ($_.Exception.Response) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+        }
+
+        if ($statusCode -eq 404) {
+            return $null
+        }
+
+        throw
+    }
+}
+
+# -------------------------------------------------------
+# Rename-GraphItem
+# Renames an item on SharePoint via Graph.
+# PATCH /drives/{driveId}/items/{itemId}
+# -------------------------------------------------------
+function Rename-GraphItem {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DriveId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ItemId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$NewName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$AccessToken,
+
+        [string]$ScriptName = "SharePoint",
+        [string]$LogPath
+    )
+
+    $graphUrl = "https://graph.microsoft.com/v1.0/drives/$DriveId/items/$ItemId"
+    $headers = @{ Authorization = "Bearer $AccessToken" }
+    $body = @{ name = $NewName } | ConvertTo-Json
+
+    if ($LogPath) {
+        Write-Log -Message "Renaming file item '$ItemId' to '$NewName'..." -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    $null = Invoke-RestMethod -Uri $graphUrl -Headers $headers -Method Patch -Body $body -ContentType "application/json" -ErrorAction Stop
+
+    if ($LogPath) {
+        Write-Log -Message "File renamed successfully." -ScriptName $ScriptName -LogPath $LogPath
+    }
+}
+
+# -------------------------------------------------------
 # Set-GraphFile (Upload)
 # Uploads a file to SharePoint via Graph.
 # PUT /drives/{driveId}/root:/{path}:/content
@@ -355,14 +436,51 @@ function Update-SharePointExcel {
     $graphItemPath   = if ($cleanFolderPath) { "$cleanFolderPath/$FileName" } else { $FileName }
     $localTempXlsx   = Join-Path $LocalTempDir $FileName
 
-    # -- Download existing file or start fresh --
-    $fileExists = Get-GraphFile `
-        -DriveId       $driveId `
-        -ItemPath      $graphItemPath `
-        -LocalFilePath $localTempXlsx `
-        -AccessToken   $accessToken `
-        -ScriptName    $ScriptName `
-        -LogPath       $LogPath
+    # -- Check existing file metadata for rotation --
+    $itemMeta = Get-GraphItemMetadata `
+        -DriveId     $driveId `
+        -ItemPath    $graphItemPath `
+        -AccessToken $accessToken `
+        -ScriptName  $ScriptName `
+        -LogPath     $LogPath
+
+    $fileExists = $false
+    if ($itemMeta) {
+        $lastMod = [datetime]$itemMeta.lastModifiedDateTime
+        $now = Get-Date
+
+        if ($lastMod.Month -ne $now.Month -or $lastMod.Year -ne $now.Year) {
+            $oldMonthYear = $lastMod.ToString("MMMM_yyyy") # e.g. July_2026
+            $baseName = [System.IO.Path]::GetFileNameWithoutExtension($FileName)
+            $ext = [System.IO.Path]::GetExtension($FileName)
+            $newName = "${baseName}_${oldMonthYear}${ext}"
+
+            if ($LogPath) {
+                Write-Log -Message "File last modified in $($lastMod.ToString('MMMM yyyy')). Rotating to $newName..." -ScriptName $ScriptName -LogPath $LogPath
+            }
+
+            Rename-GraphItem `
+                -DriveId     $driveId `
+                -ItemId      $itemMeta.id `
+                -NewName     $newName `
+                -AccessToken $accessToken `
+                -ScriptName  $ScriptName `
+                -LogPath     $LogPath
+
+            # The original file has been renamed, so for the current month we start fresh
+            $fileExists = $false
+        }
+        else {
+            # Same month, download normally
+            $fileExists = Get-GraphFile `
+                -DriveId       $driveId `
+                -ItemPath      $graphItemPath `
+                -LocalFilePath $localTempXlsx `
+                -AccessToken   $accessToken `
+                -ScriptName    $ScriptName `
+                -LogPath       $LogPath
+        }
+    }
 
     # -- Resolve sheet name --
     $effectiveSheet = if (-not [string]::IsNullOrWhiteSpace($SheetName)) { $SheetName } else { Get-Date -Format "MMM-yyyy" }
@@ -490,6 +608,12 @@ function Update-SharePointExcel {
         $endCol     = $ws.Dimension.End.Column
         $endRow     = $ws.Dimension.End.Row
         
+        # Add Borders to the entire table
+        $ws.Cells[1, 1, $endRow, $endCol].Style.Border.Top.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+        $ws.Cells[1, 1, $endRow, $endCol].Style.Border.Bottom.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+        $ws.Cells[1, 1, $endRow, $endCol].Style.Border.Left.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+        $ws.Cells[1, 1, $endRow, $endCol].Style.Border.Right.Style = [OfficeOpenXml.Style.ExcelBorderStyle]::Thin
+
         # Format all data columns with thousand separators
         if ($endCol -ge 2) {
             $ws.Cells[2, 2, $endRow, $endCol].Style.Numberformat.Format = "#,##0"

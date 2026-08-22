@@ -586,19 +586,49 @@ try {
         }
 
         # ==========================================================
-        # PHASE 3 — EXPORT REPORTS
+        # PHASE 3 — EXPORT REPORTS & BLANK SAFE DELETION
         # ==========================================================
         $blankSafesCount = 0
         if ($analysisReport.Count -gt 0) {
             $analysisReport | Export-Csv -Path $analysisFile -NoTypeInformation -Encoding UTF8
             Write-Log -Message "Analysis report saved: $analysisFile" -ScriptName $ScriptName -LogPath $LogPath
 
-            $blankSafes = $analysisReport | Where-Object { $_.AccountCount -eq 0 }
-            $blankSafesCount = if ($null -eq $blankSafes) { 0 } elseif ($blankSafes -is [array]) { $blankSafes.Count } else { 1 }
+            $blankSafes = @($analysisReport | Where-Object { $_.AccountCount -eq 0 })
+            $blankSafesCount = $blankSafes.Count
         
             if ($blankSafesCount -gt 0) {
+                Write-Log -Message "Found $blankSafesCount blank safes. Re-authenticating to attempt deletion..." -ScriptName $ScriptName -LogPath $LogPath
+                
+                try {
+                    $null = Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential -ScriptName $ScriptName -LogPath $LogPath
+                    $cyberArkDisconnected = $false
+                    
+                    foreach ($safe in $blankSafes) {
+                        $safeName = $safe.SafeName
+                        Write-Log -Message "Attempting to delete blank safe: $safeName" -ScriptName $ScriptName -LogPath $LogPath
+                        try {
+                            $encodedSafe = [uri]::EscapeDataString($safeName)
+                            Invoke-CyberArkApi -Method DELETE -Uri "$BaseUrl/PasswordVault/api/Safes/$encodedSafe" | Out-Null
+                            
+                            $safe | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "Deleted" -Force
+                            Write-Log -Message "Successfully deleted safe: $safeName" -ScriptName $ScriptName -LogPath $LogPath
+                        }
+                        catch {
+                            $errMsg = $_.Exception.Message
+                            $safe | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "Failed: $errMsg" -Force
+                            Write-Log -Message "Failed to delete safe '$safeName' (likely due to retention policy). Reason: $errMsg" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+                        }
+                    }
+                }
+                finally {
+                    if (-not $cyberArkDisconnected) {
+                        Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
+                        $cyberArkDisconnected = $true
+                    }
+                }
+
                 $blankSafes | Export-Csv -Path $blankSafesFile -NoTypeInformation -Encoding UTF8
-                Write-Log -Message "Blank safes report saved: $blankSafesFile" -ScriptName $ScriptName -LogPath $LogPath
+                Write-Log -Message "Blank safes report saved (with DeletionStatus): $blankSafesFile" -ScriptName $ScriptName -LogPath $LogPath
             }
         }
         else {

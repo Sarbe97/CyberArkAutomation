@@ -891,8 +891,15 @@ function Invoke-CACBatchSafeMember {
                     $result.MemberStatus = "Exists"
                 }
                 else {
-                    $result.MemberStatus = "NotFound"
-                    Write-Host " -> User Not Found" -ForegroundColor Red
+                    if ($memberSource -ne "Vault") {
+                        $memberReady = $true
+                        $result.MemberStatus = "DomainSearch"
+                        Write-Host " -> User not in Vault, will search Domain" -ForegroundColor Yellow
+                    }
+                    else {
+                        $result.MemberStatus = "NotFound"
+                        Write-Host " -> User Not Found" -ForegroundColor Red
+                    }
                 }
             }
             catch {

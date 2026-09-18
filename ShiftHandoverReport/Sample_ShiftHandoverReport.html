@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shift Handover - 16-September 2nd Shift (Minimal Corporate)</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f8fafc;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            color: #0f172a;
+            -webkit-text-size-adjust: 100%;
+            -ms-text-size-adjust: 100%;
+        }
+        .email-wrapper {
+            width: 100%;
+            background-color: #f8fafc;
+            padding: 24px 0;
+        }
+        .email-container {
+            max-width: 860px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+        }
+        /* Header - Minimal Dark Slate */
+        .email-header {
+            background-color: #0f172a;
+            color: #ffffff;
+            padding: 20px 28px;
+        }
+        .header-title {
+            margin: 0 0 6px 0;
+            font-size: 18px;
+            font-weight: 700;
+            color: #ffffff;
+            letter-spacing: -0.2px;
+        }
+        .header-meta {
+            font-size: 12.5px;
+            color: #94a3b8;
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .shift-pill {
+            background-color: #334155;
+            color: #f8fafc;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11.5px;
+        }
+        .meta-text {
+            color: #cbd5e1;
+        }
+
+        /* Body Content */
+        .email-body {
+            padding: 24px 28px;
+        }
+        .greeting-box {
+            margin-bottom: 20px;
+            font-size: 13.5px;
+            color: #334155;
+            line-height: 1.5;
+        }
+
+        /* Executive KPI Summary - Clean Monochromatic Cards */
+        .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 10px;
+            margin-bottom: 24px;
+        }
+        .kpi-card {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-top: 3px solid #0f172a;
+            border-radius: 4px;
+            padding: 12px 8px;
+            text-align: center;
+        }
+        .kpi-label {
+            font-size: 10.5px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #64748b;
+            margin-bottom: 4px;
+        }
+        .kpi-val {
+            font-size: 22px;
+            font-weight: 700;
+            color: #0f172a;
+            line-height: 1.1;
+        }
+
+        /* Section Headings - Understated Professional */
+        .section-header {
+            font-size: 13.5px;
+            font-weight: 700;
+            color: #0f172a;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding-bottom: 6px;
+            border-bottom: 1.5px solid #0f172a;
+            margin: 22px 0 16px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* Application Card - Clean Minimal Borders */
+        .app-card {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+        .app-card-header {
+            background-color: #f8fafc;
+            padding: 10px 16px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .app-title {
+            font-size: 13.5px;
+            font-weight: 700;
+            color: #0f172a;
+        }
+        .app-meta-counts {
+            font-size: 11.5px;
+            color: #64748b;
+            font-weight: 500;
+        }
+        .app-card-body {
+            padding: 14px 16px;
+        }
+
+        /* Metric Titles inside App Card */
+        .metric-title {
+            font-size: 12.5px;
+            font-weight: 600;
+            color: #334155;
+            margin: 4px 0 4px 0;
+        }
+        .summary-chip {
+            display: inline-block;
+            background-color: #f1f5f9;
+            color: #334155;
+            font-size: 11.5px;
+            font-weight: 600;
+            padding: 3px 8px;
+            border-radius: 4px;
+            border: 1px solid #e2e8f0;
+            margin: 2px 0 6px 0;
+        }
+
+        /* Data Tables - Crisp, High Readability */
+        table.styled-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            margin: 8px 0 12px 0;
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+        }
+        table.styled-table th {
+            background-color: #f8fafc;
+            color: #334155;
+            font-weight: 600;
+            text-align: left;
+            padding: 7px 10px;
+            font-size: 11px;
+            letter-spacing: 0.3px;
+            border-bottom: 1px solid #cbd5e1;
+            text-transform: uppercase;
+        }
+        table.styled-table td {
+            padding: 7px 10px;
+            border-bottom: 1px solid #f1f5f9;
+            color: #334155;
+            vertical-align: middle;
+        }
+        table.styled-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .ticket-num {
+            font-family: SFMono-Regular, Consolas, Menlo, monospace;
+            font-weight: 600;
+            color: #0f172a;
+        }
+
+        /* Badges - Restrained Minimal Slate Palette */
+        .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        /* Priorities: only P0/P1/P2 use subtle red; P3/P4 use clean neutral */
+        .pri-crit {
+            background-color: #fee2e2;
+            color: #991b1b;
+            font-weight: 700;
+        }
+        .pri-neutral {
+            background-color: #f1f5f9;
+            color: #475569;
+        }
+
+        /* States: clean minimal neutral badges */
+        .st-badge {
+            background-color: #f1f5f9;
+            color: #334155;
+            border: 1px solid #e2e8f0;
+        }
+
+        /* Handed Over: Dark slate for Yes, simple dash/muted for No */
+        .hnd-yes {
+            background-color: #0f172a;
+            color: #ffffff;
+            padding: 2px 7px;
+            border-radius: 3px;
+            font-size: 10.5px;
+            font-weight: 600;
+        }
+        .hnd-no {
+            color: #94a3b8;
+            font-size: 11px;
+        }
+
+        /* Priority Row Highlight: Soft, non-aggressive red tint */
+        .row-highlight {
+            background-color: #fff1f2 !important;
+        }
+        .row-highlight td {
+            background-color: #fff1f2 !important;
+        }
+
+        /* Footer */
+        .email-footer {
+            background-color: #f8fafc;
+            border-top: 1px solid #e2e8f0;
+            padding: 14px 28px;
+            font-size: 11.5px;
+            color: #64748b;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .email-footer a {
+            color: #0f172a;
+            text-decoration: underline;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-wrapper">
+        <div class="email-container">
+            <!-- Header -->
+            <div class="email-header">
+                <div class="header-title">Shift Handover Report</div>
+                <div class="header-meta">
+                    <span class="shift-pill">2nd Shift</span>
+                    <span class="meta-text"><strong>Date:</strong> 16-September</span>
+                    <span class="meta-text">&bull;</span>
+                    <span class="meta-text"><strong>Generated:</strong> 2026-09-17 19:30:00</span>
+                </div>
+            </div>
+
+            <!-- Body -->
+            <div class="email-body">
+                <div class="greeting-box">
+                    <p style="margin: 0 0 4px 0;">Hi All,</p>
+                    <p style="margin: 0;">Please find below the operational shift handover summary for <strong>16-September (2nd Shift)</strong>:</p>
+                </div>
+
+                <!-- Executive KPI Summary Cards (Minimal Monochromatic) -->
+                <div class="kpi-row">
+                    <div class="kpi-card">
+                        <div class="kpi-label">Active Incidents</div>
+                        <div class="kpi-val">5</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Active Requests</div>
+                        <div class="kpi-val">8</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Change Requests</div>
+                        <div class="kpi-val">3</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Closed Today</div>
+                        <div class="kpi-val">3</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Handover Items</div>
+                        <div class="kpi-val">5</div>
+                    </div>
+                </div>
+
+                <!-- Section: Application Workload -->
+                <div class="section-header">
+                    <span>Operational Workload by Application</span>
+                    <span style="font-size: 11px; font-weight: 500; color: #64748b; text-transform: none;">SailPoint &bull; CyberArk &bull; Ping</span>
+                </div>
+
+                <!-- App 1: SailPoint -->
+                <div class="app-card">
+                    <div class="app-card-header">
+                        <div class="app-title">SailPoint IdentityIQ Operations</div>
+                        <div class="app-meta-counts">Incidents: 4 &bull; Requests: 4 &bull; Changes: 1</div>
+                    </div>
+                    <div class="app-card-body">
+                        <!-- Incidents -->
+                        <div class="metric-title"><strong>Incidents:</strong> 4 Handled</div>
+                        <table class="styled-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 115px;">Number</th>
+                                    <th style="width: 75px;">Priority</th>
+                                    <th style="width: 100px;">State</th>
+                                    <th>Short Description</th>
+                                    <th style="width: 95px;">ETA</th>
+                                    <th style="width: 90px; text-align: center;">Handed Over</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr class="row-highlight">
+                                    <td><span class="ticket-num">INC2480500</span></td>
+                                    <td><span class="badge pri-crit">P0</span></td>
+                                    <td><span class="badge st-badge">In Progress</span></td>
+                                    <td>Global SailPoint SCIM Gateway Outage &ndash; All SaaS Provisioning Halted</td>
+                                    <td style="font-weight: 600;">2026-09-18</td>
+                                    <td style="text-align: center;"><span class="hnd-yes">Yes</span></td>
+                                </tr>
+                                <tr class="row-highlight">
+                                    <td><span class="ticket-num">INC2480119</span></td>
+                                    <td><span class="badge pri-crit">P1</span></td>
+                                    <td><span class="badge st-badge">In Progress</span></td>
+                                    <td>Provisioning engine thread lock on Primary SailPoint IdentityIQ cluster</td>
+                                    <td style="font-weight: 600;">2026-09-18</td>
+                                    <td style="text-align: center;"><span class="hnd-yes">Yes</span></td>
+                                </tr>
+                                <tr class="row-highlight">
+                                    <td><span class="ticket-num">INC2479810</span></td>
+                                    <td><span class="badge pri-crit">P2</span></td>
+                                    <td><span class="badge st-badge">In Progress</span></td>
+                                    <td>Active Directory connector timeout during scheduled delta aggregation</td>
+                                    <td style="font-weight: 600;">2026-09-19</td>
+                                    <td style="text-align: center;"><span class="hnd-yes">Yes</span></td>
+                                </tr>
+                                <tr>
+                                    <td><span class="ticket-num">INC2476272</span></td>
+                                    <td><span class="badge pri-neutral">P4</span></td>
+                                    <td><span class="badge st-badge">Pending</span></td>
+                                    <td>Intermittent UI latency during access request submission in EU region</td>
+                                    <td>2026-09-20</td>
+                                    <td style="text-align: center;"><span class="hnd-no">No</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <!-- Service Requests: Count & Chip only -->
+                        <div class="metric-title" style="margin-top: 14px;"><strong>Service Requests:</strong> 4</div>
+                        <div class="summary-chip">4 (1 &ndash; Closed, 2 &ndash; InProgress, 1 &ndash; Pending)</div>
+
+                        <!-- Change Requests: Table with Details -->
+                        <div class="metric-title" style="margin-top: 14px;"><strong>Change Requests:</strong> 1</div>
+                        <div class="summary-chip">1 (1 &ndash; Scheduled)</div>
+                        <table class="styled-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 115px;">Number</th>
+                                    <th style="width: 75px;">Type</th>
+                                    <th style="width: 100px;">State</th>
+                                    <th>Short Description</th>
+                                    <th style="width: 95px;">ETA</th>
+                                    <th style="width: 90px; text-align: center;">Handed Over</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><span class="ticket-num">CHG0098421</span></td>
+                                    <td><span class="badge pri-neutral">Normal</span></td>
+                                    <td><span class="badge st-badge">Scheduled</span></td>
+                                    <td>SailPoint IIQ 8.3 Patch 4 Rolling Upgrade across Production Nodes</td>
+                                    <td style="font-weight: 600;">2026-09-18</td>
+                                    <td style="text-align: center;"><span class="hnd-yes">Yes</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- App 2: CyberArk -->
+                <div class="app-card">
+                    <div class="app-card-header">
+                        <div class="app-title">CyberArk PAM / Idira Operations</div>
+                        <div class="app-meta-counts">Incidents: 2 &bull; Requests: 4 &bull; Changes: 1</div>
+                    </div>
+                    <div class="app-card-body">
+                        <!-- Incidents -->
+                        <div class="metric-title"><strong>Incidents:</strong> 2 Handled</div>
+                        <table class="styled-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 115px;">Number</th>
+                                    <th style="width: 75px;">Priority</th>
+                                    <th style="width: 100px;">State</th>
+                                    <th>Short Description</th>
+                                    <th style="width: 95px;">ETA</th>
+                                    <th style="width: 90px; text-align: center;">Handed Over</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr class="row-highlight">
+                                    <td><span class="ticket-num">INC2480205</span></td>
+                                    <td><span class="badge pri-crit">P2</span></td>
+                                    <td><span class="badge st-badge">In Progress</span></td>
+                                    <td>CyberArk CPM automated password rotation failing for Oracle database accounts</td>
+                                    <td style="font-weight: 600;">2026-09-19</td>
+                                    <td style="text-align: center;"><span class="hnd-yes">Yes</span></td>
+                                </tr>
+                                <tr>
+                                    <td><span class="ticket-num">INC2477301</span></td>
+                                    <td><span class="badge pri-neutral">P3</span></td>
+                                    <td><span class="badge st-badge">In Progress</span></td>
+                                    <td>PSM session recording storage volume threshold reached 85% capacity</td>
+                                    <td>2026-09-18</td>
+                                    <td style="text-align: center;"><span class="hnd-no">No</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        <!-- Service Requests: Count & Chip only -->
+                        <div class="metric-title" style="margin-top: 14px;"><strong>Service Requests:</strong> 4</div>
+                        <div class="summary-chip">4 (1 &ndash; Closed, 2 &ndash; InProgress, 1 &ndash; Pending)</div>
+
+                        <!-- Change Requests: Table with Details -->
+                        <div class="metric-title" style="margin-top: 14px;"><strong>Change Requests:</strong> 1</div>
+                        <div class="summary-chip">1 (1 &ndash; Implemented)</div>
+                        <table class="styled-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 115px;">Number</th>
+                                    <th style="width: 75px;">Type</th>
+                                    <th style="width: 100px;">State</th>
+                                    <th>Short Description</th>
+                                    <th style="width: 95px;">ETA</th>
+                                    <th style="width: 90px; text-align: center;">Handed Over</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><span class="ticket-num">CHG0098315</span></td>
+                                    <td><span class="badge pri-neutral">Standard</span></td>
+                                    <td><span class="badge st-badge">Implemented</span></td>
+                                    <td>CyberArk DR Vault replication verification and certificate renewal</td>
+                                    <td style="font-weight: 600;">2026-09-16</td>
+                                    <td style="text-align: center;"><span class="hnd-yes">Yes</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- App 3: Ping -->
+                <div class="app-card">
+                    <div class="app-card-header">
+                        <div class="app-title">Ping Identity SSO Operations</div>
+                        <div class="app-meta-counts">Incidents: 0 &bull; Requests: 2 &bull; Changes: 1</div>
+                    </div>
+                    <div class="app-card-body">
+                        <!-- Incidents: 0 Handled -->
+                        <div class="metric-title" style="color: #64748b;"><strong>Incidents:</strong> 0 Handled</div>
+
+                        <!-- Service Requests: Count & Chip only -->
+                        <div class="metric-title" style="margin-top: 14px;"><strong>Service Requests:</strong> 2</div>
+                        <div class="summary-chip">2 (1 &ndash; Closed, 1 &ndash; Pending)</div>
+
+                        <!-- Change Requests: Table with Details -->
+                        <div class="metric-title" style="margin-top: 14px;"><strong>Change Requests:</strong> 1</div>
+                        <div class="summary-chip">1 (1 &ndash; Scheduled)</div>
+                        <table class="styled-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 115px;">Number</th>
+                                    <th style="width: 75px;">Type</th>
+                                    <th style="width: 100px;">State</th>
+                                    <th>Short Description</th>
+                                    <th style="width: 95px;">ETA</th>
+                                    <th style="width: 90px; text-align: center;">Handed Over</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><span class="ticket-num">CHG0098550</span></td>
+                                    <td><span class="badge pri-neutral">Standard</span></td>
+                                    <td><span class="badge st-badge">Scheduled</span></td>
+                                    <td>PingFederate IdP Token Signing Certificate Annual Rotation</td>
+                                    <td style="font-weight: 600;">2026-09-17</td>
+                                    <td style="text-align: center;"><span class="hnd-yes">Yes</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Critical / Major Incidents (Consolidated P0, P1, P2) -->
+                <div class="section-header" style="margin-top: 24px; border-bottom-color: #991b1b;">
+                    <span>Critical / Major Incidents (P0 / P1 / P2)</span>
+                    <span style="font-size: 11px; font-weight: 600; color: #991b1b; text-transform: none;">Action Required</span>
+                </div>
+
+                <table class="styled-table" style="border-top: 2px solid #991b1b;">
+                    <thead>
+                        <tr>
+                            <th style="width: 85px;">App</th>
+                            <th style="width: 115px;">Number</th>
+                            <th style="width: 75px;">Priority</th>
+                            <th style="width: 100px;">State</th>
+                            <th>Short Description</th>
+                            <th style="width: 95px;">ETA</th>
+                            <th style="width: 90px; text-align: center;">Handed Over</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="row-highlight">
+                            <td><strong>SailPoint</strong></td>
+                            <td><span class="ticket-num">INC2480500</span></td>
+                            <td><span class="badge pri-crit">P0</span></td>
+                            <td><span class="badge st-badge">In Progress</span></td>
+                            <td>Global SailPoint SCIM Gateway Outage &ndash; All SaaS Provisioning Halted</td>
+                            <td style="font-weight: 600;">2026-09-18</td>
+                            <td style="text-align: center;"><span class="hnd-yes">Yes</span></td>
+                        </tr>
+                        <tr class="row-highlight">
+                            <td><strong>SailPoint</strong></td>
+                            <td><span class="ticket-num">INC2480119</span></td>
+                            <td><span class="badge pri-crit">P1</span></td>
+                            <td><span class="badge st-badge">In Progress</span></td>
+                            <td>Provisioning engine thread lock on Primary SailPoint IdentityIQ cluster</td>
+                            <td style="font-weight: 600;">2026-09-18</td>
+                            <td style="text-align: center;"><span class="hnd-yes">Yes</span></td>
+                        </tr>
+                        <tr class="row-highlight">
+                            <td><strong>SailPoint</strong></td>
+                            <td><span class="ticket-num">INC2479810</span></td>
+                            <td><span class="badge pri-crit">P2</span></td>
+                            <td><span class="badge st-badge">In Progress</span></td>
+                            <td>Active Directory connector timeout during scheduled delta aggregation</td>
+                            <td style="font-weight: 600;">2026-09-19</td>
+                            <td style="text-align: center;"><span class="hnd-yes">Yes</span></td>
+                        </tr>
+                        <tr class="row-highlight">
+                            <td><strong>CyberArk</strong></td>
+                            <td><span class="ticket-num">INC2480205</span></td>
+                            <td><span class="badge pri-crit">P2</span></td>
+                            <td><span class="badge st-badge">In Progress</span></td>
+                            <td>CyberArk CPM automated password rotation failing for Oracle database accounts</td>
+                            <td style="font-weight: 600;">2026-09-19</td>
+                            <td style="text-align: center;"><span class="hnd-yes">Yes</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Footer -->
+            <div class="email-footer">
+                <div>
+                    <strong>SharePoint:</strong> <a href="https://company.sharepoint.com/sites/ITPMO_Technology/SPIdIQ" target="_blank">ShiftHandover_Tracker.xlsx</a>
+                </div>
+                <div style="text-align: right;">
+                    Confidential &bull; Operations Shift Handover Automation
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shift Handover - {{ReportDateFormatted}} {{ShiftName}}</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f8fafc;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            color: #0f172a;
+            -webkit-text-size-adjust: 100%;
+            -ms-text-size-adjust: 100%;
+        }
+        .email-wrapper {
+            width: 100%;
+            background-color: #f8fafc;
+            padding: 24px 0;
+        }
+        .email-container {
+            max-width: 860px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+        }
+        /* Header - Minimal Dark Slate */
+        .email-header {
+            background-color: #0f172a;
+            color: #ffffff;
+            padding: 20px 28px;
+        }
+        .header-title {
+            margin: 0 0 6px 0;
+            font-size: 18px;
+            font-weight: 700;
+            color: #ffffff;
+            letter-spacing: -0.2px;
+        }
+        .header-meta {
+            font-size: 12.5px;
+            color: #94a3b8;
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .shift-pill {
+            background-color: #334155;
+            color: #f8fafc;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11.5px;
+        }
+        .meta-text {
+            color: #cbd5e1;
+        }
+
+        /* Body Content */
+        .email-body {
+            padding: 24px 28px;
+        }
+        .greeting-box {
+            margin-bottom: 20px;
+            font-size: 13.5px;
+            color: #334155;
+            line-height: 1.5;
+        }
+
+        /* Executive KPI Summary - Clean Monochromatic Cards */
+        .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 10px;
+            margin-bottom: 24px;
+        }
+        .kpi-card {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-top: 3px solid #0f172a;
+            border-radius: 4px;
+            padding: 12px 8px;
+            text-align: center;
+        }
+        .kpi-label {
+            font-size: 10.5px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #64748b;
+            margin-bottom: 4px;
+        }
+        .kpi-val {
+            font-size: 22px;
+            font-weight: 700;
+            color: #0f172a;
+            line-height: 1.1;
+        }
+
+        /* Section Headings - Understated Professional */
+        .section-header {
+            font-size: 13.5px;
+            font-weight: 700;
+            color: #0f172a;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding-bottom: 6px;
+            border-bottom: 1.5px solid #0f172a;
+            margin: 22px 0 16px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* Application Card - Clean Minimal Borders */
+        .app-card {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+        .app-card-header {
+            background-color: #f8fafc;
+            padding: 10px 16px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .app-title {
+            font-size: 13.5px;
+            font-weight: 700;
+            color: #0f172a;
+        }
+        .app-meta-counts {
+            font-size: 11.5px;
+            color: #64748b;
+            font-weight: 500;
+        }
+        .app-card-body {
+            padding: 14px 16px;
+        }
+
+        /* Metric Titles inside App Card */
+        .metric-title {
+            font-size: 12.5px;
+            font-weight: 600;
+            color: #334155;
+            margin: 4px 0 4px 0;
+        }
+        .summary-chip {
+            display: inline-block;
+            background-color: #f1f5f9;
+            color: #334155;
+            font-size: 11.5px;
+            font-weight: 600;
+            padding: 3px 8px;
+            border-radius: 4px;
+            border: 1px solid #e2e8f0;
+            margin: 2px 0 6px 0;
+        }
+
+        /* Data Tables - Crisp, High Readability */
+        table.styled-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            margin: 8px 0 12px 0;
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+        }
+        table.styled-table th {
+            background-color: #f8fafc;
+            color: #334155;
+            font-weight: 600;
+            text-align: left;
+            padding: 7px 10px;
+            font-size: 11px;
+            letter-spacing: 0.3px;
+            border-bottom: 1px solid #cbd5e1;
+            text-transform: uppercase;
+        }
+        table.styled-table td {
+            padding: 7px 10px;
+            border-bottom: 1px solid #f1f5f9;
+            color: #334155;
+            vertical-align: middle;
+        }
+        table.styled-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .ticket-num {
+            font-family: SFMono-Regular, Consolas, Menlo, monospace;
+            font-weight: 600;
+            color: #0f172a;
+        }
+
+        /* Badges - Restrained Minimal Slate Palette */
+        .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        /* Priorities: only P0/P1/P2 use subtle red; P3/P4 use clean neutral */
+        .pri-crit {
+            background-color: #fee2e2;
+            color: #991b1b;
+            font-weight: 700;
+        }
+        .pri-neutral {
+            background-color: #f1f5f9;
+            color: #475569;
+        }
+
+        /* States: clean minimal neutral badges */
+        .st-badge {
+            background-color: #f1f5f9;
+            color: #334155;
+            border: 1px solid #e2e8f0;
+        }
+
+        /* Handed Over: Dark slate for Yes, simple dash/muted for No */
+        .hnd-yes {
+            background-color: #0f172a;
+            color: #ffffff;
+            padding: 2px 7px;
+            border-radius: 3px;
+            font-size: 10.5px;
+            font-weight: 600;
+        }
+        .hnd-no {
+            color: #94a3b8;
+            font-size: 11px;
+        }
+
+        /* Priority Row Highlight: Soft, non-aggressive red tint */
+        .row-highlight {
+            background-color: #fff1f2 !important;
+        }
+        .row-highlight td {
+            background-color: #fff1f2 !important;
+        }
+
+        /* Critical Box */
+        .all-clear-box {
+            background-color: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            border-left: 4px solid #16a34a;
+            color: #15803d;
+            padding: 10px 14px;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 500;
+            margin-top: 8px;
+        }
+
+        /* Footer */
+        .email-footer {
+            background-color: #f8fafc;
+            border-top: 1px solid #e2e8f0;
+            padding: 14px 28px;
+            font-size: 11.5px;
+            color: #64748b;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .email-footer a {
+            color: #0f172a;
+            text-decoration: underline;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="email-wrapper">
+        <div class="email-container">
+            <!-- Header -->
+            <div class="email-header">
+                <div class="header-title">Shift Handover Report</div>
+                <div class="header-meta">
+                    <span class="shift-pill">{{ShiftName}}</span>
+                    <span class="meta-text"><strong>Date:</strong> {{ReportDateFormatted}}</span>
+                    <span class="meta-text">&bull;</span>
+                    <span class="meta-text"><strong>Generated:</strong> {{Timestamp}}</span>
+                </div>
+            </div>
+
+            <!-- Body -->
+            <div class="email-body">
+                <div class="greeting-box">
+                    <p style="margin: 0 0 4px 0;">Hi All,</p>
+                    <p style="margin: 0;">Please find below the operational shift handover summary for <strong>{{ReportDateFormatted}} ({{ShiftName}})</strong>:</p>
+                </div>
+
+                <!-- Executive KPI Summary Cards (Minimal Monochromatic) -->
+                <div class="kpi-row">
+                    <div class="kpi-card">
+                        <div class="kpi-label">Active Incidents</div>
+                        <div class="kpi-val">{{TotalActiveIncidents}}</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Active Requests</div>
+                        <div class="kpi-val">{{TotalActiveRequests}}</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Change Requests</div>
+                        <div class="kpi-val">{{TotalActiveChanges}}</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Closed Today</div>
+                        <div class="kpi-val">{{TotalClosedToday}}</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Handover Items</div>
+                        <div class="kpi-val">{{TotalHandoverItems}}</div>
+                    </div>
+                </div>
+
+                <!-- Section: Application Workload -->
+                <div class="section-header">
+                    <span>Operational Workload by Application</span>
+                    <span style="font-size: 11px; font-weight: 500; color: #64748b; text-transform: none;">Incidents &bull; Requests &bull; Changes</span>
+                </div>
+
+                {{ApplicationSectionsHtml}}
+
+                <!-- Critical / Major Incidents -->
+                <div class="section-header" style="margin-top: 24px; border-bottom-color: #991b1b;">
+                    <span>Critical / Major Incidents (P0 / P1 / P2)</span>
+                    <span style="font-size: 11px; font-weight: 600; color: #991b1b; text-transform: none;">Action Required</span>
+                </div>
+
+                {{CriticalIncidentsHtml}}
+            </div>
+
+            <!-- Footer -->
+            <div class="email-footer">
+                <div>
+                    <strong>SharePoint:</strong> <a href="{{SharePointFileLink}}" target="_blank">{{SharePointFileName}}</a>
+                </div>
+                <div style="text-align: right;">
+                    Confidential &bull; Operations Shift Handover Automation
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

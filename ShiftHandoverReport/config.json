@@ -1,0 +1,96 @@
+{
+  "ApplicationSheets": [
+    "SailPoint",
+    "Idira",
+    "Ping"
+  ],
+  "ExcelSource": {
+    "Mode": "SharePoint",
+    "_Comment_Mode": "Options: 'SharePoint' or 'Local'. If 'Local', reads directly from LocalPath. If 'SharePoint', downloads from SharePoint. You can also override at runtime via -LocalExcelPath.",
+    "LocalPath": ""
+  },
+  "SharePoint": {
+    "Enabled": true,
+    "TenantId": "",
+    "ClientId": "",
+    "ClientSecret": "",
+    "_Comment_ClientSecret": "If ClientSecret is non-blank, it is used directly. If blank, falls back to CCP retrieval.",
+    "CCP": {
+      "Url": "https://ccp.company.com/AIMWebService/api/Accounts",
+      "AppId": "CyberArkHealthCheck",
+      "Safe": "PAM-Health",
+      "Object": "SharePointAppSecret"
+    },
+    "SiteUrl": "https://company.sharepoint.com/sites/ITPMO_Technology/SPIdIQ",
+    "DocumentLibrary": "Project Documents",
+    "FolderPath": "Operations/ShiftHandover",
+    "FileName": "ShiftHandover_Tracker.xlsx"
+  },
+  "Shifts": {
+    "_Comment_Shifts": "2 operational shifts: 1st Shift (scheduled ~11:30 AM) and 2nd Shift (scheduled ~7:30 PM / 19:30). The job determines the shift automatically based on execution time. No shift details are stored in Excel or passed as CLI arguments.",
+    "Windows": [
+      {
+        "Name": "1st Shift",
+        "ScheduledTime": "11:30",
+        "Start": "03:30",
+        "End": "15:30"
+      },
+      {
+        "Name": "2nd Shift",
+        "ScheduledTime": "19:30",
+        "Start": "15:30",
+        "End": "03:30"
+      }
+    ]
+  },
+  "Email": {
+    "Enabled": true,
+    "SmtpServer": "smtp.company.com",
+    "From": "cyberark-operations@company.com",
+    "To": [
+      "operations-team@company.com"
+    ],
+    "Cc": [],
+    "Bcc": [],
+    "SubjectTemplate": "Shift Handover - {ReportDateFormatted} {ShiftName}",
+    "AttachWorkbook": false
+  },
+  "StatusMapping": {
+    "ClosedStatuses": [
+      "Closed",
+      "Resolved",
+      "Completed",
+      "Cancelled"
+    ],
+    "ImplementedStatuses": [
+      "Implemented",
+      "Closed",
+      "Completed"
+    ],
+    "InProgressStatuses": [
+      "In Progress",
+      "Work in Progress",
+      "WIP",
+      "Active"
+    ],
+    "PendingStatuses": [
+      "Pending",
+      "On Hold",
+      "Awaiting Info",
+      "Awaiting Vendor",
+      "Awaiting User",
+      "Awaiting Customer"
+    ],
+    "OpenStatuses": [
+      "Open",
+      "New",
+      "Assigned",
+      "Submitted"
+    ]
+  },
+  "Output": {
+    "Directory": "Output",
+    "LogDirectory": "Logs",
+    "RetentionDays": 30
+  }
+}

@@ -88,6 +88,22 @@
       "Submitted"
     ]
   },
+  "Columns": {
+    "TicketNumber": ["TicketNumber", "Ticket Number", "Number", "Ticket#"],
+    "TicketType": ["TicketType", "Ticket Type", "Type"],
+    "Priority": ["Priority", "Pri", "Severity", "Urgency"],
+    "Status": ["Status", "State", "Ticket Status"],
+    "OpenDate": ["OpenDate", "Open Date", "Opened", "Created", "Created Date", "Start Date", "StartDate", "Start", "Planned Start Date", "Actual Start Date"],
+    "ClosedDate": ["ClosedDate", "Closed Date", "Resolved Date", "Completed Date", "Closed", "End Date", "EndDate", "End", "Planned End Date", "Actual End Date"],
+    "ShortDescription": ["ShortDescription", "Short Description", "Description", "Summary", "Title"],
+    "AssignmentGroup": ["AssignmentGroup", "Assignment Group", "Group", "Team"],
+    "AssignedTo": ["AssignedTo", "Assigned To", "Owner", "Assignee"],
+    "ETA": ["ETA", "Target Date", "Estimated Date", "Resolution ETA", "Due Date"],
+    "HandedOver": ["HandedOver", "Handed Over", "Handover", "Handover?", "Shift Handover", "Handoff", "Hand Over", "IsHandover"],
+    "HandoverNotes": ["HandoverNotes", "Handover Notes", "Handed Over Notes", "HandedOverNotes", "UserNotes"],
+    "Comments": ["Comments", "Comment", "Notes", "Update", "Latest Update"],
+    "SpecialRemarks": ["SpecialRemarks", "Special Remarks", "Remarks", "Notes / Remarks"]
+  },
   "Output": {
     "Directory": "Output",
     "LogDirectory": "Logs",

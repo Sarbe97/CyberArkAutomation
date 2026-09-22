@@ -8,7 +8,7 @@ function Get-PriorityBadgeHtml {
     if ([string]::IsNullOrWhiteSpace($PriorityDisplay)) {
         return "&mdash;"
     }
-    $isCrit = ($PriorityDisplay -like "*0*" -or $PriorityDisplay -like "*1*" -or $PriorityDisplay -like "*2*")
+    $isCrit = ($PriorityDisplay -like "*0*" -or $PriorityDisplay -like "*1*" -or $PriorityDisplay -like "*2*" -or $PriorityDisplay -like "*Critical*" -or $PriorityDisplay -like "*High*")
     $badgeClass = if ($isCrit) { "badge pri-crit" } else { "badge pri-neutral" }
     return "<span class='$badgeClass'>$PriorityDisplay</span>"
 }
@@ -60,11 +60,11 @@ function Get-IncidentTableHtml {
             <thead>
                 <tr>
                     <th style='width: 115px;'>Number</th>
-                    <th style='width: 75px;'>Priority</th>
-                    <th style='width: 100px;'>State</th>
+                    <th style='width: 105px;'>Priority</th>
+                    <th style='width: 95px;'>State</th>
                     <th>Short Description</th>
-                    <th style='width: 95px;'>ETA</th>
-                    <th style='width: 90px; text-align: center;'>Handed Over</th>
+                    <th style='width: 90px;'>ETA</th>
+                    <th style='width: 85px; text-align: center;'>Handed Over</th>
                 </tr>
             </thead>
             <tbody>
@@ -119,7 +119,7 @@ function Get-CriticalIncidentsTableHtml {
     param ([System.Collections.IEnumerable]$CriticalIncidents)
 
     if (-not $CriticalIncidents -or @($CriticalIncidents).Count -eq 0) {
-        return "<div class='all-clear-box'>✓ All Clear &bull; No Critical or Major Incidents reported during this shift.</div>"
+        return "<div class='all-clear-box'>&#10003; All Clear &bull; No Critical or Major Incidents reported during this shift.</div>"
     }
 
     $rows = foreach ($ci in $CriticalIncidents) {
@@ -148,11 +148,11 @@ function Get-CriticalIncidentsTableHtml {
         <tr>
             <th style='width: 85px;'>App</th>
             <th style='width: 115px;'>Number</th>
-            <th style='width: 75px;'>Priority</th>
-            <th style='width: 100px;'>State</th>
+            <th style='width: 105px;'>Priority</th>
+            <th style='width: 95px;'>State</th>
             <th>Short Description</th>
-            <th style='width: 95px;'>ETA</th>
-            <th style='width: 90px; text-align: center;'>Handed Over</th>
+            <th style='width: 90px;'>ETA</th>
+            <th style='width: 85px; text-align: center;'>Handed Over</th>
         </tr>
     </thead>
     <tbody>

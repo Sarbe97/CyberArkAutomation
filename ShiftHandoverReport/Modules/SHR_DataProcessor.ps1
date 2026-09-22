@@ -80,23 +80,63 @@ function Get-NormalizedCellValue {
 
 function Parse-DateValue {
     param (
-        [string]$DateString
+        [object]$DateValue
     )
 
-    if ([string]::IsNullOrWhiteSpace($DateString)) { return $null }
+    if ($null -eq $DateValue) { return $null }
 
-    # Handle Excel numeric serial dates (e.g. 45552)
-    if ($DateString -match '^\d{5}$') {
+    # If it is already a DateTime object (e.g. returned directly by ImportExcel)
+    if ($DateValue -is [DateTime]) {
+        return $DateValue
+    }
+
+    $str = ("$DateValue").Trim()
+    if ([string]::IsNullOrWhiteSpace($str)) { return $null }
+
+    # Handle Excel numeric serial dates (e.g. 45552 or 45552.6041666667)
+    if ($str -match '^\d{5}(\.\d+)?$') {
         try {
-            $serial = [double]$DateString
+            $serial = [double]$str
             return (Get-Date "1899-12-30").AddDays($serial)
         }
         catch {}
     }
 
-    # Handle standard string representations
-    $parsed = $null
-    if ([DateTime]::TryParse($DateString, [ref]$parsed)) {
+    # Handle explicit date & time formats: MM/dd/yyyy HH:mm (24-hour), M/d/yyyy H:mm, etc.
+    $formats = @(
+        "MM/dd/yyyy HH:mm",
+        "M/d/yyyy HH:mm",
+        "MM/dd/yyyy H:mm",
+        "M/d/yyyy H:mm",
+        "MM/dd/yyyy HH:mm:ss",
+        "M/d/yyyy HH:mm:ss",
+        "MM/dd/yyyy",
+        "M/d/yyyy",
+        "MM-dd-yyyy HH:mm",
+        "MM-dd-yyyy",
+        "yyyy-MM-dd HH:mm:ss",
+        "yyyy-MM-dd HH:mm",
+        "yyyy-MM-dd",
+        "yyyy/MM/dd HH:mm",
+        "yyyy/MM/dd",
+        "dd/MM/yyyy HH:mm",
+        "dd/MM/yyyy",
+        "dd-MM-yyyy HH:mm",
+        "dd-MM-yyyy"
+    )
+
+    $parsed = [DateTime]::MinValue
+    if ([DateTime]::TryParseExact($str, $formats, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$parsed)) {
+        return $parsed
+    }
+
+    # Invariant culture fallback
+    if ([DateTime]::TryParse($str, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$parsed)) {
+        return $parsed
+    }
+
+    # Current thread culture fallback
+    if ([DateTime]::TryParse($str, [ref]$parsed)) {
         return $parsed
     }
 
@@ -117,19 +157,19 @@ function Get-ShiftHandoverMetrics {
     }
     Import-Module ImportExcel -ErrorAction Stop
 
-    # Column mappings with defaults
+    # Column mappings with defaults (supports Open/Close and Change Start/End dates)
     $ColMap = if ($Config.Columns) { $Config.Columns } else {
         [PSCustomObject]@{
             TicketNumber     = @("TicketNumber", "Ticket Number", "Number", "Ticket#")
             TicketType       = @("TicketType", "Ticket Type", "Type")
             Priority         = @("Priority", "Pri", "Severity", "Urgency")
             Status           = @("Status", "State", "Ticket Status")
-            OpenDate         = @("OpenDate", "Open Date", "Opened", "Created", "Created Date")
-            ClosedDate       = @("ClosedDate", "Closed Date", "Resolved Date", "Completed Date", "Closed")
+            OpenDate         = @("OpenDate", "Open Date", "Opened", "Created", "Created Date", "Start Date", "StartDate", "Start", "Planned Start Date", "Actual Start Date")
+            ClosedDate       = @("ClosedDate", "Closed Date", "Resolved Date", "Completed Date", "Closed", "End Date", "EndDate", "End", "Planned End Date", "Actual End Date")
             ShortDescription = @("ShortDescription", "Short Description", "Description", "Summary", "Title")
             AssignmentGroup  = @("AssignmentGroup", "Assignment Group", "Group", "Team")
             AssignedTo       = @("AssignedTo", "Assigned To", "Owner", "Assignee")
-            ETA              = @("ETA", "Target Date", "Estimated Date", "Resolution ETA")
+            ETA              = @("ETA", "Target Date", "Estimated Date", "Resolution ETA", "Due Date")
             HandedOver       = @("HandedOver", "Handed Over", "Handover", "Handover?", "Shift Handover", "Handoff", "Hand Over", "IsHandover")
             HandoverNotes    = @("HandoverNotes", "Handover Notes", "Handed Over Notes", "HandedOverNotes", "UserNotes")
             Comments         = @("Comments", "Comment", "Notes", "Update", "Latest Update")
@@ -200,9 +240,9 @@ function Get-ShiftHandoverMetrics {
             $etaRaw         = Get-NormalizedCellValue -Row $row -AliasList $ColMap.ETA
             $eta            = "&mdash;"
             if (-not [string]::IsNullOrWhiteSpace($etaRaw)) {
-                $etaParsed = [DateTime]::MinValue
-                if ([DateTime]::TryParse($etaRaw, [ref]$etaParsed)) {
-                    $eta = $etaParsed.ToString("yyyy-MM-dd")
+                $parsedEta = Parse-DateValue -DateValue $etaRaw
+                if ($null -ne $parsedEta) {
+                    $eta = $parsedEta.ToString("yyyy-MM-dd")
                 }
                 elseif ($etaRaw -match '^(\d{4}[-/.]\d{1,2}[-/.]\d{1,2})') {
                     $eta = $matches[1]
@@ -214,6 +254,19 @@ function Get-ShiftHandoverMetrics {
                     $eta = $etaRaw
                 }
             }
+
+            # For Change tickets: if ETA column is blank, fall back to End Date (ClosedDate) or Start Date (OpenDate)
+            if ($isChg -and ($eta -eq "&mdash;" -or [string]::IsNullOrWhiteSpace($eta))) {
+                if (-not [string]::IsNullOrWhiteSpace($closedDateStr)) {
+                    $parsedEnd = Parse-DateValue -DateValue $closedDateStr
+                    if ($null -ne $parsedEnd) { $eta = $parsedEnd.ToString("yyyy-MM-dd") }
+                }
+                elseif (-not [string]::IsNullOrWhiteSpace($openDateStr)) {
+                    $parsedStart = Parse-DateValue -DateValue $openDateStr
+                    if ($null -ne $parsedStart) { $eta = $parsedStart.ToString("yyyy-MM-dd") }
+                }
+            }
+
             $handedOverStr  = Get-NormalizedCellValue -Row $row -AliasList $ColMap.HandedOver
             if ([string]::IsNullOrWhiteSpace($handedOverStr)) {
                 $handedOverStr = Get-NormalizedCellValue -Row $row -AliasList $ColMap.Handover
@@ -228,34 +281,35 @@ function Get-ShiftHandoverMetrics {
             $isChg = ($ticketNumber -match '^CHG') -or ($ticketType -like "*Change*")
             if (-not $isInc -and -not $isReq -and -not $isChg) { $isInc = $true }
 
-            # Format Priority (P0, P1, P2, P3, P4 - only for Incidents, can be blank for others)
+            # Format Priority (4 - Low, 3 - Moderate, 2 - High, 1 - Critical)
+            # Only for Incidents; can be blank for others
             $priorityCode = ""
             $priorityDisplay = ""
             if (-not [string]::IsNullOrWhiteSpace($priorityRaw)) {
-                $cleanPri = ($priorityRaw -replace '[\s\-_]', '').ToUpper()
-                if ($cleanPri -eq "P0" -or $cleanPri -eq "0" -or $cleanPri -like "*BLOCKER*" -or $cleanPri -like "*P0*") {
+                $pTrimmed = $priorityRaw.Trim()
+                if ($pTrimmed -match '^0\b' -or $pTrimmed -match '(?i)\b(P0|Blocker)\b') {
                     $priorityCode = "P0"
-                    $priorityDisplay = "P0"
+                    $priorityDisplay = "0 - Blocker"
                 }
-                elseif ($cleanPri -eq "P1" -or $cleanPri -eq "1" -or $cleanPri -like "*CRITICAL*" -or $cleanPri -like "*P1*") {
+                elseif ($pTrimmed -match '^1\b' -or $pTrimmed -match '(?i)\b(P1|Critical)\b') {
                     $priorityCode = "P1"
-                    $priorityDisplay = "P1"
+                    $priorityDisplay = "1 - Critical"
                 }
-                elseif ($cleanPri -eq "P2" -or $cleanPri -eq "2" -or $cleanPri -like "*HIGH*" -or $cleanPri -like "*P2*") {
+                elseif ($pTrimmed -match '^2\b' -or $pTrimmed -match '(?i)\b(P2|High)\b') {
                     $priorityCode = "P2"
-                    $priorityDisplay = "P2"
+                    $priorityDisplay = "2 - High"
                 }
-                elseif ($cleanPri -eq "P3" -or $cleanPri -eq "3" -or $cleanPri -like "*MED*" -or $cleanPri -like "*MODERATE*" -or $cleanPri -like "*P3*") {
+                elseif ($pTrimmed -match '^3\b' -or $pTrimmed -match '(?i)\b(P3|Moderate|Medium|Med)\b') {
                     $priorityCode = "P3"
-                    $priorityDisplay = "P3"
+                    $priorityDisplay = "3 - Moderate"
                 }
-                elseif ($cleanPri -eq "P4" -or $cleanPri -eq "4" -or $cleanPri -like "*LOW*" -or $cleanPri -like "*P4*") {
+                elseif ($pTrimmed -match '^4\b' -or $pTrimmed -match '(?i)\b(P4|Low)\b') {
                     $priorityCode = "P4"
-                    $priorityDisplay = "P4"
+                    $priorityDisplay = "4 - Low"
                 }
                 else {
-                    $priorityCode = $cleanPri
-                    $priorityDisplay = $priorityRaw
+                    $priorityCode = ($pTrimmed -replace '[\s\-_]', '').ToUpper()
+                    $priorityDisplay = $pTrimmed
                 }
             }
 
@@ -285,9 +339,9 @@ function Get-ShiftHandoverMetrics {
                 if ($status -ieq $o) { $isOpen = $true; break }
             }
 
-            # Date Check for Closed Today
+            # Date Check for Closed Today (supports MM/dd/yyyy h24:mm)
             $isClosedToday = $false
-            $parsedClosed = Parse-DateValue -DateString $closedDateStr
+            $parsedClosed = Parse-DateValue -DateValue $closedDateStr
             if ($null -ne $parsedClosed) {
                 if ($parsedClosed.ToString("yyyy-MM-dd") -eq $ReportDate) {
                     $isClosedToday = $true
@@ -352,8 +406,16 @@ function Get-ShiftHandoverMetrics {
                 if ($matchingPri.Count -gt 0) {
                     $wipCount = @($matchingPri | Where-Object { -not $_.IsClosed }).Count
                     $closedCount = @($matchingPri | Where-Object { $_.IsClosedToday }).Count
-                    # Example: P4 – 3 (3 – InProgress, 0 - Closed)
-                    $prioritySummaries.Add("$pCode – $($matchingPri.Count) ($wipCount – InProgress, $closedCount - Closed)")
+                    $pLabel = switch ($pCode) {
+                        "P0" { "0 - Blocker" }
+                        "P1" { "1 - Critical" }
+                        "P2" { "2 - High" }
+                        "P3" { "3 - Moderate" }
+                        "P4" { "4 - Low" }
+                        default { $pCode }
+                    }
+                    # Example: 4 - Low - 3 (3 - InProgress, 0 - Closed)
+                    $prioritySummaries.Add("$pLabel - $($matchingPri.Count) ($wipCount - InProgress, $closedCount - Closed)")
                 }
             }
 

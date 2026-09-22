@@ -40,7 +40,16 @@
                 "ni"
             ],
             "TrackedFailedAccounts": [
-                "admin",
+                {
+                    "UserName": "admin",
+                    "Filter": "Win*",
+                    "Label": "windows_admin"
+                },
+                {
+                    "UserName": "admin",
+                    "Filter": "*DB*",
+                    "Label": "database_admin"
+                },
                 "svc_backup",
                 "sql_svc"
             ],

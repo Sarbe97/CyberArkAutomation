@@ -211,11 +211,108 @@ function Invoke-FailedAccountsAnalytics {
     $FailedAccountsCount = $filteredFailed.Count
     Write-Log -Message "Failed Accounts Count (filtered): $FailedAccountsCount" -ScriptName $ScriptName -LogPath $LogPath
 
-    $TrackedFailures = @{}
-    foreach ($name in $TrackedFailedAccounts) {
-        $cnt = ($filteredFailed | Where-Object { $_.userName -ieq $name }).Count
-        $TrackedFailures[$name] = $cnt
-        Write-Log -Message "Tracked account failure check: $name ($cnt)" -ScriptName $ScriptName -LogPath $LogPath
+    $TrackedFailures = [ordered]@{}
+    $groupedRules = [ordered]@{}
+
+    foreach ($item in $TrackedFailedAccounts) {
+        if ($null -eq $item) { continue }
+
+        if ($item -is [string]) {
+            $uName = $item.Trim()
+            if (-not [string]::IsNullOrWhiteSpace($uName)) {
+                if (-not $groupedRules.Contains($uName)) {
+                    $groupedRules[$uName] = [System.Collections.Generic.List[object]]::new()
+                }
+                $groupedRules[$uName].Add([PSCustomObject]@{
+                    IsLegacy = $true
+                    Label    = $uName
+                    Filter   = ""
+                })
+            }
+        }
+        else {
+            $uName = if ($item.UserName) { $item.UserName } elseif ($item.username) { $item.username } else { "" }
+            $uName = ("$uName").Trim()
+            if ([string]::IsNullOrWhiteSpace($uName)) { continue }
+
+            $flt = if ($item.Filter) { $item.Filter } elseif ($item.filter) { $item.filter } elseif ($item.SearchStr) { $item.SearchStr } elseif ($item.searchStr) { $item.searchStr } else { "" }
+            $lbl = if ($item.Label) { $item.Label } elseif ($item.label) { $item.label } elseif ($item.NameOfLabel) { $item.NameOfLabel } elseif ($item.nameOfLabel) { $item.nameOfLabel } else { "" }
+
+            if ([string]::IsNullOrWhiteSpace($lbl)) {
+                $lbl = if (-not [string]::IsNullOrWhiteSpace($flt)) { "${uName}_${flt}" } else { $uName }
+            }
+
+            if (-not $groupedRules.Contains($uName)) {
+                $groupedRules[$uName] = [System.Collections.Generic.List[object]]::new()
+            }
+            $groupedRules[$uName].Add([PSCustomObject]@{
+                IsLegacy = $false
+                Label    = $lbl
+                Filter   = $flt
+            })
+        }
+    }
+
+    foreach ($uName in $groupedRules.Keys) {
+        $rules = $groupedRules[$uName]
+        $userAccounts = @($filteredFailed | Where-Object { $_.userName -ieq $uName })
+        $totalUserAccounts = $userAccounts.Count
+
+        # If only a legacy string rule was defined, record total count directly
+        if ($rules.Count -eq 1 -and $rules[0].IsLegacy) {
+            $TrackedFailures[$uName] = $totalUserAccounts
+            Write-Log -Message "Tracked account failure check: $uName ($totalUserAccounts)" -ScriptName $ScriptName -LogPath $LogPath
+            continue
+        }
+
+        # Otherwise, process sub-rules and calculate remainder for Others_<username>
+        $matchedAccountIds = [System.Collections.Generic.HashSet[string]]::new()
+
+        foreach ($rule in $rules) {
+            $lbl = $rule.Label
+            $flt = $rule.Filter
+
+            $matchingAccs = @($userAccounts | Where-Object {
+                if ([string]::IsNullOrWhiteSpace($flt)) {
+                    $true
+                }
+                else {
+                    # Supports full match or wildcards: ABC-DEF, *-DEF, ABC-*, *BC-DE*
+                    # Evaluated against platformId and safeName
+                    ($_.platformId -like $flt) -or ($_.safeName -like $flt)
+                }
+            })
+
+            $cnt = $matchingAccs.Count
+            $TrackedFailures[$lbl] = $cnt
+            Write-Log -Message "Tracked account sub-category check: $lbl (Filter: '$flt') -> $cnt" -ScriptName $ScriptName -LogPath $LogPath
+
+            foreach ($acc in $matchingAccs) {
+                if ($acc.id) {
+                    [void]$matchedAccountIds.Add("$($acc.id)")
+                }
+            }
+        }
+
+        # Calculate remainder for Others_<username>
+        $uncategorizedCount = @($userAccounts | Where-Object {
+            if ($_.id) {
+                -not $matchedAccountIds.Contains("$($_.id)")
+            } else {
+                $false
+            }
+        }).Count
+
+        # Fallback if accounts don't have id property
+        if ($userAccounts.Count -gt 0 -and $matchedAccountIds.Count -eq 0) {
+            $sumCategorized = 0
+            foreach ($r in $rules) { $sumCategorized += $TrackedFailures[$r.Label] }
+            $uncategorizedCount = [Math]::Max(0, $totalUserAccounts - $sumCategorized)
+        }
+
+        $othersLabel = "Others_$uName"
+        $TrackedFailures[$othersLabel] = $uncategorizedCount
+        Write-Log -Message "Tracked account remainder: $othersLabel -> $uncategorizedCount (Total: $totalUserAccounts)" -ScriptName $ScriptName -LogPath $LogPath
     }
 
     $filteredFailed | Export-Csv -Path $FailFile -NoTypeInformation

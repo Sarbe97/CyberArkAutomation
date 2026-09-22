@@ -6,7 +6,15 @@
 function Get-FormattedDateString {
     param ([string]$DateString)
     $d = $null
-    if (-not [DateTime]::TryParse($DateString, [ref]$d)) {
+    if (-not [string]::IsNullOrWhiteSpace($DateString)) {
+        try {
+            $d = [DateTime]::Parse($DateString, [System.Globalization.CultureInfo]::InvariantCulture)
+        }
+        catch {
+            try { $d = [DateTime]::Parse($DateString) } catch {}
+        }
+    }
+    if ($null -eq $d) {
         $d = Get-Date
     }
     return "$($d.Day)-$($d.ToString('MMMM'))"
@@ -125,20 +133,22 @@ function Parse-DateValue {
         "dd-MM-yyyy"
     )
 
-    $parsed = [DateTime]::MinValue
-    if ([DateTime]::TryParseExact($str, $formats, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$parsed)) {
-        return $parsed
+    try {
+        return [DateTime]::ParseExact($str, $formats, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None)
     }
+    catch {}
 
     # Invariant culture fallback
-    if ([DateTime]::TryParse($str, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::None, [ref]$parsed)) {
-        return $parsed
+    try {
+        return [DateTime]::Parse($str, [System.Globalization.CultureInfo]::InvariantCulture)
     }
+    catch {}
 
     # Current thread culture fallback
-    if ([DateTime]::TryParse($str, [ref]$parsed)) {
-        return $parsed
+    try {
+        return [DateTime]::Parse($str)
     }
+    catch {}
 
     return $null
 }

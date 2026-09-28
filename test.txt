@@ -1,36 +1,52 @@
 # =============================================================================
-# Service Accounts vs CyberArk Matching Analysis Script
+# Generic Service Accounts vs CyberArk Matching Analysis
 # =============================================================================
 
-# Paths - adjust date / domain as needed
-$dateStr   = (Get-Date).ToString("yyyyMMdd")
-$domain    = "NA"
+# -----------------------------------------------------------------------------
+# 1. Input / Output Paths - Paste your full file paths here
+# -----------------------------------------------------------------------------
+$adCsvPath = "C:\Path\To\Filtered_ADServiceAccounts.csv"
+$caCsvPath = "C:\Path\To\CyberArkAccounts.csv"
 
-$adCsvPath = ".\Output\$dateStr\Filtered_ADServiceAccounts_${domain}_$dateStr.csv"
+# Optional: Output CSV path. Leave empty ("") to auto-create in the same folder where this script is located
+$outCsv    = ""
 
-# Prefer Filtered CyberArk accounts (personal safes excluded); fallback to RawCache if not found
-$caFilteredPath = ".\Output\$dateStr\Filtered_CyberArkServiceAccounts_$dateStr.csv"
-$caRawPath      = ".\Output\$dateStr\RawCache_CyberArkAccounts_$dateStr.csv"
-$caCsvPath      = if (Test-Path $caFilteredPath) { $caFilteredPath } else { $caRawPath }
+# -----------------------------------------------------------------------------
+# 2. File Verification & Path Resolution
+# -----------------------------------------------------------------------------
+if (-not (Test-Path $adCsvPath)) {
+    Write-Error "AD CSV file not found at: '$adCsvPath'. Please paste a valid path."
+    exit 1
+}
 
-$outCsv    = ".\Output\$dateStr\${domain}_ServiceAccounts_MatchBreakdown.csv"
+if (-not (Test-Path $caCsvPath)) {
+    Write-Error "CyberArk CSV file not found at: '$caCsvPath'. Please paste a valid path."
+    exit 1
+}
+
+# Resolve script directory (works when running as script, module, or from PowerShell console)
+$scriptDir = $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($scriptDir)) {
+    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition -ErrorAction SilentlyContinue
+}
+if ([string]::IsNullOrWhiteSpace($scriptDir)) {
+    $scriptDir = (Get-Location).Path
+}
+
+if ([string]::IsNullOrWhiteSpace($outCsv)) {
+    $adBase = [System.IO.Path]::GetFileNameWithoutExtension($adCsvPath)
+    $outCsv = Join-Path $scriptDir "${adBase}_MatchBreakdown.csv"
+}
 
 Write-Host "Loading AD Service Accounts from: $adCsvPath" -ForegroundColor Cyan
 Write-Host "Loading CyberArk Inventory from : $caCsvPath" -ForegroundColor Cyan
 
-if (-not (Test-Path $adCsvPath)) {
-    Write-Error "AD CSV file not found: $adCsvPath"
-    exit 1
-}
-if (-not (Test-Path $caCsvPath)) {
-    Write-Error "CyberArk CSV file not found: $caCsvPath"
-    exit 1
-}
-
 $adAccounts = Import-Csv -Path $adCsvPath
 $caAccounts = Import-Csv -Path $caCsvPath
 
-# Group CyberArk accounts by lowercase username for O(1) fast lookup
+# -----------------------------------------------------------------------------
+# 3. Build CyberArk Lookup Table (Grouped by lowercase username)
+# -----------------------------------------------------------------------------
 $caLookup = @{}
 foreach ($ca in $caAccounts) {
     if (-not $ca.Username) { continue }
@@ -41,73 +57,86 @@ foreach ($ca in $caAccounts) {
     $caLookup[$u].Add($ca)
 }
 
-# Cross-reference AD accounts against CyberArk
-$results = foreach ($ad in $adAccounts) {
-    $uKey   = if ($ad.Username)   { $ad.Username.ToLower().Trim() }   else { "" }
-    $fqdn   = if ($ad.DomainFQDN) { $ad.DomainFQDN.ToLower().Trim() } else { "" }
-    $short  = if ($ad.Domain)     { $ad.Domain.ToLower().Trim() }     else { "" }
+Write-Host "Indexed $($caAccounts.Count) CyberArk accounts ($($caLookup.Count) unique usernames)." -ForegroundColor Cyan
+Write-Host "Evaluating $($adAccounts.Count) AD service accounts..." -ForegroundColor Cyan
 
-    $status       = "Not_In_CyberArk"
-    $caSafe       = ""
-    $caPlatform   = ""
-    $caAddress    = ""
+# -----------------------------------------------------------------------------
+# 4. Cross-Reference AD Accounts against CyberArk
+# -----------------------------------------------------------------------------
+$results = foreach ($ad in $adAccounts) {
+    $uKey  = if ($ad.Username)   { $ad.Username.ToLower().Trim() }   else { "" }
+    $fqdn  = if ($ad.DomainFQDN) { $ad.DomainFQDN.ToLower().Trim() } else { "" }
+    $short = if ($ad.Domain)     { $ad.Domain.ToLower().Trim() }     else { "" }
+
+    $isUsernameMatch       = $false
+    $isUserAndDomainMatch  = $false
+    $matchStatus           = "Not_In_CyberArk"
+    $caSafe                = ""
+    $caPlatform            = ""
+    $caAddress             = ""
 
     if ($uKey -and $caLookup.ContainsKey($uKey)) {
-        # Username exists in CyberArk - evaluate domain/address matching
+        $isUsernameMatch = $true
+
+        # Check if any CyberArk account matching this username also matches domain/address
         $domainMatches = @($caLookup[$uKey] | Where-Object {
             $addr = if ($_.Address) { ($_.Address).ToLower().Trim() } else { "" }
-            ($addr -eq $fqdn) -or
-            ($addr -eq $short) -or
-            ($fqdn -and $fqdn.StartsWith($addr)) -or
-            ($fqdn -and $addr.EndsWith($fqdn)) -or
-            ($fqdn -and $addr.Contains($fqdn)) -or
-            ($addr -and $fqdn.Contains($addr))
+            ($addr -and $fqdn  -and $addr -eq $fqdn) -or
+            ($addr -and $short -and $addr -eq $short) -or
+            ($addr -and $fqdn  -and $fqdn.StartsWith($addr)) -or
+            ($addr -and $fqdn  -and $addr.EndsWith($fqdn)) -or
+            ($addr -and $fqdn  -and $addr.Contains($fqdn)) -or
+            ($addr -and $fqdn  -and $fqdn.Contains($addr))
         })
 
         if ($domainMatches.Count -gt 0) {
             # Case 1: Both Username AND Domain match
-            $status     = "Both_Username_And_Domain_Matched"
-            $caSafe     = ($domainMatches | ForEach-Object { $_.SafeName } | Select-Object -Unique) -join "; "
-            $caPlatform = ($domainMatches | ForEach-Object { $_.PlatformId } | Select-Object -Unique) -join "; "
-            $caAddress  = ($domainMatches | ForEach-Object { $_.Address } | Select-Object -Unique) -join "; "
+            $isUserAndDomainMatch = $true
+            $matchStatus          = "Both_Matched"
+            $caSafe               = ($domainMatches | ForEach-Object { $_.SafeName }   | Select-Object -Unique) -join "; "
+            $caPlatform           = ($domainMatches | ForEach-Object { $_.PlatformId } | Select-Object -Unique) -join "; "
+            $caAddress            = ($domainMatches | ForEach-Object { $_.Address }    | Select-Object -Unique) -join "; "
         }
         else {
-            # Case 2: Username matches, but address points to a different domain/server
-            $status     = "Username_Only_Matched"
-            $allForeign = $caLookup[$uKey]
-            $caSafe     = ($allForeign | ForEach-Object { $_.SafeName } | Select-Object -Unique) -join "; "
-            $caPlatform = ($allForeign | ForEach-Object { $_.PlatformId } | Select-Object -Unique) -join "; "
-            $caAddress  = ($allForeign | ForEach-Object { $_.Address } | Select-Object -Unique) -join "; "
+            # Case 2: Username matches, but address/domain does not match
+            $matchStatus = "Username_Only"
+            $allForeign  = $caLookup[$uKey]
+            $caSafe      = ($allForeign | ForEach-Object { $_.SafeName }   | Select-Object -Unique) -join "; "
+            $caPlatform  = ($allForeign | ForEach-Object { $_.PlatformId } | Select-Object -Unique) -join "; "
+            $caAddress   = ($allForeign | ForEach-Object { $_.Address }    | Select-Object -Unique) -join "; "
         }
     }
 
-    [PSCustomObject]@{
-        Username             = $ad.Username
-        Domain               = $ad.Domain
-        DomainFQDN           = $ad.DomainFQDN
-        Enabled              = $ad.Enabled
-        MatchStatus          = $status
-        CyberArkSafe         = $caSafe
-        CyberArkPlatform     = $caPlatform
-        CyberArkAddress      = $caAddress
-        DistinguishedName    = $ad.DistinguishedName
-        OU                   = $ad.OU
-        LastLogonDate        = $ad.LastLogonDate
-        PasswordLastSet      = $ad.PasswordLastSet
-        PasswordNeverExpires = $ad.PasswordNeverExpires
-        Manager              = $ad.Manager
-        Description          = $ad.Description
+    # Build output object retaining all original AD properties + adding match columns
+    $rowProps = [ordered]@{}
+    foreach ($prop in $ad.PSObject.Properties) {
+        $rowProps[$prop.Name] = $prop.Value
     }
+
+    $rowProps["MatchStatus"]              = $matchStatus
+    $rowProps["UsernameMatched"]          = $isUsernameMatch
+    $rowProps["UsernameAndDomainMatched"] = $isUserAndDomainMatch
+    $rowProps["CyberArkSafe"]             = $caSafe
+    $rowProps["CyberArkPlatform"]         = $caPlatform
+    $rowProps["CyberArkAddress"]          = $caAddress
+
+    [PSCustomObject]$rowProps
 }
 
+# -----------------------------------------------------------------------------
+# 5. Export Results & Console Summary
+# -----------------------------------------------------------------------------
 $results | Export-Csv -Path $outCsv -NoTypeInformation -Encoding UTF8
 
-# Console Summary
+$cntBoth        = @($results | Where-Object { $_.MatchStatus -eq "Both_Matched" }).Count
+$cntUserOnly    = @($results | Where-Object { $_.MatchStatus -eq "Username_Only" }).Count
+$cntNotInCA     = @($results | Where-Object { $_.MatchStatus -eq "Not_In_CyberArk" }).Count
+
 Write-Host ""
 Write-Host "================ Match Summary ================" -ForegroundColor Cyan
-Write-Host "Both Username & Domain Matched : $(@($results | Where-Object { $_.MatchStatus -eq 'Both_Username_And_Domain_Matched' }).Count)" -ForegroundColor Green
-Write-Host "Username Only Matched          : $(@($results | Where-Object { $_.MatchStatus -eq 'Username_Only_Matched' }).Count)" -ForegroundColor Yellow
-Write-Host "Not In CyberArk                : $(@($results | Where-Object { $_.MatchStatus -eq 'Not_In_CyberArk' }).Count)" -ForegroundColor Red
+Write-Host "Both Username & Domain Matched : $cntBoth" -ForegroundColor Green
+Write-Host "Username Only Matched          : $cntUserOnly" -ForegroundColor Yellow
+Write-Host "Not In CyberArk                : $cntNotInCA" -ForegroundColor Red
 Write-Host "Total AD Service Accounts      : $($results.Count)"
 Write-Host "===============================================" -ForegroundColor Cyan
 Write-Host "Output saved to: $outCsv" -ForegroundColor Green

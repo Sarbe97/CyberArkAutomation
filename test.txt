@@ -1,0 +1,63 @@
+$adCsvPath = ".\Output\20260929\Filtered_ADServiceAccounts_NA_20260929.csv"
+$caCsvPath = ".\Output\20260929\RawCache_CyberArkAccounts_20260929.csv"
+$outCsv    = ".\Output\20260929\NA_ServiceAccounts_MatchBreakdown.csv"
+
+$adAccounts = Import-Csv $adCsvPath
+$caAccounts = Import-Csv $caCsvPath
+
+# Group CyberArk accounts by lowercase username for fast lookup
+$caLookup = @{}
+foreach ($ca in $caAccounts) {
+    $u = $ca.Username.ToLower().Trim()
+    if (-not $caLookup.ContainsKey($u)) { $caLookup[$u] = [System.Collections.Generic.List[object]]::new() }
+    $caLookup[$u].Add($ca)
+}
+
+$results = foreach ($ad in $adAccounts) {
+    $uKey   = $ad.Username.ToLower().Trim()
+    $fqdn   = $ad.DomainFQDN.ToLower().Trim()
+    $short  = $ad.Domain.ToLower().Trim()
+
+    $status       = "Not_In_CyberArk"
+    $caSafe       = ""
+    $caPlatform   = ""
+    $caAddress    = ""
+
+    if ($caLookup.ContainsKey($uKey)) {
+        # Username exists in CyberArk - now check if domain/address matches
+        $domainMatches = $caLookup[$uKey] | Where-Object {
+            $addr = $_.Address.ToLower().Trim()
+            $addr -eq $fqdn -or $addr -eq $short -or $fqdn.StartsWith($addr) -or $addr.EndsWith($fqdn)
+        }
+
+        if ($domainMatches) {
+            $status     = "Both_Username_And_Domain_Matched"
+            $match      = $domainMatches[0]
+            $caSafe     = $match.SafeName
+            $caPlatform = $match.PlatformId
+            $caAddress  = $match.Address
+        }
+        else {
+            # Username matched, but address points elsewhere
+            $status     = "Username_Only_Matched"
+            $otherMatch = $caLookup[$uKey][0]
+            $caSafe     = $otherMatch.SafeName
+            $caPlatform = $otherMatch.PlatformId
+            $caAddress  = $otherMatch.Address
+        }
+    }
+
+    [PSCustomObject]@{
+        Username             = $ad.Username
+        Domain               = $ad.Domain
+        Enabled              = $ad.Enabled
+        MatchStatus          = $status
+        CyberArkSafe         = $caSafe
+        CyberArkPlatform     = $caPlatform
+        CyberArkAddress      = $caAddress
+        LastLogonDate        = $ad.LastLogonDate
+        PasswordLastSet      = $ad.PasswordLastSet
+    }
+}
+
+$results | Export-Csv -Path $outCsv -NoTypeInformation

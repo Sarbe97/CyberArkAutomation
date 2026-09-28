@@ -13,7 +13,7 @@ $SchedulerRoot = Split-Path -Parent (Split-Path -Parent $FeatureRoot)
 $ConfigPath = Join-Path $FeatureRoot "config.json"
 
 # ============================================================
-# Setup Paths — Logs & Output
+# Setup Paths - Logs & Output
 # ============================================================
 $TodayStr = Get-Date -Format "yyyyMMdd"
 $Timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
@@ -72,13 +72,13 @@ if ($null -eq $featureConfig -or -not $featureConfig.Enabled) {
 }
 
 # ============================================================
-# Resolve Effective Mode
+# Load Feature Flags & Settings
 # ============================================================
-$effectiveMode = if ($Mode) { $Mode } `
-    elseif ($featureConfig.Mode) { $featureConfig.Mode } `
-    else { "Analysis" }
+$requiredGroup = $featureConfig.RequiredADGroup
+$deleteEmptySafes = if ($null -ne $featureConfig.DeleteEmptySafes) { [bool]$featureConfig.DeleteEmptySafes } else { $false }
+$autoRemediate = if ($null -ne $featureConfig.AutoRemediateNotMember) { [bool]$featureConfig.AutoRemediateNotMember } else { $false }
 
-Write-Log -Message "Effective execution mode: $effectiveMode" -ScriptName $ScriptName -LogPath $LogPath
+Write-Log -Message "Config Flags: AutoRemediateNotMember=$autoRemediate | DeleteEmptySafes=$deleteEmptySafes | RequiredADGroup='$requiredGroup'" -ScriptName $ScriptName -LogPath $LogPath
 
 # ============================================================
 # Load Feature Settings
@@ -94,6 +94,7 @@ $cacheSafes = Join-Path $ExportDir "RawCache_PersonalSafes_$TodayStr.csv"
 $cacheAccounts = Join-Path $ExportDir "RawCache_AllAccounts_$TodayStr.csv"
 $cacheMembers = Join-Path $ExportDir "RawCache_SafeMembers_$TodayStr.csv"
 $cacheADUsers = Join-Path $ExportDir "RawCache_ADUsers_$TodayStr.csv"
+$cacheGroupMembers = Join-Path $ExportDir "RawCache_GroupMembers_$TodayStr.csv"
 $analysisFile = Join-Path $ExportDir "PSA_AnalysisReport_$Timestamp.csv"
 $blankSafesFile = Join-Path $ExportDir "PSA_BlankSafesReport_$Timestamp.csv"
 
@@ -110,7 +111,7 @@ $cyberArkDisconnected = $false
 
 try {
     # ==========================================================
-    # PHASE 1 & 2 — DATA COLLECTION AND ANALYSIS
+    # PHASE 1 & 2 - DATA COLLECTION AND ANALYSIS
     # ==========================================================
     Write-Log -Message "========== PHASE 1 & 2: DATA COLLECTION AND ANALYSIS ==========" -ScriptName $ScriptName -LogPath $LogPath
     $phaseStart = Get-Date
@@ -249,12 +250,28 @@ try {
         $adUserMap[$user.Username.ToUpper()] = $user
     }
 
-    # 4. Build Report
+    # 4. Query AD for Required Group Members
+    $groupMemberSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    if (-not [string]::IsNullOrWhiteSpace($requiredGroup)) {
+        $groupMemberSet = Get-PSAADGroupMemberSet `
+            -Domains      $cfgDomains `
+            -GroupName    $requiredGroup `
+            -CachePath    $cacheGroupMembers `
+            -ScriptName   $ScriptName `
+            -LogPath      $LogPath `
+            -GlobalCCPUrl $config.CCP.Url `
+            -ManualLogin  $ManualLogin
+    }
+
+    # 5. Build Report
     $analysisReport = [System.Collections.Generic.List[object]]::new()
     $cntMember_Enabled = 0
     $cntMember_Disabled = 0
     $cntMember_NotFound = 0
     $cntNotMember_Enabled = 0
+    $cntNotMember_Remediated = 0
+    $cntNotMember_MissingGroup = 0
+    $cntNotMember_Failed = 0
     $cntNotMember_Disabled = 0
     $cntNotMember_NotFound = 0
     $totalAccounts = 0
@@ -267,6 +284,8 @@ try {
         $isMember = $data.IsMember
         $ownerInAD = "No"
         $ownerStatus = "NotFound"
+        $inRequiredGroup = "N/A"
+        $remediationStatus = "N/A"
         $fullName = ""
         $email = ""
 
@@ -278,6 +297,9 @@ try {
                 $ownerStatus = if ([string]$adUser.Enabled -eq 'True') { "Enabled" } else { "Disabled" }
                 $fullName = "$($adUser.GivenName) $($adUser.Surname)".Trim()
                 $email = $adUser.Mail
+            }
+            if (-not [string]::IsNullOrWhiteSpace($requiredGroup)) {
+                $inRequiredGroup = if ($groupMemberSet.Contains($ownerUpper)) { "Yes" } else { "No" }
             }
         }
 
@@ -300,6 +322,17 @@ try {
             if ($ownerStatus -eq "Enabled") {
                 $status = "NotMember_Enabled"
                 $cntNotMember_Enabled++
+
+                if ($data.AccountCount -eq 0) {
+                    $remediationStatus = "Skipped (Blank Safe)"
+                }
+                elseif ($inRequiredGroup -ne "Yes") {
+                    $remediationStatus = "Missing AD Group Access"
+                    $cntNotMember_MissingGroup++
+                }
+                else {
+                    $remediationStatus = if ($autoRemediate) { "Pending" } else { "Eligible (AutoRemediate Disabled)" }
+                }
             }
             elseif ($ownerStatus -eq "Disabled") {
                 $status = "NotMember_Disabled"
@@ -320,6 +353,8 @@ try {
                 OwnerIsSafeMember = if ($isMember) { "Yes" } else { "No" }
                 OwnerInAD         = $ownerInAD
                 OwnerADStatus     = $ownerStatus
+                InRequiredADGroup = $inRequiredGroup
+                RemediationStatus = $remediationStatus
                 OwnerFullName     = $fullName
                 OwnerEmail        = $email
                 AccountCount      = $data.AccountCount
@@ -331,7 +366,7 @@ try {
     Write-Log -Message "Discovery and Analysis completed in $([math]::Round($phaseDuration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
 
     # ==========================================================
-    # PHASE 2.5 — MEMBERSHIP & PERMISSION VALIDATION
+    # PHASE 2.5 - MEMBERSHIP & PERMISSION VALIDATION
     # ==========================================================
     Write-Log -Message "========== PHASE 2.5: PERMISSION VALIDATION ==========" -ScriptName $ScriptName -LogPath $LogPath
         $permissionReport = [System.Collections.Generic.List[object]]::new()
@@ -445,7 +480,7 @@ try {
                 }
                 else {
                     if (-not $ignoredMembersSet.Contains($mName)) {
-                        # Unexpected member — show all their actual permissions
+                        # Unexpected member - show all their actual permissions
                         $row = [ordered]@{
                             SafeName    = $safe.SafeName
                             MemberName  = $mName
@@ -461,7 +496,7 @@ try {
                 }
             }
         
-            # Absent expected members — all permissions marked False
+            # Absent expected members - all permissions marked False
             foreach ($eName in $expectedMembersMap.Keys) {
                 if (-not $foundExpectedSet.Contains($eName)) {
                     $row = [ordered]@{
@@ -586,23 +621,57 @@ try {
         }
 
         # ==========================================================
-        # PHASE 3 — EXPORT REPORTS & BLANK SAFE DELETION
+        # PHASE 3 - REMEDIATION, BLANK SAFE DELETION & EXPORT REPORTS
         # ==========================================================
-        $blankSafesCount = 0
-        if ($analysisReport.Count -gt 0) {
-            $analysisReport | Export-Csv -Path $analysisFile -NoTypeInformation -Encoding UTF8
-            Write-Log -Message "Analysis report saved: $analysisFile" -ScriptName $ScriptName -LogPath $LogPath
+        Write-Log -Message "========== PHASE 3: REMEDIATION & REPORT EXPORT ==========" -ScriptName $ScriptName -LogPath $LogPath
 
-            $blankSafes = @($analysisReport | Where-Object { $_.AccountCount -eq 0 })
-            $blankSafesCount = $blankSafes.Count
+        $blankSafes = @($analysisReport | Where-Object { $_.AccountCount -eq 0 })
+        $blankSafesCount = $blankSafes.Count
+
+        $remediationQueue = @($analysisReport | Where-Object { $_.RemediationStatus -eq "Pending" })
         
-            if ($blankSafesCount -gt 0) {
-                Write-Log -Message "Found $blankSafesCount blank safes. Re-authenticating to attempt deletion..." -ScriptName $ScriptName -LogPath $LogPath
-                
-                try {
-                    $null = Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential -ScriptName $ScriptName -LogPath $LogPath
-                    $cyberArkDisconnected = $false
-                    
+        $shouldConnectCyberArk = ($autoRemediate -and $remediationQueue.Count -gt 0) -or ($deleteEmptySafes -and $blankSafesCount -gt 0)
+
+        if ($shouldConnectCyberArk) {
+            Write-Log -Message "Connecting to CyberArk API for remediation / safe operations..." -ScriptName $ScriptName -LogPath $LogPath
+            try {
+                $null = Connect-CyberArkApi -BaseUrl $BaseUrl -Credential $Credential -ScriptName $ScriptName -LogPath $LogPath
+                $cyberArkDisconnected = $false
+
+                # 3A. Auto-Remediate NotMember_Enabled Safes
+                if ($autoRemediate -and $remediationQueue.Count -gt 0) {
+                    Write-Log -Message "AutoRemediateNotMember is true. Processing $($remediationQueue.Count) safes for member onboarding..." -ScriptName $ScriptName -LogPath $LogPath
+
+                    $primaryDomain = $cfgDomains | Where-Object { $_.IsPrimary -eq $true } | Select-Object -First 1
+                    $searchInDomain = if ($primaryDomain) { $primaryDomain.Name } else { "" }
+                    $userPerms = if ($featureConfig.SafePermissionSets.USER_ACCESS) { $featureConfig.SafePermissionSets.USER_ACCESS } else { @("UseAccounts", "RetrieveAccounts", "ListAccounts", "InitiateCPMAccountManagementOperations") }
+
+                    foreach ($item in $remediationQueue) {
+                        Write-Log -Message "Attempting to onboard owner '$($item.OwnerUid)' to safe '$($item.SafeName)' (searchIn: '$searchInDomain')..." -ScriptName $ScriptName -LogPath $LogPath
+                        $addResult = Add-PSASafeMember `
+                            -BaseUrl     $BaseUrl `
+                            -SafeName    $item.SafeName `
+                            -MemberName  $item.OwnerUid `
+                            -MemberType  "User" `
+                            -Permissions $userPerms `
+                            -SearchIn    $searchInDomain `
+                            -ScriptName  $ScriptName `
+                            -LogPath     $LogPath
+
+                        if ($addResult.Success) {
+                            $item.RemediationStatus = "Remediated"
+                            $cntNotMember_Remediated++
+                        }
+                        else {
+                            $item.RemediationStatus = "Failed: $($addResult.Error)"
+                            $cntNotMember_Failed++
+                        }
+                    }
+                }
+
+                # 3B. Delete Blank Safes
+                if ($deleteEmptySafes -and $blankSafesCount -gt 0) {
+                    Write-Log -Message "DeleteEmptySafes is true. Processing $blankSafesCount blank safes for deletion..." -ScriptName $ScriptName -LogPath $LogPath
                     foreach ($safe in $blankSafes) {
                         $safeName = $safe.SafeName
                         Write-Log -Message "Attempting to delete blank safe: $safeName" -ScriptName $ScriptName -LogPath $LogPath
@@ -620,13 +689,32 @@ try {
                         }
                     }
                 }
-                finally {
-                    if (-not $cyberArkDisconnected) {
-                        Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
-                        $cyberArkDisconnected = $true
-                    }
+            }
+            finally {
+                if (-not $cyberArkDisconnected) {
+                    Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
+                    $cyberArkDisconnected = $true
                 }
+            }
+        }
+        else {
+            if ($blankSafesCount -gt 0 -and -not $deleteEmptySafes) {
+                Write-Log -Message "Found $blankSafesCount blank safes. DeleteEmptySafes is false - skipping deletion." -ScriptName $ScriptName -LogPath $LogPath
+                foreach ($safe in $blankSafes) {
+                    $safe | Add-Member -MemberType NoteProperty -Name "DeletionStatus" -Value "Skipped (DeleteEmptySafes=false)" -Force
+                }
+            }
+            if ($remediationQueue.Count -gt 0 -and -not $autoRemediate) {
+                Write-Log -Message "Found $($remediationQueue.Count) safes eligible for onboarding. AutoRemediateNotMember is false - skipping remediation." -ScriptName $ScriptName -LogPath $LogPath
+            }
+        }
 
+        # Export Reports
+        if ($analysisReport.Count -gt 0) {
+            $analysisReport | Export-Csv -Path $analysisFile -NoTypeInformation -Encoding UTF8
+            Write-Log -Message "Analysis report saved: $analysisFile" -ScriptName $ScriptName -LogPath $LogPath
+
+            if ($blankSafesCount -gt 0) {
                 $blankSafes | Export-Csv -Path $blankSafesFile -NoTypeInformation -Encoding UTF8
                 Write-Log -Message "Blank safes report saved (with DeletionStatus): $blankSafesFile" -ScriptName $ScriptName -LogPath $LogPath
             }
@@ -636,12 +724,19 @@ try {
         }
 
         # ==========================================================
-        # PHASE 4 — SUMMARY EMAIL
+        # PHASE 4 - SUMMARY EMAIL
         # ==========================================================
         Write-Log -Message "========== PHASE 4: RUN SUMMARY EMAIL ==========" -ScriptName $ScriptName -LogPath $LogPath
 
-        $modeTitle = "Analysis Run Complete"
-        $modeBanner = "ANALYSIS COMPLETE - Read-only analysis finished."
+        $actionsSummary = @()
+        if ($autoRemediate) { $actionsSummary += "AutoRemediateNotMember=ON ($cntNotMember_Remediated remediated)" }
+        if ($deleteEmptySafes) { $actionsSummary += "DeleteEmptySafes=ON" }
+        $modeBanner = if ($actionsSummary.Count -gt 0) {
+            "RUN COMPLETE - Actions executed: $($actionsSummary -join ', ')."
+        } else {
+            "ANALYSIS COMPLETE - Read-only analysis finished (No changes made)."
+        }
+        $modeTitle = "Personal Safe Analysis Complete"
 
         $attachedHtml = "<p style=`"margin:2px 0; font-size:12px; color:#555555;`">&#8250; PSA_AnalysisReport.csv</p>"
         if ($blankSafesCount -gt 0) {
@@ -653,21 +748,24 @@ try {
         }
 
         $summaryTokens = @{
-            EffectiveMode           = $effectiveMode
-            ModeTitle               = $modeTitle
-            ModeBanner              = $modeBanner
-            TotalSafes              = $totalSafes
-            TotalAccounts           = $totalAccounts
-            CountMember_Total       = ($cntMember_Enabled + $cntMember_Disabled + $cntMember_NotFound)
-            CountMember_Enabled     = $cntMember_Enabled
-            CountMember_Disabled    = $cntMember_Disabled
-            CountMember_NotFound    = $cntMember_NotFound
-            CountNotMember_Total    = ($cntNotMember_Enabled + $cntNotMember_Disabled + $cntNotMember_NotFound)
-            CountNotMember_Enabled  = $cntNotMember_Enabled
-            CountNotMember_Disabled = $cntNotMember_Disabled
-            CountNotMember_NotFound = $cntNotMember_NotFound
-            GeneratedDate           = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-            AttachedReportsHtml     = $attachedHtml
+            EffectiveMode               = if ($autoRemediate -or $deleteEmptySafes) { "Remediation" } else { "Analysis" }
+            ModeTitle                   = $modeTitle
+            ModeBanner                  = $modeBanner
+            TotalSafes                  = $totalSafes
+            TotalAccounts               = $totalAccounts
+            CountMember_Total           = ($cntMember_Enabled + $cntMember_Disabled + $cntMember_NotFound)
+            CountMember_Enabled         = $cntMember_Enabled
+            CountMember_Disabled        = $cntMember_Disabled
+            CountMember_NotFound        = $cntMember_NotFound
+            CountNotMember_Total        = ($cntNotMember_Enabled + $cntNotMember_Disabled + $cntNotMember_NotFound)
+            CountNotMember_Enabled      = $cntNotMember_Enabled
+            CountNotMember_Remediated   = $cntNotMember_Remediated
+            CountNotMember_MissingGroup = $cntNotMember_MissingGroup
+            CountNotMember_Failed       = $cntNotMember_Failed
+            CountNotMember_Disabled     = $cntNotMember_Disabled
+            CountNotMember_NotFound     = $cntNotMember_NotFound
+            GeneratedDate               = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+            AttachedReportsHtml         = $attachedHtml
         }
 
         $additionalAtt = @()
@@ -697,15 +795,17 @@ try {
             Write-Log -Message "========== PHASE 5: SHAREPOINT UPLOAD ==========" -ScriptName $ScriptName -LogPath $LogPath
         
             $metricsHash = @{
-                TotalSafes        = $totalSafes
-                TotalAccounts     = $totalAccounts
-                BlankSafesCount   = $blankSafesCount
-                MemberEnabled     = $cntMember_Enabled
-                MemberDisabled    = $cntMember_Disabled
-                MemberNotFound    = $cntMember_NotFound
-                NotMemberEnabled  = $cntNotMember_Enabled
-                NotMemberDisabled = $cntNotMember_Disabled
-                NotMemberNotFound = $cntNotMember_NotFound
+                TotalSafes            = $totalSafes
+                TotalAccounts         = $totalAccounts
+                BlankSafesCount       = $blankSafesCount
+                MemberEnabled         = $cntMember_Enabled
+                MemberDisabled        = $cntMember_Disabled
+                MemberNotFound        = $cntMember_NotFound
+                NotMemberEnabled      = $cntNotMember_Enabled
+                NotMemberRemediated   = $cntNotMember_Remediated
+                NotMemberMissingGroup = $cntNotMember_MissingGroup
+                NotMemberDisabled     = $cntNotMember_Disabled
+                NotMemberNotFound     = $cntNotMember_NotFound
             }
 
             Publish-PSASharePointReport `
@@ -754,5 +854,5 @@ finally {
     }
     $overallDuration = (Get-Date) - $overallStartTime
     Write-Log -Message "Execution completed in $([math]::Round($overallDuration.TotalSeconds, 2)) seconds." -ScriptName $ScriptName -LogPath $LogPath
-    Write-Log -Message "Execution completed (mode: $effectiveMode)" -ScriptName $ScriptName -LogPath $LogPath
+    Write-Log -Message "Execution completed (AutoRemediateNotMember=$autoRemediate, DeleteEmptySafes=$deleteEmptySafes)" -ScriptName $ScriptName -LogPath $LogPath
 }

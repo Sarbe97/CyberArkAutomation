@@ -296,3 +296,179 @@ function Get-PSAADUsers {
 
     return $result.ToArray()
 }
+
+# ---------------------------------------------------------------------------
+# Get-PSAADGroupMemberSet
+# Queries the primary domain for members of the designated Active Directory group.
+# Caches results to RawCache_GroupMembers_<TodayStr>.csv and returns a HashSet.
+# ---------------------------------------------------------------------------
+function Get-PSAADGroupMemberSet {
+    param (
+        [Parameter(Mandatory=$true)] [array]  $Domains,
+        [Parameter(Mandatory=$true)] [string] $GroupName,
+        [Parameter(Mandatory=$true)] [string] $CachePath,
+        [Parameter(Mandatory=$true)] [string] $ScriptName,
+        [Parameter(Mandatory=$true)] [string] $LogPath,
+        [Parameter(Mandatory=$true)] [string] $GlobalCCPUrl,
+        [Parameter(Mandatory=$true)] [bool]   $ManualLogin
+    )
+
+    $memberSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+
+    if (Test-Path $CachePath) {
+        Write-Log -Message "Loading group members for '$GroupName' from cache: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
+        $cached = Import-Csv $CachePath
+        foreach ($row in $cached) {
+            if ($row.Username) {
+                [void]$memberSet.Add($row.Username.ToUpper())
+            }
+        }
+        Write-Log -Message "Group '$GroupName' loaded from cache: $($memberSet.Count) members." -ScriptName $ScriptName -LogPath $LogPath
+        return $memberSet
+    }
+
+    $primaryDomain = $Domains | Where-Object { $_.IsPrimary -eq $true } | Select-Object -First 1
+    if (-not $primaryDomain) {
+        Write-Log -Message "No primary domain found. Cannot check AD group '$GroupName'." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+        return $memberSet
+    }
+
+    Write-Log -Message "Fetching members of AD group '$GroupName' from primary domain '$($primaryDomain.Name)'..." -ScriptName $ScriptName -LogPath $LogPath
+
+    $credentialObj = $null
+    $hasDirectCredentials = (-not [string]::IsNullOrWhiteSpace($primaryDomain.Username)) -and
+                            (-not [string]::IsNullOrWhiteSpace($primaryDomain.Password))
+
+    if ($hasDirectCredentials) {
+        $secPass = ConvertTo-SecureString $primaryDomain.Password -AsPlainText -Force
+        $credentialObj = New-Object System.Management.Automation.PSCredential($primaryDomain.Username, $secPass)
+    } elseif ($primaryDomain.CCP) {
+        try {
+            $domainCCP = [PSCustomObject]@{
+                Url    = $GlobalCCPUrl
+                AppId  = $primaryDomain.CCP.AppId
+                Safe   = $primaryDomain.CCP.Safe
+                Object = $primaryDomain.CCP.Object
+            }
+            $creds = Get-SchedulerCredential -CCPConfig $domainCCP -ManualLogin:$ManualLogin -ScriptName $ScriptName -LogPath $LogPath
+            $secPass = ConvertTo-SecureString $creds.Password -AsPlainText -Force
+            $credentialObj = New-Object System.Management.Automation.PSCredential($creds.Username, $secPass)
+        }
+        catch {
+            Write-Log -Message "Failed to fetch CCP credentials for AD group lookup: $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+        }
+    }
+
+    $adParams = @{
+        Identity    = $GroupName
+        Server      = $primaryDomain.Server
+        Recursive   = $true
+        ErrorAction = "Stop"
+    }
+    if ($null -ne $credentialObj) {
+        $adParams["Credential"] = $credentialObj
+    }
+
+    $exportRows = [System.Collections.Generic.List[object]]::new()
+    try {
+        Write-Progress -Id 60 -Activity "AD Group Members" -Status "Querying AD server '$($primaryDomain.Server)' for group '$GroupName'..." -PercentComplete -1
+        $members = Get-ADGroupMember @adParams
+        foreach ($m in $members) {
+            if ($m.objectClass -eq "user" -or -not [string]::IsNullOrWhiteSpace($m.SamAccountName)) {
+                $uUpper = $m.SamAccountName.ToUpper()
+                [void]$memberSet.Add($uUpper)
+                $exportRows.Add([PSCustomObject]@{
+                    Username          = $m.SamAccountName
+                    Name              = $m.Name
+                    DistinguishedName = $m.DistinguishedName
+                })
+            }
+        }
+        Write-Progress -Id 60 -Activity "AD Group Members" -Completed
+        Write-Log -Message "AD Group '$GroupName' has $($memberSet.Count) user members." -ScriptName $ScriptName -LogPath $LogPath
+
+        if ($exportRows.Count -gt 0) {
+            $exportRows | Export-CsvNoBom -Path $CachePath
+            Write-Log -Message "Group members cached: $CachePath" -ScriptName $ScriptName -LogPath $LogPath
+        }
+    }
+    catch {
+        Write-Progress -Id 60 -Activity "AD Group Members" -Completed
+        Write-Log -Message "Failed to retrieve AD group '$GroupName': $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+    }
+
+    return $memberSet
+}
+
+# ---------------------------------------------------------------------------
+# Add-PSASafeMember
+# Adds a member (User/Group) to a CyberArk Safe with specified permissions.
+# Uses searchIn to specify the LDAP domain directory mapping for first-time users.
+# Returns: hashtable { Success, AlreadyExisted, Error }
+# ---------------------------------------------------------------------------
+function Add-PSASafeMember {
+    param (
+        [Parameter(Mandatory=$true)] [string]   $BaseUrl,
+        [Parameter(Mandatory=$true)] [string]   $SafeName,
+        [Parameter(Mandatory=$true)] [string]   $MemberName,
+        [Parameter(Mandatory=$true)] [string]   $MemberType,
+        [Parameter(Mandatory=$true)] [array]    $Permissions,
+        [string] $SearchIn = "",
+        [Parameter(Mandatory=$true)] [string]   $ScriptName,
+        [Parameter(Mandatory=$true)] [string]   $LogPath
+    )
+
+    Write-Log -Message "Adding member '$MemberName' ($MemberType) to safe '$SafeName' (searchIn: '$SearchIn')..." -ScriptName $ScriptName -LogPath $LogPath
+
+    try {
+        $permsBody = @{
+            useAccounts                            = ($Permissions -contains "UseAccounts")
+            retrieveAccounts                       = ($Permissions -contains "RetrieveAccounts")
+            listAccounts                           = ($Permissions -contains "ListAccounts")
+            addAccounts                            = ($Permissions -contains "AddAccounts")
+            updateAccountContent                   = ($Permissions -contains "UpdateAccountContent")
+            updateAccountProperties                = ($Permissions -contains "UpdateAccountProperties")
+            initiateCPMAccountManagementOperations = ($Permissions -contains "InitiateCPMAccountManagementOperations")
+            specifyNextAccountContent              = ($Permissions -contains "SpecifyNextAccountContent")
+            renameAccounts                         = ($Permissions -contains "RenameAccounts")
+            deleteAccounts                         = ($Permissions -contains "DeleteAccounts")
+            unlockAccounts                         = ($Permissions -contains "UnlockAccounts")
+            manageSafe                             = ($Permissions -contains "ManageSafe")
+            manageSafeMembers                      = ($Permissions -contains "ManageSafeMembers")
+            backupSafe                             = ($Permissions -contains "BackupSafe")
+            viewAuditLog                           = ($Permissions -contains "ViewAuditLog")
+            viewSafeMembers                        = ($Permissions -contains "ViewSafeMembers")
+            accessWithoutConfirmation              = ($Permissions -contains "AccessWithoutConfirmation")
+            createFolders                          = ($Permissions -contains "CreateFolders")
+            deleteFolders                          = ($Permissions -contains "DeleteFolders")
+            moveAccountsAndFolders                 = ($Permissions -contains "MoveAccountsAndFolders")
+        }
+
+        $body = @{
+            memberName  = $MemberName
+            memberType  = $MemberType
+            permissions = $permsBody
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($SearchIn) -and $SearchIn -ne "Vault") {
+            $body["searchIn"] = $SearchIn
+        }
+
+        $encodedSafe = [System.Uri]::EscapeDataString($SafeName)
+        $uri = "$BaseUrl/PasswordVault/api/Safes/$encodedSafe/Members"
+        $null = Invoke-CyberArkApi -Uri $uri -Method Post -Body $body
+
+        Write-Log -Message "Member '$MemberName' added to safe '$SafeName' successfully." -ScriptName $ScriptName -LogPath $LogPath
+        return @{ Success = $true; AlreadyExisted = $false; Error = "" }
+    }
+    catch {
+        $errMsg = $_.Exception.Message
+        if ($errMsg -match "409|already a member|already exist|conflict") {
+            Write-Log -Message "Member '$MemberName' already exists in safe '$SafeName'. Treating as success." -ScriptName $ScriptName -LogPath $LogPath
+            return @{ Success = $true; AlreadyExisted = $true; Error = "" }
+        }
+        Write-Log -Message "Failed to add member '$MemberName' to safe '$SafeName': $errMsg" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+        return @{ Success = $false; AlreadyExisted = $false; Error = $errMsg }
+    }
+}
+

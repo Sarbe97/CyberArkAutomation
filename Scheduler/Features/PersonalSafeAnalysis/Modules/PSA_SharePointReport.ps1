@@ -43,6 +43,8 @@ function Publish-PSASharePointReport {
         $spSectionHeaders.Add("Owner is NOT Safe Member")
         $spDataRows.Add([PSCustomObject]@{ Metric = "Owner is NOT Safe Member"; Value = "" })
         $spDataRows.Add([PSCustomObject]@{ Metric = "Owner is Active in AD (Not Member)"; Value = $Metrics.NotMemberEnabled })
+        $spDataRows.Add([PSCustomObject]@{ Metric = "  - Remediated (Added to Safe)"; Value = $Metrics.NotMemberRemediated })
+        $spDataRows.Add([PSCustomObject]@{ Metric = "  - Missing AD Group Access"; Value = $Metrics.NotMemberMissingGroup })
         $spDataRows.Add([PSCustomObject]@{ Metric = "Owner is Disabled in AD (Not Member)"; Value = $Metrics.NotMemberDisabled })
         $spDataRows.Add([PSCustomObject]@{ Metric = "Owner NOT FOUND in AD (Not Member)"; Value = $Metrics.NotMemberNotFound })
 

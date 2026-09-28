@@ -3,8 +3,9 @@
     "PersonalSafeAnalysis": {
       "Enabled": true,
       "ForceRefresh": false,
-      "_Comment_Mode": "Supported values: Analysis",
-      "Mode": "Analysis",
+      "RequiredADGroup": "kapamprodusers",
+      "DeleteEmptySafes": false,
+      "AutoRemediateNotMember": false,
 
       "Cleanup": {
         "Enabled": true,

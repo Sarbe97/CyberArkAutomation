@@ -1,142 +1,170 @@
-# =============================================================================
-# Generic Service Accounts vs CyberArk Matching Analysis
-# =============================================================================
+Searched for "LXCC"
+Searched for "LXCC"
+Searched for "LXCC"
+Searched for "Lenovo"
+Ran command: `ls -la /Users/sarbe/WS`
+Ran command: `find /Users/sarbe/WS/Cark_Plugin_RnD -maxdepth 3`
+Ran command: `cat /Users/sarbe/WS/Cark_Plugin_RnD/LenovoLXCC-Custom/README.md`
+Ran command: `diff -u /Users/sarbe/WS/Cark_Plugin_RnD/LenovoLXCCPlugin/LenovoLXCCChains.xml /Users/sarbe/WS/Cark_Plugin_RnD/LenovoLXCC-Custom/LenovoLXCC-CustomChains.xml`
+Ran command: `diff -u /Users/sarbe/WS/Cark_Plugin_RnD/LenovoLXCCPlugin/LenovoLXCCChains.xml /Users/sarbe/WS/Cark_Plugin_RnD/LenovoLXCC-Custom/LenovoLXCC-CustomChains.xml | head -n 45`
+Ran command: `python3 -c "
+with open('/Users/sarbe/WS/Cark_Plugin_RnD/LenovoLXCCPlugin/LenovoLXCCChains.xml') as f1, open('/Users/sarbe/WS/Cark_Plugin_RnD/LenovoLXCC-Custom/LenovoLXCC-CustomChains.xml') as f2:
+    lines1 = f1.readlines()
+    lines2 = f2.readlines()
+import difflib
+for line in difflib.unified_diff(lines1, lines2, fromfile='Original', tofile='Custom', n=2):
+    print(line, end='')
+"`
+Ran command: `python3 -c "
+with open('/Users/sarbe/WS/Cark_Plugin_RnD/LenovoLXCCPlugin/Policy-LenovoLXCC.ini') as f1, open('/Users/sarbe/WS/Cark_Plugin_RnD/LenovoLXCC-Custom/Policy-LenovoLXCC-Custom.ini') as f2:
+    lines1 = f1.readlines()
+    lines2 = f2.readlines()
+import difflib
+for line in difflib.unified_diff(lines1, lines2, fromfile='Original-INI', tofile='Custom-INI', n=2):
+    print(line, end='')
+"`
+Ran command: `python3 -c "
+with open('/Users/sarbe/WS/Cark_Plugin_RnD/LenovoLXCCPlugin/Policy-LenovoLXCC.xml') as f1, open('/Users/sarbe/WS/Cark_Plugin_RnD/LenovoLXCC-Custom/Policy-LenovoLXCC-Custom.xml') as f2:
+    lines1 = f1.readlines()
+    lines2 = f2.readlines()
+import difflib
+for line in difflib.unified_diff(lines1, lines2, fromfile='Original-XML', tofile='Custom-XML', n=2):
+    print(line, end='')
+"`
+Ran command: `cat /Users/sarbe/WS/Cark_Plugin_RnD/LenovoLXCC-Custom/Find-LenovoUserSlot.ps1`
 
-# -----------------------------------------------------------------------------
-# 1. Input / Output Paths - Paste your full file paths here
-# -----------------------------------------------------------------------------
-$adCsvPath = "C:\Path\To\Filtered_ADServiceAccounts.csv"
-$caCsvPath = "C:\Path\To\CyberArkAccounts.csv"
+Here is a technical layout formatted for technical engineers, PAM administrators, and change advisory boards (ServiceNow/Jira request description).
 
-# Optional: Output CSV path. Leave empty ("") to auto-create in the same folder where this script is located
-$outCsv    = ""
+---
 
-# -----------------------------------------------------------------------------
-# 2. File Verification & Path Resolution
-# -----------------------------------------------------------------------------
-if (-not (Test-Path $adCsvPath)) {
-    Write-Error "AD CSV file not found at: '$adCsvPath'. Please paste a valid path."
-    exit 1
-}
+# Technical Description: Custom Lenovo LXCC (XClarity Controller) Redfish CPM Plugin
 
-if (-not (Test-Path $caCsvPath)) {
-    Write-Error "CyberArk CSV file not found at: '$caCsvPath'. Please paste a valid path."
-    exit 1
-}
+## 1. Executive Summary & Root Cause
+The standard CyberArk Marketplace plugin for Lenovo LXCC (`LenovoLXCCPlugin`) fails in enterprise environments across multiple server generations due to limitations in Lenovo BMC Redfish implementations:
+* **Brittle Query Expansion**: The OOTB plugin relies on OData query parameters (`/redfish/v1/AccountService/Accounts?$expand=.&$select=Members/UserName`) to dynamically locate the account. Many Lenovo XCC firmware versions do not support `$expand` or return truncated stubs, resulting in `HTTP 400 Bad Request` or parsing failures.
+* **HTTP 428 (Precondition Required)**: Lenovo XCC requires an `If-Match` header on `PATCH` operations to prevent mid-air collisions. OOTB lacks this header, causing password changes to fail.
+* **Firmware Password Constraints**: The OOTB policy generates 20-character passwords, causing `HTTP 500 Internal Server Error` on older BMC firmware with strict 14–16 character limits.
+* **Variable Slot Numbers**: Across 100+ enterprise servers, target administrative accounts do not consistently sit in Slot 1; they are distributed across Slots 1, 2, or 3.
 
-# Resolve script directory (works when running as script, module, or from PowerShell console)
-$scriptDir = $PSScriptRoot
-if ([string]::IsNullOrWhiteSpace($scriptDir)) {
-    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition -ErrorAction SilentlyContinue
-}
-if ([string]::IsNullOrWhiteSpace($scriptDir)) {
-    $scriptDir = (Get-Location).Path
-}
+To resolve these issues, we engineered **`LenovoLXCC-Custom`**, replacing dynamic collection expansion with **direct, pre-validated Slot targeting (`SlotID`)**, adding concurrency protection headers, and developing an **automated bulk slot discovery script**.
 
-if ([string]::IsNullOrWhiteSpace($outCsv)) {
-    $adBase = [System.IO.Path]::GetFileNameWithoutExtension($adCsvPath)
-    $outCsv = Join-Path $scriptDir "${adBase}_MatchBreakdown.csv"
-}
+---
 
-Write-Host "Loading AD Service Accounts from: $adCsvPath" -ForegroundColor Cyan
-Write-Host "Loading CyberArk Inventory from : $caCsvPath" -ForegroundColor Cyan
+## 2. Technical Modifications (What Was Changed)
 
-$adAccounts = Import-Csv -Path $adCsvPath
-$caAccounts = Import-Csv -Path $caCsvPath
+### A. Direct Slot Targeting via Dynamic Variable (`SlotID`)
+* **Standard Plugin**: Queried all accounts dynamically and attempted complex JSONPath extraction with substring manipulation:
+  ```xml
+  <!-- OOTB LenovoLXCC: Brittle & Fails on older firmware -->
+  <endpoint>/{{novalidate:{{substring:useridendpoint:startIndex}}}}</endpoint>
+  ```
+* **Custom Plugin**: Direct REST targeting using a configurable account-level property `{{SlotID}}` (defaulting to `2`):
+  ```xml
+  <!-- LenovoLXCC-Custom: Direct, deterministic endpoint -->
+  <endpoint>/redfish/v1/AccountService/Accounts/{{SlotID}}</endpoint>
+  ```
 
-# -----------------------------------------------------------------------------
-# 3. Build CyberArk Lookup Table (Grouped by lowercase username)
-# -----------------------------------------------------------------------------
-$caLookup = @{}
-foreach ($ca in $caAccounts) {
-    if (-not $ca.Username) { continue }
-    $u = $ca.Username.ToLower().Trim()
-    if (-not $caLookup.ContainsKey($u)) {
-        $caLookup[$u] = [System.Collections.Generic.List[object]]::new()
-    }
-    $caLookup[$u].Add($ca)
-}
+---
 
-Write-Host "Indexed $($caAccounts.Count) CyberArk accounts ($($caLookup.Count) unique usernames)." -ForegroundColor Cyan
-Write-Host "Evaluating $($adAccounts.Count) AD service accounts..." -ForegroundColor Cyan
+### B. Mandatory Concurrency Header (`If-Match: *`)
+* Added `<If-Match>*</If-Match>` to both `ChangePassword` and `ReconcilePassword` `PATCH` requests to satisfy Lenovo XCC's HTTP 428 Precondition requirement:
+  ```xml
+  <RequestWrapper>
+    <request name="ChangePassword">
+      <general>
+        <endpoint>/redfish/v1/AccountService/Accounts/{{SlotID}}</endpoint>
+        <method>PATCH</method>
+      </general>
+      <header>
+        <Accept>application/json</Accept>
+        <Content-Type>application/json</Content-Type>
+        <Authorization>Basic {{username}}:{{pmpass}}</Authorization>
+        <If-Match>*</If-Match>
+      </header>
+      <body>
+        <json>
+          {
+            "UserName": "{{username}}",
+            "Password": "{{pmnewpass}}"
+          }
+        </json>
+      </body>
+    </request>
+  </RequestWrapper>
+  ```
 
-# -----------------------------------------------------------------------------
-# 4. Cross-Reference AD Accounts against CyberArk
-# -----------------------------------------------------------------------------
-$results = foreach ($ad in $adAccounts) {
-    $uKey  = if ($ad.Username)   { $ad.Username.ToLower().Trim() }   else { "" }
-    $fqdn  = if ($ad.DomainFQDN) { $ad.DomainFQDN.ToLower().Trim() } else { "" }
-    $short = if ($ad.Domain)     { $ad.Domain.ToLower().Trim() }     else { "" }
+---
 
-    $isUsernameMatch       = $false
-    $isUserAndDomainMatch  = $false
-    $matchStatus           = "Not_In_CyberArk"
-    $caSafe                = ""
-    $caPlatform            = ""
-    $caAddress             = ""
+### C. Pre-Rotation Validation & Custom Error Code `8110` (`FAILUserMismatch`)
+* **Safety Mechanism**: Before executing a password change, the plugin queries the slot and verifies that `$.UserName` matches the target account `{{username}}`.
+* If a mismatched user is detected in the slot, the operation immediately halts to prevent corrupting another user's credential:
+  ```xml
+  <StatusCode value="200" next="ByParse" condition="OR" nomatch="FAILUserMismatch">
+    <Parse name="matchedUser" type="json" value="$[?(@.UserName == '{{username}}')].UserName">
+      <Equals value="*" next="ChangePasswordLink"/>
+    </Parse>
+  </StatusCode>
+  ```
+* Defined custom return code in `Fails` and `Policy-LenovoLXCC-Custom.ini`:
+  ```xml
+  <Fail name="FAILUserMismatch" rc="8110" message="Account in slot does not match target username." />
+  ```
+  ```ini
+  UnrecoverableErrors=8101,8102,8110
+  ```
 
-    if ($uKey -and $caLookup.ContainsKey($uKey)) {
-        $isUsernameMatch = $true
+---
 
-        # Check if any CyberArk account matching this username also matches domain/address
-        $domainMatches = @($caLookup[$uKey] | Where-Object {
-            $addr = if ($_.Address) { ($_.Address).ToLower().Trim() } else { "" }
-            ($addr -and $fqdn  -and $addr -eq $fqdn) -or
-            ($addr -and $short -and $addr -eq $short) -or
-            ($addr -and $fqdn  -and $fqdn.StartsWith($addr)) -or
-            ($addr -and $fqdn  -and $addr.EndsWith($fqdn)) -or
-            ($addr -and $fqdn  -and $addr.Contains($fqdn)) -or
-            ($addr -and $fqdn  -and $fqdn.Contains($addr))
-        })
+### D. Password Policy Calibration for BMC Compatibility
+In `Policy-LenovoLXCC-Custom.ini`, calibrated password generation rules to ensure 100% acceptance across legacy and modern Lenovo XCC/IMM firmware:
+* **`PasswordLength=14`** (reduced from 20; safe upper limit for older BMC firmware).
+* **`PreventRepeatingCharacters=Yes`** (enforces BMC dictionary compliance).
+* **`PasswordForbiddenChars=<>&\"/`** (prevents JSON payload escaping errors).
 
-        if ($domainMatches.Count -gt 0) {
-            # Case 1: Both Username AND Domain match
-            $isUserAndDomainMatch = $true
-            $matchStatus          = "Both_Matched"
-            $caSafe               = ($domainMatches | ForEach-Object { $_.SafeName }   | Select-Object -Unique) -join "; "
-            $caPlatform           = ($domainMatches | ForEach-Object { $_.PlatformId } | Select-Object -Unique) -join "; "
-            $caAddress            = ($domainMatches | ForEach-Object { $_.Address }    | Select-Object -Unique) -join "; "
-        }
-        else {
-            # Case 2: Username matches, but address/domain does not match
-            $matchStatus = "Username_Only"
-            $allForeign  = $caLookup[$uKey]
-            $caSafe      = ($allForeign | ForEach-Object { $_.SafeName }   | Select-Object -Unique) -join "; "
-            $caPlatform  = ($allForeign | ForEach-Object { $_.PlatformId } | Select-Object -Unique) -join "; "
-            $caAddress   = ($allForeign | ForEach-Object { $_.Address }    | Select-Object -Unique) -join "; "
-        }
-    }
+---
 
-    # Build output object retaining all original AD properties + adding match columns
-    $rowProps = [ordered]@{}
-    foreach ($prop in $ad.PSObject.Properties) {
-        $rowProps[$prop.Name] = $prop.Value
-    }
+### E. Platform Definition (`Policy-LenovoLXCC-Custom.xml`)
+Registered `SlotID` as an optional property on the platform so it can be viewed, edited in PVWA, or populated via bulk upload:
+```xml
+<Properties>
+  <Required>
+    <Property Name="Username" />
+  </Required>
+  <Optional>
+    <Property Name="SlotID" DisplayName="Account Slot ID (Default is 2)" />
+  </Optional>
+</Properties>
+```
 
-    $rowProps["MatchStatus"]              = $matchStatus
-    $rowProps["UsernameMatched"]          = $isUsernameMatch
-    $rowProps["UsernameAndDomainMatched"] = $isUserAndDomainMatch
-    $rowProps["CyberArkSafe"]             = $caSafe
-    $rowProps["CyberArkPlatform"]         = $caPlatform
-    $rowProps["CyberArkAddress"]          = $caAddress
+---
 
-    [PSCustomObject]$rowProps
-}
+## 3. Extra Deliverables (What We Did Extra)
 
-# -----------------------------------------------------------------------------
-# 5. Export Results & Console Summary
-# -----------------------------------------------------------------------------
-$results | Export-Csv -Path $outCsv -NoTypeInformation -Encoding UTF8
+### Automated Bulk Slot Discovery Tool (`Find-LenovoUserSlot.ps1`)
+To onboard 100+ servers without manual GUI inspection of each BMC:
+* **Function**: Takes `servers.csv` (`Address`, `Username`, `Password`), queries `/redfish/v1/AccountService/Accounts`, iterates over configured slot URLs, locates the target username case-insensitively, and extracts the exact `SlotID`.
+* **Output**: Produces `servers-output.csv` with the discovered `SlotID` column, ready for bulk onboarding via the Password Upload Utility (PUU) or CyberArk REST API.
+* **Core Logic**:
+  ```powershell
+  $accounts = Invoke-RestMethod -Uri "https://$server/redfish/v1/AccountService/Accounts" -Headers $headers
+  foreach ($member in $accounts.Members) {
+      $detail = Invoke-RestMethod -Uri "https://$server$($member.'@odata.id')" -Headers $headers
+      if ($detail.UserName -and ($detail.UserName.Trim().ToLower() -eq $user.Trim().ToLower())) {
+          $slotId = $detail.Id
+          break
+      }
+  }
+  ```
 
-$cntBoth        = @($results | Where-Object { $_.MatchStatus -eq "Both_Matched" }).Count
-$cntUserOnly    = @($results | Where-Object { $_.MatchStatus -eq "Username_Only" }).Count
-$cntNotInCA     = @($results | Where-Object { $_.MatchStatus -eq "Not_In_CyberArk" }).Count
+---
 
-Write-Host ""
-Write-Host "================ Match Summary ================" -ForegroundColor Cyan
-Write-Host "Both Username & Domain Matched : $cntBoth" -ForegroundColor Green
-Write-Host "Username Only Matched          : $cntUserOnly" -ForegroundColor Yellow
-Write-Host "Not In CyberArk                : $cntNotInCA" -ForegroundColor Red
-Write-Host "Total AD Service Accounts      : $($results.Count)"
-Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host "Output saved to: $outCsv" -ForegroundColor Green
+## 4. Summary Matrix: Standard vs. Custom
+
+| Feature / Capability | Standard OOTB (`LenovoLXCCPlugin`) | Custom Platform (`LenovoLXCC-Custom`) | Technical Benefit |
+| :--- | :--- | :--- | :--- |
+| **Endpoint Resolution** | Dynamic `$expand=.` query | Direct `.../Accounts/{{SlotID}}` | Eliminates HTTP 400 & unexpanded member errors on older BMCs. |
+| **Concurrency Lock** | No `If-Match` header | `<If-Match>*</If-Match>` | Prevents HTTP 428 Precondition failures on `PATCH`. |
+| **Slot Safety Check** | None (blind rotate) | Pre-validation matching `{{username}}` | Prevents overwriting the wrong user if slot numbers differ. |
+| **Error Handling** | Standard HTTP status | Custom code `8110` for slot mismatch | Added to `UnrecoverableErrors` to halt CPM retry loops. |
+| **Password Length** | 20 characters | 14 characters | Prevents HTTP 500 policy rejection on older BMC firmware. |
+| **Bulk Discovery Tool** | None (manual lookup) | `Find-LenovoUserSlot.ps1` script | Automates slot discovery across 100+ servers into a ready CSV. |

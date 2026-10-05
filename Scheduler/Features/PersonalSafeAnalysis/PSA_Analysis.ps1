@@ -643,7 +643,7 @@ try {
                     Write-Log -Message "AutoRemediateNotMember is true. Processing $($remediationQueue.Count) safes for member onboarding..." -ScriptName $ScriptName -LogPath $LogPath
 
                     $primaryDomain = $cfgDomains | Where-Object { $_.IsPrimary -eq $true } | Select-Object -First 1
-                    $searchInDomain = if ($primaryDomain) { $primaryDomain.Name } else { "" }
+                    $searchInDomain = if ($primaryDomain) { $primaryDomain.FQDN } else { "" }
                     $userPerms = if ($featureConfig.SafePermissionSets.USER_ACCESS) { $featureConfig.SafePermissionSets.USER_ACCESS } else { @("UseAccounts", "RetrieveAccounts", "ListAccounts", "InitiateCPMAccountManagementOperations") }
 
                     foreach ($item in $remediationQueue) {

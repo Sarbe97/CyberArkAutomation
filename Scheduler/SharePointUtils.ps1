@@ -318,10 +318,89 @@ function Rename-GraphItem {
 }
 
 # -------------------------------------------------------
+# Unlock-GraphFile
+# Attempts to force-checkin a locked file via Graph API.
+# POST /drives/{driveId}/items/{itemId}/checkin
+# This is a best-effort operation — if the file is not
+# checked out, Graph returns 409 which we silently ignore.
+# -------------------------------------------------------
+function Unlock-GraphFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DriveId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ItemPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$AccessToken,
+
+        [string]$ScriptName = "SharePoint",
+        [string]$LogPath
+    )
+
+    # First resolve the item ID from the path
+    $encodedPath = $ItemPath -replace ' ', '%20'
+    $metaUrl = "https://graph.microsoft.com/v1.0/drives/$DriveId/root:/$encodedPath"
+    $headers = @{ Authorization = "Bearer $AccessToken" }
+
+    try {
+        $itemMeta = Invoke-RestMethod -Uri $metaUrl -Headers $headers -ErrorAction Stop
+    }
+    catch {
+        if ($LogPath) {
+            Write-Log -Message "Could not resolve item metadata for unlock (file may not exist yet): $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+        }
+        return $false
+    }
+
+    $itemId = $itemMeta.id
+
+    # Attempt force checkin
+    $checkinUrl = "https://graph.microsoft.com/v1.0/drives/$DriveId/items/$itemId/checkin"
+    $checkinBody = @{ comment = "Auto-checkin by scheduler to release file lock" } | ConvertTo-Json
+
+    try {
+        $null = Invoke-RestMethod -Uri $checkinUrl -Headers $headers -Method Post -Body $checkinBody -ContentType "application/json" -ErrorAction Stop
+
+        if ($LogPath) {
+            Write-Log -Message "File checked in successfully (lock released): $ItemPath" -ScriptName $ScriptName -LogPath $LogPath
+        }
+        return $true
+    }
+    catch {
+        $statusCode = $null
+        if ($_.Exception.Response) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+        }
+
+        # 409 Conflict = file was not checked out; that's fine
+        if ($statusCode -eq 409) {
+            if ($LogPath) {
+                Write-Log -Message "File was not checked out (409). Lock may be a co-authoring session." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+            }
+            return $false
+        }
+
+        if ($LogPath) {
+            Write-Log -Message "Force checkin failed (HTTP $statusCode): $($_.Exception.Message)" -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+        }
+        return $false
+    }
+}
+
+# -------------------------------------------------------
 # Set-GraphFile (Upload)
 # Uploads a file to SharePoint via Graph.
 # PUT /drives/{driveId}/root:/{path}:/content
-# Simple upload  works for files up to 4 MB.
+# Simple upload — works for files up to 4 MB.
+#
+# Lock handling:
+#   - Sends 'Prefer: bypass-shared-lock' header to
+#     bypass co-authoring / shared locks.
+#   - On 423 (Locked), attempts force-checkin via
+#     Unlock-GraphFile, then retries with exponential
+#     backoff (up to 3 retries).
 # -------------------------------------------------------
 function Set-GraphFile {
     param(
@@ -337,13 +416,18 @@ function Set-GraphFile {
         [Parameter(Mandatory = $true)]
         [string]$AccessToken,
 
+        [int]$MaxRetries = 3,        # Max retry attempts on lock errors
+
         [string]$ScriptName = "SharePoint",
         [string]$LogPath
     )
 
     $encodedPath = $ItemPath -replace ' ', '%20'
     $graphUrl = "https://graph.microsoft.com/v1.0/drives/$DriveId/root:/$encodedPath`:/content"
-    $headers = @{ Authorization = "Bearer $AccessToken" }
+    $headers = @{
+        Authorization = "Bearer $AccessToken"
+        Prefer        = "bypass-shared-lock"
+    }
 
     $fileBytes = [System.IO.File]::ReadAllBytes($LocalFilePath)
 
@@ -352,10 +436,54 @@ function Set-GraphFile {
         Write-Log -Message "Uploading file to SharePoint: $ItemPath ($fileSizeKB KB)" -ScriptName $ScriptName -LogPath $LogPath
     }
 
-    $null = Invoke-RestMethod -Uri $graphUrl -Headers $headers -Method Put -Body $fileBytes -ContentType "application/octet-stream" -ErrorAction Stop
+    $attempt = 0
+    while ($true) {
+        $attempt++
+        try {
+            $null = Invoke-RestMethod -Uri $graphUrl -Headers $headers -Method Put -Body $fileBytes -ContentType "application/octet-stream" -ErrorAction Stop
 
-    if ($LogPath) {
-        Write-Log -Message "File uploaded successfully." -ScriptName $ScriptName -LogPath $LogPath
+            if ($LogPath) {
+                Write-Log -Message "File uploaded successfully." -ScriptName $ScriptName -LogPath $LogPath
+            }
+            return
+        }
+        catch {
+            $statusCode = $null
+            if ($_.Exception.Response) {
+                $statusCode = [int]$_.Exception.Response.StatusCode
+            }
+
+            # Handle 423 Locked — file is open / checked out by someone
+            if ($statusCode -eq 423) {
+                if ($attempt -gt $MaxRetries) {
+                    $errMsg = "Upload failed: file '$ItemPath' is locked by another user and could not be released after $MaxRetries retries. " +
+                              "Please ask the user to close or check in the file, then re-run."
+                    if ($LogPath) {
+                        Write-Log -Message $errMsg -Level "ERROR" -ScriptName $ScriptName -LogPath $LogPath
+                    }
+                    throw $errMsg
+                }
+
+                $waitSec = [math]::Pow(2, $attempt) * 5   # 10s, 20s, 40s
+                if ($LogPath) {
+                    Write-Log -Message "File '$ItemPath' is locked (HTTP 423). Attempt $attempt/$MaxRetries — trying to release lock, then waiting ${waitSec}s before retry..." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+                }
+
+                # Try to force-checkin the file to release the lock
+                $null = Unlock-GraphFile `
+                    -DriveId     $DriveId `
+                    -ItemPath    $ItemPath `
+                    -AccessToken $AccessToken `
+                    -ScriptName  $ScriptName `
+                    -LogPath     $LogPath
+
+                Start-Sleep -Seconds $waitSec
+                continue
+            }
+
+            # Any other error — rethrow immediately
+            throw
+        }
     }
 }
 

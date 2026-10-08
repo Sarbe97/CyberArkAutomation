@@ -227,6 +227,7 @@ function Invoke-FailedAccountsAnalytics {
                     IsLegacy = $true
                     Label    = $uName
                     Filter   = ""
+                    Filters  = @()
                 })
             }
         }
@@ -235,11 +236,31 @@ function Invoke-FailedAccountsAnalytics {
             $uName = ("$uName").Trim()
             if ([string]::IsNullOrWhiteSpace($uName)) { continue }
 
-            $flt = if ($item.Filter) { $item.Filter } elseif ($item.filter) { $item.filter } elseif ($item.SearchStr) { $item.SearchStr } elseif ($item.searchStr) { $item.searchStr } else { "" }
+            $fltRaw = if ($null -ne $item.Filter) { $item.Filter } elseif ($null -ne $item.filter) { $item.filter } elseif ($null -ne $item.SearchStr) { $item.SearchStr } elseif ($null -ne $item.searchStr) { $item.searchStr } else { @() }
+            
+            # Normalize to array of trimmed filter strings (supports single string or array of strings)
+            $filterList = [System.Collections.Generic.List[string]]::new()
+            if ($fltRaw -is [System.Collections.IEnumerable] -and $fltRaw -isnot [string]) {
+                foreach ($f in $fltRaw) {
+                    if ($null -ne $f) {
+                        $fStr = "$f".Trim()
+                        if (-not [string]::IsNullOrWhiteSpace($fStr)) {
+                            $filterList.Add($fStr)
+                        }
+                    }
+                }
+            }
+            elseif ($null -ne $fltRaw) {
+                $fStr = "$fltRaw".Trim()
+                if (-not [string]::IsNullOrWhiteSpace($fStr)) {
+                    $filterList.Add($fStr)
+                }
+            }
+
             $lbl = if ($item.Label) { $item.Label } elseif ($item.label) { $item.label } elseif ($item.NameOfLabel) { $item.NameOfLabel } elseif ($item.nameOfLabel) { $item.nameOfLabel } else { "" }
 
             if ([string]::IsNullOrWhiteSpace($lbl)) {
-                $lbl = if (-not [string]::IsNullOrWhiteSpace($flt)) { "${uName}_${flt}" } else { $uName }
+                $lbl = if ($filterList.Count -gt 0) { "${uName}_" + ($filterList -join '_') } else { $uName }
             }
 
             if (-not $groupedRules.Contains($uName)) {
@@ -248,7 +269,8 @@ function Invoke-FailedAccountsAnalytics {
             $groupedRules[$uName].Add([PSCustomObject]@{
                 IsLegacy = $false
                 Label    = $lbl
-                Filter   = $flt
+                Filter   = if ($filterList.Count -gt 0) { $filterList -join ', ' } else { "" }
+                Filters  = @($filterList)
             })
         }
     }
@@ -270,22 +292,30 @@ function Invoke-FailedAccountsAnalytics {
 
         foreach ($rule in $rules) {
             $lbl = $rule.Label
-            $flt = $rule.Filter
+            $filters = $rule.Filters
+            $filterDisplay = if ($filters.Count -gt 0) { $filters -join ', ' } else { '<all>' }
 
             $matchingAccs = @($userAccounts | Where-Object {
-                if ([string]::IsNullOrWhiteSpace($flt)) {
+                if ($filters.Count -eq 0) {
                     $true
                 }
                 else {
-                    # Supports full match or wildcards: ABC-DEF, *-DEF, ABC-*, *BC-DE*
-                    # Evaluated against platformId and safeName
-                    ($_.platformId -like $flt) -or ($_.safeName -like $flt)
+                    # Supports exact match (e.g. WinServerLocal) or wildcards (e.g. Win*, *DB*)
+                    # Evaluated against platformId and safeName across all filter patterns (logical OR)
+                    $matched = $false
+                    foreach ($flt in $filters) {
+                        if (($_.platformId -like $flt) -or ($_.safeName -like $flt)) {
+                            $matched = $true
+                            break
+                        }
+                    }
+                    $matched
                 }
             })
 
             $cnt = $matchingAccs.Count
             $TrackedFailures[$lbl] = $cnt
-            Write-Log -Message "Tracked account sub-category check: $lbl (Filter: '$flt') -> $cnt" -ScriptName $ScriptName -LogPath $LogPath
+            Write-Log -Message "Tracked account sub-category check: $lbl (Filter: '$filterDisplay') -> $cnt" -ScriptName $ScriptName -LogPath $LogPath
 
             foreach ($acc in $matchingAccs) {
                 if ($acc.id) {

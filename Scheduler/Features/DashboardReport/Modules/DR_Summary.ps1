@@ -13,7 +13,7 @@ function Build-SummaryRows {
         [int]$FailedAccountsCount,
         [int]$DiscoveryOnboardedCount,
         [int]$DiscoveryPendingCount,
-        [hashtable]$TrackedFailures,
+        [System.Collections.IDictionary]$TrackedFailures,
 
         # Safe Metrics
         [int]$SharedSafesCount,

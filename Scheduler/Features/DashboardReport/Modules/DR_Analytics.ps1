@@ -317,9 +317,11 @@ function Invoke-FailedAccountsAnalytics {
             $TrackedFailures[$lbl] = $cnt
             Write-Log -Message "Tracked account sub-category check: $lbl (Filter: '$filterDisplay') -> $cnt" -ScriptName $ScriptName -LogPath $LogPath
 
-            foreach ($acc in $matchingAccs) {
-                if ($acc.id) {
-                    [void]$matchedAccountIds.Add("$($acc.id)")
+            if ($filters.Count -gt 0) {
+                foreach ($acc in $matchingAccs) {
+                    if ($acc.id) {
+                        [void]$matchedAccountIds.Add("$($acc.id)")
+                    }
                 }
             }
         }
@@ -336,13 +338,21 @@ function Invoke-FailedAccountsAnalytics {
         # Fallback if accounts don't have id property
         if ($userAccounts.Count -gt 0 -and $matchedAccountIds.Count -eq 0) {
             $sumCategorized = 0
-            foreach ($r in $rules) { $sumCategorized += $TrackedFailures[$r.Label] }
+            foreach ($r in $rules) {
+                if ($r.Filters.Count -gt 0) {
+                    $sumCategorized += $TrackedFailures[$r.Label]
+                }
+            }
             $uncategorizedCount = [Math]::Max(0, $totalUserAccounts - $sumCategorized)
         }
 
-        $othersLabel = "Others_$uName"
-        $TrackedFailures[$othersLabel] = $uncategorizedCount
-        Write-Log -Message "Tracked account remainder: $othersLabel -> $uncategorizedCount (Total: $totalUserAccounts)" -ScriptName $ScriptName -LogPath $LogPath
+        # Only add Others_<username> if there is at least one categorized (filtered) rule
+        $hasFilteredRules = @($rules | Where-Object { $_.Filters.Count -gt 0 }).Count -gt 0
+        if ($hasFilteredRules) {
+            $othersLabel = "Others_$uName"
+            $TrackedFailures[$othersLabel] = $uncategorizedCount
+            Write-Log -Message "Tracked account remainder: $othersLabel -> $uncategorizedCount (Total: $totalUserAccounts)" -ScriptName $ScriptName -LogPath $LogPath
+        }
     }
 
     $filteredFailed | Export-Csv -Path $FailFile -NoTypeInformation

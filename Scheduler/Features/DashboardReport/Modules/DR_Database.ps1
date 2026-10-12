@@ -25,6 +25,10 @@ function Get-EVDAccountErrors {
         return $errorLookup
     }
 
+    $connection = $null
+    $command    = $null
+    $reader     = $null
+
     try {
         # Ensure System.Data assembly is available for ADO.NET
         Add-Type -AssemblyName System.Data -ErrorAction SilentlyContinue
@@ -35,15 +39,15 @@ function Get-EVDAccountErrors {
 
         Write-Log -Message "Connecting to EVD database '$database' on '$server'..." -ScriptName $ScriptName -LogPath $LogPath
 
-        # Build Connection String
-        $builder = [System.Data.SqlClient.SqlConnectionStringBuilder]::new()
-        $builder.DataSource = $server
-        $builder.InitialCatalog = $database
-        $builder.ConnectTimeout = $timeout
-
-        if ($DatabaseConfig.UseIntegratedSecurity) {
+        # Build Connection String directly to avoid PowerShell SqlConnectionStringBuilder property binding issues
+        $connStr = ""
+        if (-not [string]::IsNullOrWhiteSpace($DatabaseConfig.ConnectionString)) {
+            $connStr = $DatabaseConfig.ConnectionString
+            Write-Log -Message "Using custom ConnectionString from configuration." -ScriptName $ScriptName -LogPath $LogPath
+        }
+        elseif ($DatabaseConfig.UseIntegratedSecurity) {
             # Windows Authentication (e.g. for AD service account such as nadev\kadevd)
-            $builder.IntegratedSecurity = $true
+            $connStr = "Server=$server;Database=$database;Integrated Security=True;Connection Timeout=$timeout;TrustServerCertificate=True;"
             Write-Log -Message "Using Windows Integrated Authentication for EVD database connection." -ScriptName $ScriptName -LogPath $LogPath
         }
         else {
@@ -78,15 +82,13 @@ function Get-EVDAccountErrors {
                 }
             }
 
-            if ($dbCred) {
-                $builder.UserID = $dbCred.Username
-                $builder.Password = $dbCred.Password
-                $builder.IntegratedSecurity = $false
+            if ($dbCred -and (-not [string]::IsNullOrWhiteSpace($dbCred.Password))) {
+                $connStr = "Server=$server;Database=$database;User Id=$($dbCred.Username);Password=$($dbCred.Password);Integrated Security=False;Connection Timeout=$timeout;TrustServerCertificate=True;"
             }
             else {
                 # Fallback to Integrated Security if no explicit password could be resolved
                 Write-Log -Message "No explicit DB password found; falling back to Windows Integrated Security." -ScriptName $ScriptName -LogPath $LogPath
-                $builder.IntegratedSecurity = $true
+                $connStr = "Server=$server;Database=$database;Integrated Security=True;Connection Timeout=$timeout;TrustServerCertificate=True;"
             }
         }
 
@@ -108,7 +110,7 @@ function Get-EVDAccountErrors {
             }
         }
 
-        $connection = [System.Data.SqlClient.SqlConnection]::new($builder.ConnectionString)
+        $connection = New-Object System.Data.SqlClient.SqlConnection($connStr)
         $connection.Open()
 
         $command = $connection.CreateCommand()
@@ -126,14 +128,25 @@ function Get-EVDAccountErrors {
             }
         }
 
-        $reader.Close()
-        $connection.Close()
-
         Write-Log -Message "Successfully retrieved $matchCount CPM error details from EVD database." -ScriptName $ScriptName -LogPath $LogPath
     }
     catch {
         # Resilient error handling: DB failure must never break the main reporting workflow
         Write-Log -Message "Warning: EVD Database query failed: $($_.Exception.Message). Continuing without database enrichment." -Level "WARN" -ScriptName $ScriptName -LogPath $LogPath
+    }
+    finally {
+        if ($reader -and (-not $reader.IsClosed)) {
+            $reader.Close()
+        }
+        if ($command) {
+            $command.Dispose()
+        }
+        if ($connection) {
+            if ($connection.State -eq [System.Data.ConnectionState]::Open) {
+                $connection.Close()
+            }
+            $connection.Dispose()
+        }
     }
 
     return $errorLookup

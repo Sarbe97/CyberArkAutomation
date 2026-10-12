@@ -14,10 +14,10 @@ Instead of requiring team members to manually log into CyberArk to check for err
 ## 2. Key Features & Business Value
 
 ### A. Account Failure Tracking & Delta Comparison
-The tool's most critical feature is how it handles password management failures (e.g., accounts that cannot rotate their passwords). It compares today’s failures with yesterday’s failures to classify them:
-*   🟢 **Fixed (Green)**: Accounts that were failing yesterday but have been successfully rotated or resolved. This helps the team measure daily progress.
-*   🔴 **New (Red)**: Newly failing accounts that requires immediate investigation.
-*   🟡 **Existing (Yellow)**: Legacy failures that remain unresolved.
+The tool's most critical feature is how it handles password management failures (e.g., accounts that cannot rotate their passwords). It compares today's failures with yesterday's failures to classify them:
+*   **Fixed (Green)**: Accounts that were failing yesterday but have been successfully rotated or resolved. This helps the team measure daily progress.
+*   **New (Red)**: Newly failing accounts that requires immediate investigation.
+*   **Existing (Yellow)**: Legacy failures that remain unresolved.
 
 ### B. Intelligent Filtering & Target Tracking
 *   **Exclusions**: It filters out expected failures (e.g., test platforms or specific non-production servers) to reduce noise.
@@ -87,7 +87,7 @@ To ensure daily execution without human intervention, the script is scheduled on
 
 ## 5. Configuration Settings (`config.json`)
 
-The tool’s behavior can be customized by editing the `config.json` file in the feature directory. Key settings include:
+The tool's behavior can be customized by editing the `config.json` file in the feature directory. Key settings include:
 
 *   **`Email.To`**: A list of email addresses that will receive the daily report.
 *   **`Cleanup.RetentionDays`**: The number of days the script will store old logs and reports on the server before deleting them to conserve disk space (defaults to `30`).

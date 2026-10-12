@@ -81,9 +81,9 @@ function Send-DashboardEmail {
                     Default            { "" }
                 }
                 $dispLabel = switch ($row.Metric) {
-                    "Fixed_Resolved"   { "🟢 Fixed (Resolved)" }
-                    "New_Added"        { "🔴 New Failures" }
-                    "Existing_Pending" { "🟡 Existing (Pending)" }
+                    "Fixed_Resolved"   { "Fixed (Resolved)" }
+                    "New_Added"        { "New Failures" }
+                    "Existing_Pending" { "Existing (Pending)" }
                     Default            { $row.Metric }
                 }
                 $compRows += "<tr>

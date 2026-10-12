@@ -28,6 +28,7 @@ if (-not (Test-Path $ExportDir)) { New-Item -ItemType Directory -Path $ExportDir
 . (Join-Path $SchedulerRoot "Utils.ps1")
 . (Join-Path $SchedulerRoot "SharePointUtils.ps1")
 . (Join-Path $FeatureRoot "Modules\DR_DataCollection.ps1")
+. (Join-Path $FeatureRoot "Modules\DR_Database.ps1")
 . (Join-Path $FeatureRoot "Modules\DR_Analytics.ps1")
 . (Join-Path $FeatureRoot "Modules\DR_Summary.ps1")
 . (Join-Path $FeatureRoot "Modules\DR_SharePoint.ps1")
@@ -150,8 +151,31 @@ try {
     Disconnect-CyberArkApi -ScriptName $ScriptName -LogPath $LogPath
     $cyberArkDisconnected = $true
 
+    # Query EVD Database for CPMErrorDetails (failsafe: does not break if DB is unreachable)
+    $failedAccountIds = @($failResult.FilteredFailedAccounts | ForEach-Object { "$($_.id)" })
+    $evdErrorLookup = Get-EVDAccountErrors `
+        -DatabaseConfig   $FeatureConfig.EVDDatabase `
+        -AccountIds       $failedAccountIds `
+        -GlobalCCPConfig  $config.CCP `
+        -ManualLogin:$ManualLogin `
+        -ScriptName       $ScriptName `
+        -LogPath          $LogPath
+
+    # Enrich failed accounts export file with EVD error details if available
+    if ($evdErrorLookup.Count -gt 0) {
+        $null = Export-EnrichedFailedAccounts `
+            -FilteredFailedAccounts $failResult.FilteredFailedAccounts `
+            -ErrorLookup            $evdErrorLookup `
+            -FailFile               $failFile `
+            -ScriptName             $ScriptName `
+            -LogPath                $LogPath
+    }
+
     $compResult = Invoke-FailureComparison `
         -FilteredFailedAccounts $failResult.FilteredFailedAccounts `
+        -RawAccounts            $RawAccounts `
+        -ExcludeFailedPlatforms $ExcludeFailedPlatforms `
+        -ErrorLookup            $evdErrorLookup `
         -BaseOutputDir          $BaseOutputDir `
         -TodayStr               $TodayStr `
         -ComparisonFile         $comparisonFile `

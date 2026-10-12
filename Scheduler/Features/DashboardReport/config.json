@@ -65,9 +65,25 @@
             ],
             "Notifications": {
                 "AdminFrom": "",
-                "AdminTo": [ "pam-admins@company.com" ],
+                "AdminTo": [
+                    "pam-admins@company.com"
+                ],
                 "AdminCC": [],
                 "SendReportSummary": true
+            },
+            "EVDDatabase": {
+                "Enabled": true,
+                "Server": "localhost",
+                "Database": "CyberArkEVD",
+                "UseIntegratedSecurity": true,
+                "Username": "domain\\svc_evd_dummy",
+                "Password": "",
+                "CCP": {
+                    "AppId": "CyberArkEVD",
+                    "Safe": "PAM-Database",
+                    "Object": "EVDDatabaseAccount"
+                },
+                "ConnectionTimeoutSec": 15
             }
         }
     }

@@ -66,6 +66,34 @@ function Send-DashboardEmail {
             if ($row.Category -in @("Metadata","SectionHeader")) { continue }
             if ($row.Value -eq "") { continue }   # skip placeholder rows
 
+            # Special dedicated rendering for Failure Comparison (Remediation Delta)
+            if ($row.Category -eq "Failure Comparison") {
+                $statusColor = switch ($row.Metric) {
+                    "Fixed_Resolved"   { "trend-good" }
+                    "New_Added"        { "trend-bad" }
+                    "Existing_Pending" { "trend-down" }
+                    Default            { "metric" }
+                }
+                $desc = switch ($row.Metric) {
+                    "Fixed_Resolved"   { "Accounts failing previously, resolved/rotated in last 24h" }
+                    "New_Added"        { "New failures detected today requiring investigation" }
+                    "Existing_Pending" { "Continuing unresolved failures from previous run" }
+                    Default            { "" }
+                }
+                $dispLabel = switch ($row.Metric) {
+                    "Fixed_Resolved"   { "🟢 Fixed (Resolved)" }
+                    "New_Added"        { "🔴 New Failures" }
+                    "Existing_Pending" { "🟡 Existing (Pending)" }
+                    Default            { $row.Metric }
+                }
+                $compRows += "<tr>
+                    <td><b>$dispLabel</b></td>
+                    <td class='$statusColor' style='font-size:12px; font-weight:bold;'>$($row.Value)</td>
+                    <td style='color:#555;'>$desc</td>
+                </tr>"
+                continue
+            }
+
             $todayVal   = try { [int]$row.Value } catch { 0 }
             $prevValStr = if ($prevCounts -and $prevCounts.ContainsKey($row.Metric)) { $prevCounts[$row.Metric] } else { "N/A" }
             $prevVal    = if ($prevValStr -ne "N/A") { [int]$prevValStr } else { $null }
@@ -102,7 +130,6 @@ function Send-DashboardEmail {
                 "Safe Metrics"            { $safeRows    += $html }
                 "Platform Metrics"        { $platRows    += $html }
                 "Tracked Account Metrics" { $trackedRows += $html }
-                "Failure Comparison"      { $compRows    += $html }
             }
         }
 

@@ -31,6 +31,7 @@ function Get-RawAccounts {
         if ($batch.Count -gt 0) {
             foreach ($acc in $batch) {
                 $result += [PSCustomObject]@{
+                    id                         = $acc.id
                     name                       = $acc.name
                     address                    = $acc.address
                     userName                   = $acc.userName

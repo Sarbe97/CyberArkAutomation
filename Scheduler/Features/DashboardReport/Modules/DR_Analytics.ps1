@@ -26,34 +26,45 @@ function ConvertFrom-EpochDate {
 # ---- Helper: Export color-coded HTML-as-XLS for failure comparison ----
 function Export-FormattedXls {
     param(
-        [Parameter(Mandatory=$true)][PSCustomObject[]]$Data,
+        [Parameter(Mandatory=$false)][PSCustomObject[]]$Data = @(),
         [Parameter(Mandatory=$true)][string]$Path,
         [string]$Title = "Report"
     )
+
+    $defaultProps = @("Status", "ResolutionNote", "AccountID", "AccountName", "Address", "UserName", "PlatformID", "SafeName", "WinRC", "ErrorMessage")
+    $props = if ($Data -and $Data.Count -gt 0) { $Data[0].PSObject.Properties.Name } else { $defaultProps }
 
     $html  = "<html><head><meta charset='UTF-8'><style>
         table { border-collapse: collapse; font-family: Calibri, sans-serif; }
         th { background-color: #34495e; color: white; padding: 6px 10px; border: 1px solid #2c3e50; text-align: left; font-size: 11pt; }
         td { padding: 4px 8px; border: 1px solid #bdc3c7; font-size: 10.5pt; white-space: nowrap; }
-        .fixed    { background-color: #e2f3e5; color: #155724; }
-        .new      { background-color: #fce8e9; color: #721c24; }
+        td.err-col { white-space: normal; max-width: 500px; font-size: 9.5pt; }
+        .fixed    { background-color: #e2f3e5; color: #155724; font-weight: bold; }
+        .new      { background-color: #fce8e9; color: #721c24; font-weight: bold; }
         .existing { background-color: #fff9e6; color: #856404; }
     </style></head><body>"
     $html += "<table><thead><tr>"
-    $props = $Data[0].PSObject.Properties.Name
     foreach ($p in $props) { $html += "<th>$p</th>" }
     $html += "</tr></thead><tbody>"
 
-    foreach ($row in $Data) {
-        $class = switch ($row.Status) {
-            "Fixed"    { "fixed" }
-            "New"      { "new" }
-            "Existing" { "existing" }
-            Default    { "" }
+    if (-not $Data -or $Data.Count -eq 0) {
+        $html += "<tr><td colspan='$($props.Count)' style='text-align:center; padding:12px; color:#7f8c8d; font-style:italic;'>No failure comparison records found for this period.</td></tr>"
+    }
+    else {
+        foreach ($row in $Data) {
+            $class = switch ($row.Status) {
+                "Fixed"    { "fixed" }
+                "New"      { "new" }
+                "Existing" { "existing" }
+                Default    { "" }
+            }
+            $html += "<tr>"
+            foreach ($p in $props) {
+                $cellClass = if ($p -eq "ErrorMessage") { "$class err-col" } else { $class }
+                $html += "<td class='$cellClass'>$($row.$p)</td>"
+            }
+            $html += "</tr>"
         }
-        $html += "<tr>"
-        foreach ($p in $props) { $html += "<td class='$class'>$($row.$p)</td>" }
-        $html += "</tr>"
     }
     $html += "</tbody></table></body></html>"
     $html | Set-Content -Path $Path -Force
@@ -76,11 +87,16 @@ function Get-PreviousDayCounts {
     param($BaseOutputDir, $TodayStr)
     $prevDirs = Get-ChildItem -Path $BaseOutputDir -Directory | Where-Object { $_.Name -lt $TodayStr } | Sort-Object Name -Descending
     if (-not $prevDirs) { return $null }
-    $prevSummaryFile = Get-ChildItem -Path $prevDirs[0].FullName -Filter "DashboardCounts_*.csv" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if (-not $prevSummaryFile) { return $null }
-    $counts = @{}
-    foreach ($row in (Import-Csv $prevSummaryFile.FullName)) { $counts[$row.Metric] = $row.Value }
-    return $counts
+    foreach ($dir in $prevDirs) {
+        $prevSummaryFile = Get-ChildItem -Path $dir.FullName -Filter "DashboardCounts_*.csv" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($prevSummaryFile) {
+            $counts = @{}
+            $csvRows = @(Import-Csv $prevSummaryFile.FullName)
+            foreach ($row in $csvRows) { $counts[$row.Metric] = $row.Value }
+            return $counts
+        }
+    }
+    return $null
 }
 
 # =============================================================================
@@ -140,6 +156,7 @@ function Invoke-InventoryAnalytics {
             if ($AutoOnboardedPattern -and $acc.name -match $AutoOnboardedPattern) {
                 $DiscoveryOnboardedCount++
                 $DiscoveryOnboardedExp += [PSCustomObject]@{
+                    AccountID    = $acc.id
                     AccountName  = $acc.name
                     Address      = $acc.address
                     UserName     = $acc.userName
@@ -151,6 +168,7 @@ function Invoke-InventoryAnalytics {
         }
 
         $InventoryExport += [PSCustomObject]@{
+            AccountID    = $acc.id
             AccountName  = $acc.name
             Address      = $acc.address
             UserName     = $acc.userName
@@ -191,9 +209,27 @@ function Invoke-FailedAccountsAnalytics {
         [string]$LogPath
     )
 
-    $failedAccUri   = "$BaseUrl/PasswordVault/API/Accounts?savedFilter=PolicyFailures&limit=1000"
-    $failedAccResp  = Invoke-CyberArkApi -Uri $failedAccUri
-    $failedAccounts = if ($failedAccResp.value) { $failedAccResp.value } else { @() }
+    $failedAccounts = @()
+    $limit   = 1000
+    $offset  = 0
+    $hasMore = $true
+
+    Write-Log -Message "Fetching failed accounts from CyberArk API..." -ScriptName $ScriptName -LogPath $LogPath
+    while ($hasMore) {
+        $failedAccUri  = "$BaseUrl/PasswordVault/API/Accounts?savedFilter=PolicyFailures&limit=$limit&offset=$offset"
+        $failedAccResp = Invoke-CyberArkApi -Uri $failedAccUri -TimeoutSec 120
+        $batch = if ($failedAccResp.value) { $failedAccResp.value } else { @() }
+
+        if ($batch.Count -gt 0) {
+            $failedAccounts += $batch
+            $offset += $limit
+            if ($batch.Count -lt $limit) { $hasMore = $false }
+            Write-Log -Message "Fetched $($failedAccounts.Count) failed accounts so far..." -ScriptName $ScriptName -LogPath $LogPath
+        }
+        else {
+            $hasMore = $false
+        }
+    }
     Write-Log -Message "Filtering $($failedAccounts.Count) failed accounts using ExcludePlatforms: $($ExcludeFailedPlatforms -join ', ')" -ScriptName $ScriptName -LogPath $LogPath
 
     $filteredFailed = $failedAccounts | Where-Object {
@@ -366,9 +402,51 @@ function Invoke-FailedAccountsAnalytics {
 
 # =============================================================================
 
+function Export-EnrichedFailedAccounts {
+    param(
+        [array]$FilteredFailedAccounts,
+        [hashtable]$ErrorLookup = @{},
+        [string]$FailFile,
+        [string]$ScriptName = "DashboardReport",
+        [string]$LogPath
+    )
+
+    Write-Log -Message "Enriching failed accounts with database error details..." -ScriptName $ScriptName -LogPath $LogPath
+    $enriched = @()
+    foreach ($acc in $FilteredFailedAccounts) {
+        $accId  = "$($acc.id)"
+        $errMsg = if ($ErrorLookup -and $ErrorLookup.ContainsKey($accId)) { $ErrorLookup[$accId] } else { "" }
+        $winRc  = ""
+        if ($errMsg -and ($errMsg -match "(?i)winRC\s*=\s*(\d+)")) {
+            $winRc = $matches[1]
+        }
+
+        $enriched += [PSCustomObject]@{
+            id                         = $acc.id
+            name                       = $acc.name
+            address                    = $acc.address
+            userName                   = $acc.userName
+            platformId                 = $acc.platformId
+            safeName                   = $acc.safeName
+            secretType                 = $acc.secretType
+            automaticManagementEnabled = $acc.automaticManagementEnabled
+            manualManagementReason     = $acc.manualManagementReason
+            creationTime               = $acc.creationTime
+            WinRC                      = $winRc
+            ErrorMessage               = $errMsg
+        }
+    }
+
+    $enriched | Export-Csv -Path $FailFile -NoTypeInformation
+    return $enriched
+}
+
 function Invoke-FailureComparison {
     param(
         [array]$FilteredFailedAccounts,
+        [array]$RawAccounts = @(),
+        [array]$ExcludeFailedPlatforms = @(),
+        [hashtable]$ErrorLookup = @{},
         [string]$BaseOutputDir,
         [string]$TodayStr,
         [string]$ComparisonFile,
@@ -382,28 +460,123 @@ function Invoke-FailureComparison {
     $ComparisonExport = @()
     $FixedCount = 0; $NewCount = 0; $ExistingCount = 0
 
+    # Build inventory lookup for root-cause resolution classification
+    $invLookup = @{}
+    if ($RawAccounts -and $RawAccounts.Count -gt 0) {
+        foreach ($a in $RawAccounts) {
+            if ($a.id) { $invLookup["$($a.id)"] = $a }
+        }
+    }
+
     if ($prevFailFile) {
         Write-Log -Message "Found previous failure report: $prevFailFile" -ScriptName $ScriptName -LogPath $LogPath
-        $prevFailures = Import-Csv $prevFailFile
-        $currentIds   = $FilteredFailedAccounts | ForEach-Object { $_.id }
-        $prevIds      = $prevFailures | ForEach-Object { $_.id }
+        $prevFailures = @(Import-Csv $prevFailFile)
+        $currentIds   = @($FilteredFailedAccounts | ForEach-Object { "$($_.id)" })
+        $prevIds      = @($prevFailures | ForEach-Object { "$($_.id)" })
 
         foreach ($prev in $prevFailures) {
-            if ($prev.id -notin $currentIds) {
+            $prevIdStr = "$($prev.id)"
+            if ($prevIdStr -notin $currentIds) {
                 $FixedCount++
-                $ComparisonExport += [PSCustomObject]@{ Status="Fixed"; AccountID=$prev.id; AccountName=$prev.name; Address=$prev.address; UserName=$prev.userName; PlatformID=$prev.platformId; SafeName=$prev.safeName }
+
+                $resNote = "Password Rotated / Resolved"
+                if ($invLookup.Count -gt 0) {
+                    if (-not $invLookup.ContainsKey($prevIdStr)) {
+                        $resNote = "Account Removed/Deleted from Vault"
+                    }
+                    else {
+                        $accInInv = $invLookup[$prevIdStr]
+                        $cpmDis = ($accInInv.automaticManagementEnabled -eq $false -or $accInInv.automaticManagementEnabled -match 'False' -or ($null -ne $accInInv.manualManagementReason -and $accInInv.manualManagementReason -ne ""))
+                        if ($cpmDis) {
+                            $resNote = "CPM Management Disabled"
+                        }
+                        else {
+                            $isPlatExcluded = $false
+                            foreach ($ep in $ExcludeFailedPlatforms) {
+                                if ($accInInv.platformId -like "*$ep*") { $isPlatExcluded = $true; break }
+                            }
+                            if ($isPlatExcluded) {
+                                $resNote = "Platform Excluded"
+                            }
+                        }
+                    }
+                }
+
+                $prevWinRc = if ($prev.WinRC) { $prev.WinRC } else { "" }
+                $prevErr   = if ($prev.ErrorMessage) { $prev.ErrorMessage } elseif ($ErrorLookup -and $ErrorLookup.ContainsKey($prevIdStr)) { $ErrorLookup[$prevIdStr] } else { "" }
+                if (-not $prevWinRc -and $prevErr -and ($prevErr -match "(?i)winRC\s*=\s*(\d+)")) {
+                    $prevWinRc = $matches[1]
+                }
+
+                $ComparisonExport += [PSCustomObject]@{
+                    Status         = "Fixed"
+                    ResolutionNote = $resNote
+                    AccountID      = $prev.id
+                    AccountName    = $prev.name
+                    Address        = $prev.address
+                    UserName       = $prev.userName
+                    PlatformID     = $prev.platformId
+                    SafeName       = $prev.safeName
+                    WinRC          = $prevWinRc
+                    ErrorMessage   = $prevErr
+                }
             }
         }
         foreach ($curr in $FilteredFailedAccounts) {
-            $status = if ($curr.id -in $prevIds) { $ExistingCount++; "Existing" } else { $NewCount++; "New" }
-            $ComparisonExport += [PSCustomObject]@{ Status=$status; AccountID=$curr.id; AccountName=$curr.name; Address=$curr.address; UserName=$curr.userName; PlatformID=$curr.platformId; SafeName=$curr.safeName }
+            $currIdStr = "$($curr.id)"
+            $currErr = if ($ErrorLookup -and $ErrorLookup.ContainsKey($currIdStr)) { $ErrorLookup[$currIdStr] } else { "" }
+            $currWinRc = ""
+            if ($currErr -and ($currErr -match "(?i)winRC\s*=\s*(\d+)")) {
+                $currWinRc = $matches[1]
+            }
+
+            if ($currIdStr -in $prevIds) {
+                $ExistingCount++
+                $status  = "Existing"
+                $resNote = "Continuing Failure"
+            }
+            else {
+                $NewCount++
+                $status  = "New"
+                $resNote = "Newly Failed"
+            }
+            $ComparisonExport += [PSCustomObject]@{
+                Status         = $status
+                ResolutionNote = $resNote
+                AccountID      = $curr.id
+                AccountName    = $curr.name
+                Address        = $curr.address
+                UserName       = $curr.userName
+                PlatformID     = $curr.platformId
+                SafeName       = $curr.safeName
+                WinRC          = $currWinRc
+                ErrorMessage   = $currErr
+            }
         }
     }
     else {
         Write-Log -Message "No previous failure report found. Marking all as New." -ScriptName $ScriptName -LogPath $LogPath
         foreach ($curr in $FilteredFailedAccounts) {
             $NewCount++
-            $ComparisonExport += [PSCustomObject]@{ Status="New"; AccountID=$curr.id; AccountName=$curr.name; Address=$curr.address; UserName=$curr.userName; PlatformID=$curr.platformId; SafeName=$curr.safeName }
+            $currIdStr = "$($curr.id)"
+            $currErr = if ($ErrorLookup -and $ErrorLookup.ContainsKey($currIdStr)) { $ErrorLookup[$currIdStr] } else { "" }
+            $currWinRc = ""
+            if ($currErr -and ($currErr -match "(?i)winRC\s*=\s*(\d+)")) {
+                $currWinRc = $matches[1]
+            }
+
+            $ComparisonExport += [PSCustomObject]@{
+                Status         = "New"
+                ResolutionNote = "Newly Failed"
+                AccountID      = $curr.id
+                AccountName    = $curr.name
+                Address        = $curr.address
+                UserName       = $curr.userName
+                PlatformID     = $curr.platformId
+                SafeName       = $curr.safeName
+                WinRC          = $currWinRc
+                ErrorMessage   = $currErr
+            }
         }
     }
 

@@ -48,10 +48,10 @@ The email body displays a quick-reference dashboard showing key counts (Total Ac
 > **[Insert Screenshot of HTML Email Report Here]**
 
 ### B. Color-Coded Excel Remediation Sheet (`DashboardFailedComparison_*.xls`)
-Attached to the email is an Excel sheet designed specifically for operational tasks. It contains all failed accounts categorized by their remediation status:
-*   **Green rows** show issues that were successfully resolved in the last 24 hours.
-*   **Red rows** highlight new issues that need immediate action.
-*   **Yellow rows** show continuing failures.
+Attached to the email is an Excel sheet designed specifically for operational tasks. It contains all failed accounts categorized by their remediation status, along with a `ResolutionNote` column explaining root-cause resolution:
+*   **Green rows (Fixed)**: Issues that were successfully resolved in the last 24 hours (annotated with root cause: Password Rotated / Resolved, Account Removed/Deleted from Vault, CPM Management Disabled, or Platform Excluded).
+*   **Red rows (New)**: Newly failing accounts that require immediate investigation.
+*   **Yellow rows (Existing)**: Continuing legacy failures that remain unresolved.
 
 > **[Insert Screenshot of Color-Coded Excel Report Here]**
 
@@ -94,3 +94,4 @@ The tool’s behavior can be customized by editing the `config.json` file in the
 *   **`FailedAccountExcludePlatforms`**: Platforms list to be ignored from the password failure reports.
 *   **`TrackedFailedAccounts`**: Critical accounts that require dedicated visibility in the email summary if they fail. Supports simple strings (e.g. `"svc_backup"`) or granular objects with filter rules matching Safe or Platform. `Filter` can be a single string (e.g. `"Win*"`, `"WinServerLocal"`) or an array of multiple patterns/exact names evaluated with logical OR (e.g. `["Win*", "win1*"]`, `["WinServerLocal", "UnixSSH"]`). When granular filters are used, any remaining uncategorized accounts are automatically tallied under `Others_<username>`.
 *   **`SharePoint`**: If enabled, the script can automatically upload a copy of the summary dashboard to our SharePoint document portal.
+*   **`EVDDatabase`**: Configuration to connect to the CyberArk EVD MSSQL database to enrich failure comparison reports with `ErrorMessage` and `WinRC` return codes. Supports Windows Integrated Security (`UseIntegratedSecurity: true`) for domain service accounts (e.g., `nadev\kadevd`), direct credentials, or CCP retrieval. If the database is unreachable, the tool gracefully continues execution without failure.

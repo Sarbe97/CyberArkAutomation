@@ -243,6 +243,13 @@ function Export-CACConsolidatedReport {
         $includeHiddenGroupUsers = Read-Host "> Expand/List users for these hidden groups? (y/n)"
     }
 
+    # --- Prompt C: Predefined Users (Only for Modes 2, 3 & 4) ---
+    $includePredefinedUsers = $false
+    if ($reportMode -ne '1') {
+        $reqPredefined = Read-Host "`n> Include Predefined Users (e.g. Master, Batch)? (y/n)"
+        $includePredefinedUsers = ($reqPredefined -match '^[Yy]$')
+    }
+
     # ==========================================
     # 3. PROCESSING LOOP
     # ==========================================
@@ -273,6 +280,12 @@ function Export-CACConsolidatedReport {
                 $baseRow["AutoPurge"] = $safeObj.autoPurgeEnabled
             }
 
+            # Members endpoint (with optional includePredefinedUsers)
+            $membersEndpoint = "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members"
+            if ($includePredefinedUsers) {
+                $membersEndpoint += "?includePredefinedUsers=true"
+            }
+
             # --- Step B: Logic Switch ---
             switch ($reportMode) {
                 
@@ -283,7 +296,7 @@ function Export-CACConsolidatedReport {
 
                 # --- MODE 2: Permissions Audit ---
                 '2' {
-                    $membersResponse = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members"
+                    $membersResponse = Invoke-CACAPIRequest -Method GET -Endpoint $membersEndpoint
                     $members = @(Get-CACResponseData -Response $membersResponse -PropertyNames @("value", "members"))
                     
                     if ($members.Count -eq 0) {
@@ -314,7 +327,7 @@ function Export-CACConsolidatedReport {
 
                 # --- MODE 3: Membership Summary (Compact) ---
                 '3' {
-                    $membersResponse = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members"
+                    $membersResponse = Invoke-CACAPIRequest -Method GET -Endpoint $membersEndpoint
                     $members = @(Get-CACResponseData -Response $membersResponse -PropertyNames @("value", "members"))
 
                     foreach ($m in $members) {
@@ -343,7 +356,7 @@ function Export-CACConsolidatedReport {
 
                 # --- MODE 4: Detailed User Audit (Expanded) ---
                 '4' {
-                    $membersResponse = Invoke-CACAPIRequest -Method GET -Endpoint "/API/Safes/$([System.Web.HttpUtility]::UrlEncode($safeName))/Members"
+                    $membersResponse = Invoke-CACAPIRequest -Method GET -Endpoint $membersEndpoint
                     $members = @(Get-CACResponseData -Response $membersResponse -PropertyNames @("value", "members"))
 
                     foreach ($m in $members) {

@@ -1473,8 +1473,8 @@ function Invoke-CACBatchSafeMemberDelete {
     if ([string]::IsNullOrWhiteSpace($CsvPath)) {
         Write-Host ""
         Write-Host "Select Input Method:" -ForegroundColor Cyan
-        Write-Host "1. Enter CSV File Path manually"
-        Write-Host "2. Browse for CSV File (File Picker)"
+        Write-Host "1. Manual Entry"
+        Write-Host "2. CSV File (File Picker or Path)"
         Write-Host "T. Download Template CSV"
         
         $inputChoice = Read-Host "Enter option (1/2/T)"
@@ -1482,39 +1482,88 @@ function Invoke-CACBatchSafeMemberDelete {
             New-CACSafeMemberDeleteTemplate
             return
         }
-        elseif ($inputChoice -eq '2') {
-            $CsvPath = Get-CACFilePath -Title "Select Safe Member Deletion CSV" -Filter "CSV Files (*.csv)|*.csv"
-            if ([string]::IsNullOrWhiteSpace($CsvPath) -or -not (Test-Path $CsvPath)) {
-                Write-Host "No file selected or file does not exist." -ForegroundColor Yellow
+        elseif ($inputChoice -eq '1') {
+            Write-Host ""
+            $mSafe = Read-Host "Enter Safe Name"
+            $mMember = Read-Host "Enter Member Name(s) to remove (comma-separated if multiple)"
+            if ([string]::IsNullOrWhiteSpace($mSafe) -or [string]::IsNullOrWhiteSpace($mMember)) {
+                Write-Host "Safe name and Member name cannot be empty." -ForegroundColor Yellow
                 return
+            }
+            $targetMembers = @()
+            $membersList = $mMember -split "," | ForEach-Object { $_.Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+            foreach ($mem in $membersList) {
+                $targetMembers += [pscustomobject]@{
+                    SafeName   = $mSafe.Trim()
+                    MemberName = $mem
+                }
+            }
+        }
+        elseif ($inputChoice -eq '2') {
+            Write-Host ""
+            Write-Host "1. Enter CSV File Path manually"
+            Write-Host "2. Browse for CSV File (File Picker)"
+            $csvChoice = Read-Host "Enter choice (1/2)"
+            if ($csvChoice -eq '2') {
+                $CsvPath = Get-CACFilePath -Title "Select Safe Member Deletion CSV" -Filter "CSV Files (*.csv)|*.csv"
+            }
+            else {
+                $CsvPath = Read-Host "Enter CSV file path"
+            }
+
+            if ([string]::IsNullOrWhiteSpace($CsvPath) -or -not (Test-Path $CsvPath)) {
+                Write-Host "File not found or not selected." -ForegroundColor Yellow
+                return
+            }
+
+            $csv = Import-Csv $CsvPath
+            $targetMembers = @()
+            foreach ($row in $csv) {
+                if ($row.SafeName -and $row.MemberName) {
+                    $targetMembers += [pscustomobject]@{
+                        SafeName   = $row.SafeName.Trim()
+                        MemberName = $row.MemberName.Trim()
+                    }
+                }
             }
         }
         else {
-            $CsvPath = Read-Host "Enter CSV file path"
+            Write-Host "Invalid selection." -ForegroundColor Red
+            return
+        }
+    }
+    else {
+        if (-not (Test-Path $CsvPath)) {
+            Write-Host "CSV not found: $CsvPath" -ForegroundColor Red
+            return
+        }
+        $csv = Import-Csv $CsvPath
+        $targetMembers = @()
+        foreach ($row in $csv) {
+            if ($row.SafeName -and $row.MemberName) {
+                $targetMembers += [pscustomobject]@{
+                    SafeName   = $row.SafeName.Trim()
+                    MemberName = $row.MemberName.Trim()
+                }
+            }
         }
     }
 
-    if (-not (Test-Path $CsvPath)) {
-        Write-Host "CSV not found: $CsvPath" -ForegroundColor Red
-        return
-    }
-
-    $data = @(Import-Csv $CsvPath)
-    if ($data.Count -eq 0) {
-        Write-Host "No rows found in CSV." -ForegroundColor Yellow
+    if ($targetMembers.Count -eq 0) {
+        Write-Host "No members found to process." -ForegroundColor Yellow
         return
     }
 
     # Summary confirmation
     Write-Host ""
     Write-Host "===== SAFE MEMBER DELETION SUMMARY =====" -ForegroundColor Red
-    Write-Host "Total Members to Remove: $($data.Count)"
-    if ($data.Count -le 10) {
-        $data | ForEach-Object { Write-Host " - Safe: $($_.SafeName), Member: $($_.MemberName)" -ForegroundColor DarkGray }
+    Write-Host "Total Members to Remove: $($targetMembers.Count)"
+    if ($targetMembers.Count -le 10) {
+        $targetMembers | ForEach-Object { Write-Host " - Safe: $($_.SafeName), Member: $($_.MemberName)" -ForegroundColor DarkGray }
     }
     else {
-        $data | Select-Object -First 5 | ForEach-Object { Write-Host " - Safe: $($_.SafeName), Member: $($_.MemberName)" -ForegroundColor DarkGray }
-        Write-Host " ... and $(($data.Count - 5)) more." -ForegroundColor DarkGray
+        $targetMembers | Select-Object -First 5 | ForEach-Object { Write-Host " - Safe: $($_.SafeName), Member: $($_.MemberName)" -ForegroundColor DarkGray }
+        Write-Host " ... and $(($targetMembers.Count - 5)) more." -ForegroundColor DarkGray
     }
     Write-Host "========================================" -ForegroundColor Red
     
@@ -1530,12 +1579,12 @@ function Invoke-CACBatchSafeMemberDelete {
 
     $results = [System.Collections.ArrayList]::new()
     $rowIndex = 0
-    $rowTotal = $data.Count
+    $rowTotal = $targetMembers.Count
 
-    foreach ($row in $data) {
+    foreach ($entry in $targetMembers) {
         $rowIndex++
-        $safeName = if ($row.SafeName) { $row.SafeName.Trim() } else { "" }
-        $memberName = if ($row.MemberName) { $row.MemberName.Trim() } else { "" }
+        $safeName = if ($entry.SafeName) { $entry.SafeName.Trim() } else { "" }
+        $memberName = if ($entry.MemberName) { $entry.MemberName.Trim() } else { "" }
 
         $percent = [Math]::Round(($rowIndex / $rowTotal) * 100, 0)
         Write-Progress -Activity "Safe Member Deletion" -Status "[$rowIndex/$rowTotal] $safeName + $memberName" -PercentComplete $percent

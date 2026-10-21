@@ -375,6 +375,7 @@ function Show-SafeMenu {
         Write-Host "1. Export All Safes to CSV"
         Write-Host "2. Safe Account Counts"
         Write-Host "3. Consolidated Safe Report"
+        Write-Host "4. Remove Safe Member (Single)"
         Write-Host "0. Back"
 
         $choice = Read-Host "Enter Choice"
@@ -383,6 +384,7 @@ function Show-SafeMenu {
             '1' { Export-CACAllSafes; Pause }
             '2' { Export-CACSafeAccountCounts; Pause }
             '3' { Export-CACConsolidatedReport; Pause }
+            '4' { Remove-CACSafeMember; Pause }
             '0' { return }
 
             default {
@@ -409,12 +411,15 @@ function Show-SafeActivitiesMenu {
         Write-Host "1. Create Safes (from CSV)"
         Write-Host "2. Rename Safes (from CSV)"
         Write-Host "3. Manage Safe Members (from CSV)"
-        Write-Host "4. Delete Safes (Batch)"
+        Write-Host "4. Remove Safe Member (Single)"
+        Write-Host "5. Remove Safe Members (Batch from CSV)"
+        Write-Host "6. Delete Safes (Batch)"
         Write-Host "---" -ForegroundColor DarkGray
-        Write-Host "5. Download 'Create Safe' Template"
-        Write-Host "6. Download 'Rename Safe' Template"
-        Write-Host "7. Download 'Safe Member' Template"
-        Write-Host "8. Download 'Delete Safe' Template"
+        Write-Host "7. Download 'Create Safe' Template"
+        Write-Host "8. Download 'Rename Safe' Template"
+        Write-Host "9. Download 'Safe Member' Template"
+        Write-Host "10. Download 'Remove Safe Member' Template"
+        Write-Host "11. Download 'Delete Safe' Template"
         Write-Host "0. Back"
 
         $choice = Read-Host "Enter Choice"
@@ -423,11 +428,14 @@ function Show-SafeActivitiesMenu {
             '1' { Invoke-CACBatchSafeCreation; Pause }
             '2' { Invoke-CACBatchSafeRename; Pause }
             '3' { Invoke-CACBatchSafeMember; Pause }
-            '4' { Invoke-CACBatchSafeDelete; Pause }
-            '5' { New-CACSafeCreationTemplate; Pause }
-            '6' { New-CACSafeRenameTemplate; Pause }
-            '7' { New-CACSafeMemberTemplate; Pause }
-            '8' { New-CACSafeDeleteTemplate; Pause }
+            '4' { Remove-CACSafeMember; Pause }
+            '5' { Invoke-CACBatchSafeMemberDelete; Pause }
+            '6' { Invoke-CACBatchSafeDelete; Pause }
+            '7' { New-CACSafeCreationTemplate; Pause }
+            '8' { New-CACSafeRenameTemplate; Pause }
+            '9' { New-CACSafeMemberTemplate; Pause }
+            '10' { New-CACSafeMemberDeleteTemplate; Pause }
+            '11' { New-CACSafeDeleteTemplate; Pause }
             '0' { return }
 
             default {

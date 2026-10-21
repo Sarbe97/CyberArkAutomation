@@ -1425,8 +1425,175 @@ function New-CACSafeDeleteTemplate {
     return $Path
 }
 
+# --- Safe Member Delete Template ---
+function New-CACSafeMemberDeleteTemplate {
+    [CmdletBinding()]
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        $Path = Join-Path (Get-CACOutputDir) "SafeMemberDelete_Template_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+    }
+
+    $template = [ordered]@{
+        SafeName   = "Target_Safe_Name"
+        MemberName = "Username_Or_Group"
+    }
+
+    @([pscustomobject]$template) | Export-Csv -Path $Path -NoTypeInformation -Encoding UTF8
+    Write-Host "Template created: $Path" -ForegroundColor Green
+    return $Path
+}
+
 # =============================================================================
-# REMOVE SAFE MEMBER
+# 5. BATCH SAFE MEMBER DELETION
+# Deletes safe members in batch from CSV
+# =============================================================================
+function Invoke-CACBatchSafeMemberDelete {
+    [CmdletBinding()]
+    param(
+        [string]$CsvPath,
+        [string]$OutputCsvPath
+    )
+
+    # Initialize dedicated log file
+    $logDir = "$PSScriptRoot/../Logs"
+    if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
+    $logFile = Join-Path $logDir "SafeMemberDeletion_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+
+    function Log {
+        param($Msg, $Level = "INFO")
+        $entry = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [$Level] $Msg"
+        Add-Content -Path $logFile -Value $entry -ErrorAction SilentlyContinue
+        if ($Level -eq "DEBUG") { Write-Verbose $entry }
+    }
+
+    Log "Started Invoke-CACBatchSafeMemberDelete()" "DEBUG"
+    Write-Host "Log file: $logFile" -ForegroundColor Gray
+
+    if ([string]::IsNullOrWhiteSpace($CsvPath)) {
+        Write-Host ""
+        Write-Host "Select Input Method:" -ForegroundColor Cyan
+        Write-Host "1. Enter CSV File Path manually"
+        Write-Host "2. Browse for CSV File (File Picker)"
+        Write-Host "T. Download Template CSV"
+        
+        $inputChoice = Read-Host "Enter option (1/2/T)"
+        if ($inputChoice -eq 'T' -or $inputChoice -eq 't') {
+            New-CACSafeMemberDeleteTemplate
+            return
+        }
+        elseif ($inputChoice -eq '2') {
+            $CsvPath = Get-CACFilePath -Title "Select Safe Member Deletion CSV" -Filter "CSV Files (*.csv)|*.csv"
+            if ([string]::IsNullOrWhiteSpace($CsvPath) -or -not (Test-Path $CsvPath)) {
+                Write-Host "No file selected or file does not exist." -ForegroundColor Yellow
+                return
+            }
+        }
+        else {
+            $CsvPath = Read-Host "Enter CSV file path"
+        }
+    }
+
+    if (-not (Test-Path $CsvPath)) {
+        Write-Host "CSV not found: $CsvPath" -ForegroundColor Red
+        return
+    }
+
+    $data = @(Import-Csv $CsvPath)
+    if ($data.Count -eq 0) {
+        Write-Host "No rows found in CSV." -ForegroundColor Yellow
+        return
+    }
+
+    # Summary confirmation
+    Write-Host ""
+    Write-Host "===== SAFE MEMBER DELETION SUMMARY =====" -ForegroundColor Red
+    Write-Host "Total Members to Remove: $($data.Count)"
+    if ($data.Count -le 10) {
+        $data | ForEach-Object { Write-Host " - Safe: $($_.SafeName), Member: $($_.MemberName)" -ForegroundColor DarkGray }
+    }
+    else {
+        $data | Select-Object -First 5 | ForEach-Object { Write-Host " - Safe: $($_.SafeName), Member: $($_.MemberName)" -ForegroundColor DarkGray }
+        Write-Host " ... and $(($data.Count - 5)) more." -ForegroundColor DarkGray
+    }
+    Write-Host "========================================" -ForegroundColor Red
+    
+    $confirm = Read-Host "Are you sure you want to REMOVE these members from their safes? (Y/N)"
+    if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+        Write-Host "Operation cancelled." -ForegroundColor Yellow
+        return
+    }
+
+    if ([string]::IsNullOrWhiteSpace($OutputCsvPath)) {
+        $OutputCsvPath = Join-Path (Get-CACOutputDir) "SafeMemberDeletion_Result_$(Get-Date -Format 'yyyyMMdd_HHmmss').csv"
+    }
+
+    $results = [System.Collections.ArrayList]::new()
+    $rowIndex = 0
+    $rowTotal = $data.Count
+
+    foreach ($row in $data) {
+        $rowIndex++
+        $safeName = if ($row.SafeName) { $row.SafeName.Trim() } else { "" }
+        $memberName = if ($row.MemberName) { $row.MemberName.Trim() } else { "" }
+
+        $percent = [Math]::Round(($rowIndex / $rowTotal) * 100, 0)
+        Write-Progress -Activity "Safe Member Deletion" -Status "[$rowIndex/$rowTotal] $safeName + $memberName" -PercentComplete $percent
+
+        Write-Host "[$rowIndex/$rowTotal] Removing '$memberName' from '$safeName' ..." -NoNewline
+        Log "Removing member '$memberName' from safe '$safeName'" "INFO"
+
+        $result = [ordered]@{
+            SafeName     = $safeName
+            MemberName   = $memberName
+            ActionStatus = "Unknown"
+            Message      = ""
+        }
+
+        if ([string]::IsNullOrWhiteSpace($safeName) -or [string]::IsNullOrWhiteSpace($memberName)) {
+            $result.ActionStatus = "Failed"
+            $result.Message = "SafeName and MemberName must both be specified."
+            Write-Host " [FAILED: Missing data]" -ForegroundColor Red
+            [void]$results.Add([pscustomobject]$result)
+            continue
+        }
+
+        try {
+            $encodedSafe = [System.Web.HttpUtility]::UrlEncode($safeName)
+            $encodedMember = [System.Web.HttpUtility]::UrlEncode($memberName)
+            Invoke-CACAPIRequest -Method DELETE -Endpoint "/API/Safes/$encodedSafe/Members/$encodedMember" | Out-Null
+            $result.ActionStatus = "Removed"
+            Write-Host " [REMOVED]" -ForegroundColor Green
+            Log "Removed '$memberName' from '$safeName'" "SUCCESS"
+        }
+        catch {
+            $errMsg = $_.Exception.Message
+            if ($errMsg -match "404|not found") {
+                $result.ActionStatus = "NotFound"
+                $result.Message = "Member or Safe not found"
+                Write-Host " [NOT FOUND]" -ForegroundColor Yellow
+                Log "'$memberName' was not a member of '$safeName' (404)" "INFO"
+            }
+            else {
+                $result.ActionStatus = "Failed"
+                $result.Message = $errMsg
+                Write-Host " [FAILED]" -ForegroundColor Red
+                Log "Failed to remove '$memberName' from '$safeName': $errMsg" "ERROR"
+            }
+        }
+
+        [void]$results.Add([pscustomobject]$result)
+    }
+
+    Write-Progress -Activity "Safe Member Deletion" -Completed
+    $results | Export-Csv -Path $OutputCsvPath -NoTypeInformation -Force -Encoding UTF8
+
+    Write-Host "`nDone. Results saved to: $OutputCsvPath" -ForegroundColor Green
+    Log "Safe member deletion complete. Results saved to: $OutputCsvPath" "INFO"
+}
+
+# =============================================================================
+# REMOVE SAFE MEMBER (SINGLE)
 # Removes a specific member (user or group) from a safe
 # =============================================================================
 function Remove-CACSafeMember {
@@ -1439,9 +1606,39 @@ function Remove-CACSafeMember {
     #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][string]$SafeName,
-        [Parameter(Mandatory)][string]$MemberName
+        [string]$SafeName,
+        [string]$MemberName,
+        [switch]$Force
     )
+
+    $isInteractive = $false
+    if ([string]::IsNullOrWhiteSpace($SafeName)) {
+        Write-Host ""
+        $SafeName = Read-Host "Enter Safe Name"
+        $isInteractive = $true
+    }
+    if ([string]::IsNullOrWhiteSpace($MemberName)) {
+        $MemberName = Read-Host "Enter Member Name (User or Group) to remove"
+        $isInteractive = $true
+    }
+
+    if ([string]::IsNullOrWhiteSpace($SafeName) -or [string]::IsNullOrWhiteSpace($MemberName)) {
+        Write-Host "Safe name and Member name cannot be empty." -ForegroundColor Yellow
+        return $false
+    }
+
+    if ($isInteractive -and -not $Force) {
+        Write-Host ""
+        Write-Host "===== REMOVE SAFE MEMBER CONFIRMATION =====" -ForegroundColor Red
+        Write-Host "Safe:   $SafeName"
+        Write-Host "Member: $MemberName"
+        Write-Host "===========================================" -ForegroundColor Red
+        $confirm = Read-Host "Are you sure you want to remove '$MemberName' from safe '$SafeName'? (Y/N)"
+        if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+            Write-Host "Operation cancelled." -ForegroundColor Yellow
+            return $false
+        }
+    }
 
     Write-Log "Remove-CACSafeMember: Safe='$SafeName', Member='$MemberName'" "DEBUG"
 
@@ -1450,6 +1647,9 @@ function Remove-CACSafeMember {
         $encodedMember = [System.Web.HttpUtility]::UrlEncode($MemberName)
         Invoke-CACAPIRequest -Method DELETE -Endpoint "/API/Safes/$encodedSafe/Members/$encodedMember" | Out-Null
         Write-Log "Successfully removed '$MemberName' from safe '$SafeName'" "SUCCESS"
+        if ($isInteractive) {
+            Write-Host "Successfully removed '$MemberName' from safe '$SafeName'." -ForegroundColor Green
+        }
         return $true
     }
     catch {
@@ -1457,9 +1657,15 @@ function Remove-CACSafeMember {
         # 404 means the member wasn't there - treat as success (idempotent)
         if ($errMsg -match "404|not found") {
             Write-Log "'$MemberName' was not a member of '$SafeName' (404 - skipped)" "INFO"
+            if ($isInteractive) {
+                Write-Host "'$MemberName' was not found as a member of '$SafeName' (or safe does not exist)." -ForegroundColor Yellow
+            }
             return $true
         }
         Write-Log "Failed to remove '$MemberName' from '$SafeName': $errMsg" "ERROR"
+        if ($isInteractive) {
+            Write-Host "Failed to remove '$MemberName' from '$SafeName': $errMsg" -ForegroundColor Red
+        }
         return $false
     }
 }
@@ -1472,8 +1678,10 @@ Export-ModuleMember -Function `
     Invoke-CACBatchSafeRename, `
     Invoke-CACBatchSafeMember, `
     Invoke-CACBatchSafeDelete, `
+    Invoke-CACBatchSafeMemberDelete, `
     New-CACSafeCreationTemplate, `
     New-CACSafeRenameTemplate, `
     New-CACSafeMemberTemplate, `
+    New-CACSafeMemberDeleteTemplate, `
     New-CACSafeDeleteTemplate, `
     Remove-CACSafeMember
